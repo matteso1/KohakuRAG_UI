@@ -2,7 +2,7 @@
 
 **Author**: Nils  
 **Date**: January 14, 2026  
-**Status**: Draft - Awaiting Review  
+**Status**: Draft, Awaiting Review  
 **Branch**: `bedrock`
 
 ---
@@ -21,7 +21,7 @@ The KohakuRAG pipeline currently uses OpenRouter to access LLMs. OpenRouter is a
 
 ```mermaid
 flowchart LR
-    subgraph "Current Flow"
+    subgraph Current
         Q[User Question] --> RAG[RAG Pipeline]
         RAG --> E[Jina Embeddings]
         RAG --> V[(Vector Store)]
@@ -41,18 +41,13 @@ We want to replace OpenRouter with AWS Bedrock so we:
 
 ```mermaid
 flowchart LR
-    subgraph "Target Flow"
+    subgraph Target
         Q[User Question] --> RAG[RAG Pipeline]
         RAG --> E[Jina Embeddings]
         RAG --> V[(Vector Store)]
         RAG --> LLM[BedrockChatModel]
         LLM --> BR((AWS Bedrock))
         BR --> FM[Foundation Model]
-    end
-    
-    subgraph "AWS Account"
-        BR
-        FM
     end
 ```
 
@@ -66,8 +61,8 @@ I've identified three files in the KohakuRAG codebase that need changes:
 
 This is where all the LLM integrations live. Currently has:
 
-- `OpenAIChatModel` - for direct OpenAI API
-- `OpenRouterChatModel` - for OpenRouter
+- `OpenAIChatModel` for direct OpenAI API
+- `OpenRouterChatModel` for OpenRouter
 
 I'll add a new `BedrockChatModel` class that uses `boto3` to call Bedrock.
 
@@ -129,28 +124,22 @@ sequenceDiagram
     U->>S: Submit question
     S->>P: run_qa(question)
     
-    rect rgb(240, 248, 255)
-        Note over P,A: Query Planning
-        P->>B: complete(planner_prompt)
-        B->>A: InvokeModel
-        A-->>B: Query variations
-        B-->>P: Parsed queries
-    end
+    Note over P,A: Query Planning
+    P->>B: complete(planner_prompt)
+    B->>A: InvokeModel
+    A-->>B: Query variations
+    B-->>P: Parsed queries
     
-    rect rgb(255, 248, 240)
-        Note over P: Retrieval
-        P->>P: Embed queries
-        P->>P: Vector search
-        P->>P: Build context
-    end
+    Note over P: Retrieval
+    P->>P: Embed queries
+    P->>P: Vector search
+    P->>P: Build context
     
-    rect rgb(240, 255, 240)
-        Note over P,A: Answer Generation
-        P->>B: complete(answer_prompt + context)
-        B->>A: InvokeModel
-        A-->>B: Generated answer
-        B-->>P: Structured response
-    end
+    Note over P,A: Answer Generation
+    P->>B: complete(answer_prompt + context)
+    B->>A: InvokeModel
+    A-->>B: Generated answer
+    B-->>P: Structured response
     
     P-->>S: Answer with citations
     S-->>U: Display result
@@ -217,13 +206,13 @@ Before I start coding, I'd like your input on:
 
 ## What I Need
 
-1. **AWS Access** - Already have it, thank you
-2. **Model Access Confirmation** - Are foundation models enabled in Bedrock?
-3. **Feedback on this document** - Any concerns with the approach?
+1. **AWS Access**: Already have it, thank you
+2. **Model Access Confirmation**: Are foundation models enabled in Bedrock?
+3. **Feedback on this document**: Any concerns with the approach?
 4. **Answers to the questions above**
 
 ---
 
 Let me know if anything needs clarification or if the approach looks off.
 
-— Nils
+- Nils

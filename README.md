@@ -4,9 +4,9 @@ A Streamlit-based chat interface for the KohakuRAG pipeline, enabling interactiv
 
 ## Project Context
 
-This repository supports the **Research Cyberinfrastructure Exploration** initiative at UW-Madison. The goal is to build a long-running chatbot that answers questions about the environmental impacts of AI using a curated corpus of energy and sustainability research papers.
+This repository supports the Research Cyberinfrastructure Exploration initiative at UW-Madison. The goal is to build a long-running chatbot that answers questions about the environmental impacts of AI using a curated corpus of energy and sustainability research papers.
 
-The project leverages [KohakuRAG](https://github.com/KohakuBlueleaf/KohakuRAG), the top-ranked solution from the 2025 WattBot Challenge, as the core retrieval engine. This repository focuses on:
+The project uses [KohakuRAG](https://github.com/KohakuBlueleaf/KohakuRAG), the top-ranked solution from the 2025 WattBot Challenge, as the core retrieval engine. This repository focuses on:
 
 1. Building a user-facing Streamlit interface
 2. Deploying the system on AWS using Bedrock for LLM inference
@@ -16,28 +16,15 @@ The project leverages [KohakuRAG](https://github.com/KohakuBlueleaf/KohakuRAG), 
 
 The system follows a standard RAG (Retrieval-Augmented Generation) architecture:
 
-```
-User Query
-    |
-    v
-+-------------------+
-|   Streamlit UI    |  <-- Chat interface
-+-------------------+
-    |
-    v
-+-------------------+
-|   RAG Pipeline    |  <-- Query planning, retrieval, answer generation
-+-------------------+
-    |         |
-    v         v
-+-------+  +------------------+
-| Jina  |  | Vector Store     |  <-- Embeddings + SQLite
-+-------+  +------------------+
-    |
-    v
-+-------------------+
-|  LLM Backend      |  <-- AWS Bedrock (managed) or local models
-+-------------------+
+```mermaid
+flowchart TB
+    U[User Query] --> S[Streamlit UI]
+    S --> P[RAG Pipeline]
+    P --> E[Jina Embeddings]
+    P --> V[(Vector Store<br/>SQLite)]
+    P --> L[LLM Backend]
+    L --> B[AWS Bedrock]
+    L --> Local[Local Models]
 ```
 
 ### Deployment Options
@@ -45,7 +32,7 @@ User Query
 | Approach | LLM Backend | Use Case |
 |----------|-------------|----------|
 | AWS Bedrock | Managed foundation models via API | Production, on-demand usage |
-| Local | Small models (< 1B params) | Development, on-prem deployment |
+| Local | Small models under 1B params | Development, on-prem deployment |
 
 ## Repository Structure
 
