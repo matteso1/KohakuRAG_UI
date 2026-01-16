@@ -70,7 +70,7 @@ flowchart TB
 | Name | Role | GitHub |
 |------|------|--------|
 | Chris Endemann | Research Supervisor | [@qualiaMachine](https://github.com/qualiaMachine) |
-| Blaise Manga Enuh | Local deployment | [@EnuhBlaise](https://github.com/EnuhBlaise) |
+| Blaise Enuh | Local deployment | [@EnuhBlaise](https://github.com/EnuhBlaise) |
 | Nils Matteson | AWS Bedrock integration | [@matteso1](https://github.com/matteso1) |
 
 ## License
