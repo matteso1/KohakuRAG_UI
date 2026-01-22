@@ -167,7 +167,7 @@ async def run_rag_query(
     print("Retrieved Context:")
     print(f"{'-'*60}")
     for i, snippet in enumerate(retrieval.snippets[:3], 1):
-        doc_id = snippet.node.metadata.get("doc_id", "unknown")
+        doc_id = snippet.metadata.get("doc_id", "unknown")
         text_preview = snippet.text[:200] + "..." if len(snippet.text) > 200 else snippet.text
         print(f"\n[{i}] {doc_id}")
         print(f"    {text_preview}")
@@ -177,8 +177,49 @@ async def run_rag_query(
     print("Generating answer with Bedrock...")
     print(f"{'-'*60}")
 
+# Standard WattBot Prompts
+    SYSTEM_PROMPT = """
+You must answer strictly based on the provided context snippets.
+Do NOT use external knowledge or assumptions.
+If the context does not clearly support an answer, you must output the literal string "is_blank" for both answer_value and ref_id.
+""".strip()
+
+    USER_TEMPLATE = """
+You will be given a question and context snippets taken from documents.
+You must follow these rules:
+- Use only the provided context; do not rely on external knowledge.
+- If the context does not clearly support an answer, use "is_blank".
+
+Additional info (JSON): {additional_info_json}
+
+Question: {question}
+
+Context:
+{context}
+
+Return STRICT JSON with the following keys, in this order:
+- explanation          (1–3 sentences explaining how the context supports the answer; or "is_blank")
+- answer               (short sentence in natural language)
+- answer_value         (string with ONLY the numeric or categorical value, or "is_blank")
+- ref_id               (list of document ids from the context used as evidence; or "is_blank")
+
+JSON Answer:
+""".strip()
+
+    # Pass additional_info needed by the template
+    additional_info = {
+        "answer_unit": "",  # Demo doesn't use units
+        "question_id": "demo-001"
+    }
+
     try:
-        result = await pipeline.run_qa(question, top_k=top_k)
+        result = await pipeline.run_qa(
+            question=question, 
+            top_k=top_k,
+            system_prompt=SYSTEM_PROMPT,
+            user_template=USER_TEMPLATE,
+            additional_info=additional_info,
+        )
         
         print(f"\nAnswer: {result.answer.answer}")
         print(f"\nExplanation: {result.answer.explanation}")

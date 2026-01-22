@@ -52,6 +52,91 @@ flowchart TB
 └── README.md
 ```
 
+## Setup & Installation
+
+### 1. Prerequisites
+
+- Python 3.10+
+- AWS Account with Bedrock access (Claude 3 models enabled)
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) installed and configured
+- NVIDIA GPU with CUDA (recommended for indexing)
+
+### 2. AWS Configuration
+
+Configure AWS SSO credentials for the Bedrock profile:
+
+```bash
+aws configure sso
+# Profile name: bedrock_nils
+# Start URL: https://d-xxxxxxxxxx.awsapps.com/start
+# Region: us-east-2
+```
+
+Login before running any Bedrock scripts:
+
+```bash
+aws sso login --profile bedrock_nils
+```
+
+### 3. Installation
+
+Clone the repository with submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/matteso1/KohakuRAG_UI.git
+cd KohakuRAG_UI
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+pip install -e KohakuRAG/
+```
+
+### 4. Data Setup (WattBot 2025)
+
+1. Place `WattBot2025.zip` in the project root
+2. Extract the dataset:
+
+   ```powershell
+   Expand-Archive -Path "WattBot2025.zip" -DestinationPath "data/" -Force
+   ```
+
+3. Fetch documents and build index:
+
+   ```bash
+   # Fetch PDFs (this will download ~3000 PDFs)
+   python KohakuRAG/scripts/wattbot_fetch_docs.py --metadata data/metadata.csv 
+
+   # Build vector index (requires GPU)
+   python KohakuRAG/scripts/wattbot_build_index.py --docs-dir artifacts/docs --db artifacts/wattbot.db --metadata data/metadata.csv
+   ```
+
+## Usage
+
+### Run End-to-End RAG Demo
+
+Test the full pipeline with a custom question:
+
+```bash
+python scripts/demo_bedrock_rag.py --question "What is the carbon footprint of training large language models?"
+```
+
+Expected output:
+
+- Retrieves relevant snippets from `artifacts/wattbot.db`
+- Generates structured answer using Claude 3 via Bedrock
+- Displays explanation and sources
+
+### Unit Tests
+
+Run the test suite to verify connectivity and logic:
+
+```bash
+python scripts/test_bedrock_model.py
+```
+
 ## Development Branches
 
 - **main**: Stable releases and documentation
