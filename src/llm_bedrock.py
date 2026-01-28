@@ -26,8 +26,24 @@ import asyncio
 import json
 import os
 import random
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+
+
+@dataclass
+class TokenUsage:
+    """Track token usage for cost estimation."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add(self, input_tokens: int, output_tokens: int) -> None:
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
+
+    def reset(self) -> None:
+        self.input_tokens = 0
+        self.output_tokens = 0
 
 
 # ChatModel protocol - matches KohakuRAG's pipeline.py definition
@@ -81,6 +97,7 @@ class BedrockChatModel:
         max_retries: int = 5,
         base_retry_delay: float = 3.0,
         max_concurrent: int = 10,
+        experiment_tag: str | None = None,
     ) -> None:
         """
         Set up the Bedrock connection.
@@ -94,6 +111,7 @@ class BedrockChatModel:
             max_retries: How many times to try again if AWS throttles us.
             base_retry_delay: Initial wait time between retries (increases exponentially).
             max_concurrent: How many parallel requests we allow before queuing. Critical for bulk processing.
+            experiment_tag: Optional tag for cost tracking in AWS Cost Explorer (e.g., 'wattbot-sonnet-exp1').
         """
         # Lazy import boto3 to allow using the rest of the app without AWS dependencies
         try:
@@ -133,6 +151,12 @@ class BedrockChatModel:
             asyncio.Semaphore(max_concurrent) if max_concurrent > 0 else None
         )
 
+        # Experiment tag for cost tracking
+        self._experiment_tag = experiment_tag
+
+        # Token usage tracking
+        self.token_usage = TokenUsage()
+
         # Create boto3 session and client
         self._session = self._boto3.Session(
             profile_name=self._profile_name,
@@ -140,23 +164,187 @@ class BedrockChatModel:
         )
         self._client = self._session.client("bedrock-runtime")
 
-    def _make_request_sync(self, prompt: str, system_prompt: str) -> str:
+    def _detect_model_family(self) -> str:
+        """Detect the model family from the model ID."""
+        model_lower = self._model_id.lower()
+
+        if "anthropic" in model_lower or "claude" in model_lower:
+            return "anthropic"
+        elif "meta" in model_lower or "llama" in model_lower:
+            return "meta"
+        elif "mistral" in model_lower:
+            return "mistral"
+        elif "deepseek" in model_lower:
+            return "deepseek"
+        elif "amazon" in model_lower or "nova" in model_lower:
+            return "amazon"
+        elif "cohere" in model_lower:
+            return "cohere"
+        else:
+            # Default to Anthropic format as fallback
+            return "anthropic"
+
+    def _build_request_body(self, prompt: str, system_prompt: str) -> dict:
+        """Build the request body based on model family."""
+        family = self._detect_model_family()
+
+        if family == "anthropic":
+            # Claude models use the Messages API
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages.html
+            return {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": self._max_tokens,
+                "system": system_prompt,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+            }
+
+        elif family == "meta":
+            # Llama models use a simple prompt format
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html
+            full_prompt = (
+                "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+                f"{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n"
+                f"{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
+            return {
+                "prompt": full_prompt,
+                "max_gen_len": self._max_tokens,
+                "temperature": 0.1,
+            }
+
+        elif family == "mistral":
+            # Mistral models
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-mistral.html
+            return {
+                "prompt": f"<s>[INST] {system_prompt}\n\n{prompt} [/INST]",
+                "max_tokens": self._max_tokens,
+                "temperature": 0.1,
+            }
+
+        elif family == "deepseek":
+            # DeepSeek models use Text Completion format
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-deepseek.html
+            return {
+                "prompt": f"System: {system_prompt}\n\nUser: {prompt}\n\nAssistant:",
+                "max_tokens": min(self._max_tokens, 8192),  # DeepSeek quality degrades above 8192
+                "temperature": 0.1,
+            }
+
+        elif family == "amazon":
+            # Amazon Nova models use messages format
+            # https://docs.aws.amazon.com/nova/latest/userguide/using-invoke-api.html
+            return {
+                "schemaVersion": "messages-v1",
+                "messages": [
+                    {"role": "user", "content": [{"text": prompt}]}
+                ],
+                "system": [{"text": system_prompt}],
+                "inferenceConfig": {
+                    "maxTokens": self._max_tokens,
+                    "temperature": 0.1,
+                }
+            }
+
+        else:
+            # Fallback to Anthropic format
+            return {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": self._max_tokens,
+                "system": system_prompt,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+            }
+
+    def _parse_response(self, result: dict) -> tuple[str, int, int]:
+        """Parse the response based on model family."""
+        family = self._detect_model_family()
+
+        if family == "anthropic":
+            # Claude returns content array with text
+            text = result["content"][0]["text"]
+            usage = result.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            return text, input_tokens, output_tokens
+
+        elif family == "meta":
+            # Llama returns generation directly
+            text = result.get("generation", "")
+            # Llama doesn't return token counts in the same way
+            input_tokens = result.get("prompt_token_count", 0)
+            output_tokens = result.get("generation_token_count", 0)
+            return text, input_tokens, output_tokens
+
+        elif family == "mistral":
+            # Mistral returns outputs array
+            outputs = result.get("outputs", [{}])
+            text = outputs[0].get("text", "") if outputs else ""
+            # Estimate tokens (Mistral doesn't always return counts)
+            input_tokens = 0
+            output_tokens = 0
+            return text, input_tokens, output_tokens
+
+        elif family == "deepseek":
+            # DeepSeek returns choices[0].text format
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-deepseek.html
+            choices = result.get("choices", [])
+            if choices:
+                text = choices[0].get("text", "")
+                # DeepSeek R1 may include <think>...</think> tags - strip them
+                if "<think>" in text and "</think>" in text:
+                    # Extract just the response part after </think>
+                    think_end = text.find("</think>")
+                    if think_end != -1:
+                        text = text[think_end + len("</think>"):].strip()
+            else:
+                text = result.get("generation", "")
+            # DeepSeek doesn't return token counts in response
+            input_tokens = 0
+            output_tokens = 0
+            return text, input_tokens, output_tokens
+
+        elif family == "amazon":
+            # Amazon Nova format - output is in message.content[0].text
+            # https://docs.aws.amazon.com/nova/latest/userguide/using-invoke-api.html
+            output = result.get("output", {})
+            message = output.get("message", {})
+            content = message.get("content", [{}])
+            text = content[0].get("text", "") if content else ""
+            usage = result.get("usage", {})
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+            return text, input_tokens, output_tokens
+
+        else:
+            # Fallback - try common patterns
+            if "content" in result:
+                text = result["content"][0]["text"]
+            elif "generation" in result:
+                text = result["generation"]
+            elif "outputs" in result:
+                text = result["outputs"][0].get("text", "")
+            else:
+                text = str(result)
+
+            usage = result.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            return text, input_tokens, output_tokens
+
+    def _make_request_sync(self, prompt: str, system_prompt: str) -> tuple[str, int, int]:
         """
         The actual API call to Bedrock.
-        
+
         Note: This is a synchronous (blocking) function because boto3 doesn't support async yet.
         We run this inside `asyncio.to_thread` elsewhere to prevent freezing the application.
+
+        Returns:
+            Tuple of (response_text, input_tokens, output_tokens)
         """
-        # Create the standard Claude 3 request body
-        # Docs: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages.html
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self._max_tokens,
-            "system": system_prompt,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-        }
+        body = self._build_request_body(prompt, system_prompt)
 
         response = self._client.invoke_model(
             modelId=self._model_id,
@@ -166,7 +354,7 @@ class BedrockChatModel:
         )
 
         result = json.loads(response["body"].read())
-        return result["content"][0]["text"]
+        return self._parse_response(result)
 
     async def complete(
         self,
@@ -180,6 +368,8 @@ class BedrockChatModel:
         This method includes a robust retry loop to handle AWS "ThrottlingException" errors.
         It uses exponential backoff: if we get rated limited, we wait 3s, then 6s, then 12s...
         It also uses a semaphore to ensure we never have more than `max_concurrent` requests in flight.
+
+        Token usage is accumulated in self.token_usage for cost tracking.
 
         Args:
             prompt: The text you want Claude to process.
@@ -195,13 +385,17 @@ class BedrockChatModel:
                 # Use semaphore for rate limiting if enabled
                 if self._semaphore is not None:
                     async with self._semaphore:
-                        response = await asyncio.to_thread(
+                        response, input_tokens, output_tokens = await asyncio.to_thread(
                             self._make_request_sync, prompt, system
                         )
                 else:
-                    response = await asyncio.to_thread(
+                    response, input_tokens, output_tokens = await asyncio.to_thread(
                         self._make_request_sync, prompt, system
                     )
+
+                # Track token usage
+                self.token_usage.add(input_tokens, output_tokens)
+
                 return response
 
             except Exception as e:

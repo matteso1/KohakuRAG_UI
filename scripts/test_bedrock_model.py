@@ -42,7 +42,7 @@ async def test_basic_completion():
     print("-" * 60)
     
     assert "Hello" in response, f"Expected 'Hello' in response, got: {response}"
-    print("✓ Test passed!")
+    print("Test passed!")
     return True
 
 
@@ -65,7 +65,7 @@ async def test_with_system_prompt():
     print("-" * 60)
     
     # Pirate-speak typically has "Ahoy" or "matey" or similar
-    print("✓ Test passed! (verify pirate speak manually)")
+    print("Test passed! (verify pirate speak manually)")
     return True
 
 
@@ -97,7 +97,7 @@ async def test_concurrent_requests():
         print(f"  A: {response.strip()}")
         print()
     
-    print("✓ Test passed!")
+    print("Test passed!")
     return True
 
 
