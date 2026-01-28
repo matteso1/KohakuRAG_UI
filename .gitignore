@@ -4,6 +4,19 @@
 .env
 .env.local
 
+# Claude Code artifacts
+.claude/
+*.jsonl
+
+# Output artifacts (regeneratable)
+outputs/
+
+# Windows artifacts
+nul
+
+# Temporary/working files
+conversation_history.txt
+
 # Python
 __pycache__/
 *.py[cod]
