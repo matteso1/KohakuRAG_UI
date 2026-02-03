@@ -103,7 +103,7 @@ Keep this SSH session open.
 From a second **local** terminal:
 
 ```bash
-ssh -N -L 8888:localhost:8888 mlx@10.141.72.249
+ssh -N -L 8888:localhost:8888 mlx@128.104.18.206
 ```
 
 Then open in your local browser:
