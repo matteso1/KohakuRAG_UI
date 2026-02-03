@@ -1,7 +1,7 @@
 # KohakuRAG setup (uv, GB10/ARM notes)
 
 This is a pragmatic setup guide for getting KohakuRAG running with `uv`.
-It reflects the fixes needed on Dell Pro Max GB10 (ARM) where `kohakuvault` may fail to build from PyPI.
+It reflects the fixes needed on Dell Pro Max GB10 (ARM) where `kohakuvault` may fail to build from PyPI. The "local" development branch has been set up so that these setup steps were only needed once.
 
 This guide intentionally removes `umap-learn` from core dependencies to avoid pulling in `numba -> llvmlite`, which can fail on newer Python versions and some architectures.
 
