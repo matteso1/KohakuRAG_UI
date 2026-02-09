@@ -1,2 +1,22 @@
 ipykernel
 jupyterlab
+
+# Local HF inference (core)
+torch
+transformers
+accelerate
+huggingface_hub
+safetensors
+sentence-transformers # local embedding
+
+# Tokenizers / model-specific utilities (common)
+sentencepiece
+protobuf
+
+# App deps (only if not already included elsewhere)
+streamlit
+python-dotenv
+
+# Quantization 
+bitsandbytes
+
