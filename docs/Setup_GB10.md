@@ -172,3 +172,71 @@ http://localhost:8888
 When starting a new notebook, select: **kohaku-gb10** as the kernel.
 
 
+---
+
+## Phase 2 — Test the local HF pipeline
+
+Once your environment is set up, verify the fully local (no API keys needed)
+inference pipeline works end-to-end.
+
+### 9) Quick smoke test (terminal)
+
+Run these from the repo root with your venv active:
+
+```bash
+# Verify HF deps
+python -c "import transformers, sentence_transformers; print('HF deps OK')"
+
+# Verify local embedding model loads
+python -c "
+from kohakurag.embeddings import LocalHFEmbeddingModel
+m = LocalHFEmbeddingModel(model_name='BAAI/bge-base-en-v1.5')
+print(f'Embedding dim: {m.dimension}')
+print('Local embeddings OK')
+"
+```
+
+### 10) Full pipeline test (notebook)
+
+Open Jupyter (see Step 8 above) and run the test notebook:
+
+```
+notebooks/test_local_hf_pipeline.ipynb
+```
+
+This notebook walks through:
+1. **Import verification** — confirms torch, transformers, sentence-transformers,
+   kohakurag, and kohakuvault are all importable
+2. **Local embeddings** — loads `BAAI/bge-base-en-v1.5`, embeds sample texts,
+   and verifies semantic similarity (solar panels vs. unrelated text)
+3. **Local LLM** — loads `Qwen/Qwen2.5-7B-Instruct` (or a smaller model if
+   GPU memory is limited) and runs a simple completion
+4. **Full RAG pipeline** — indexes 3 sample documents into an in-memory store,
+   retrieves relevant context, and generates an answer
+5. **Structured QA** — tests JSON-formatted answers matching production format
+6. **Offline validation** — clears all API keys and confirms the pipeline
+   still works without any network access
+
+If the 7B model causes OOM errors, change `LLM_MODEL_ID` in the notebook to
+a smaller model like `Qwen/Qwen2.5-1.5B-Instruct`.
+
+### 11) Verify you are truly offline
+
+To confirm no network calls are happening:
+
+```bash
+# Unset all API keys
+unset OPENROUTER_API_KEY OPENAI_API_KEY JINA_API_KEY
+
+# Run the quick test again — should still work
+python -c "
+import asyncio
+from kohakurag.embeddings import LocalHFEmbeddingModel
+m = LocalHFEmbeddingModel(model_name='BAAI/bge-base-en-v1.5')
+vecs = asyncio.run(m.embed(['test sentence']))
+print(f'Embedding shape: {vecs.shape}')
+print('Offline OK - no API keys needed')
+"
+```
+
+
