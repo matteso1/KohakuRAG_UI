@@ -11,7 +11,7 @@ Repo (local branch):
 https://github.com/matteso1/KohakuRAG_UI/tree/local
 
 Primary development goal:
-> **Replace OpenRouter-backed LLM calls with Hugging Face (HF) calls for local/on‑prem inference**, without breaking citation / abstention behavior.
+> **Replace OpenRouter-backed LLM calls with Hugging Face (HF) calls for local/on‑prem inference**
 
 ---
 
