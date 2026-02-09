@@ -90,6 +90,17 @@ def load_experiments(experiments_dir: Path) -> list[dict]:
             print(f"  Skipping {name}: score too low ({data.get('overall_score', 0):.3f}), likely broken run")
             continue
 
+        # Skip experiments with high error rates (>10% of questions failed)
+        n_questions = data.get("num_questions", 0)
+        error_count = data.get("error_count", 0)
+        if n_questions > 0 and error_count / n_questions > 0.1:
+            print(f"  Skipping {name}: high error rate ({error_count}/{n_questions})")
+            continue
+
+        # Flag experiments with suspiciously high latency (retry storms)
+        avg_latency = data.get("avg_latency_seconds", 0)
+        latency_suspect = avg_latency > 60  # >60s avg = likely throttling/retry issues
+
         # Match to model size
         size_info = match_model_size(model_id)
         if size_info is None:
@@ -97,6 +108,9 @@ def load_experiments(experiments_dir: Path) -> list[dict]:
             continue
 
         display_name, size_b, estimated = size_info
+
+        if latency_suspect:
+            print(f"  Warning: {name} has high avg latency ({avg_latency:.0f}s) -- likely retry/throttle issues")
 
         entry = {
             "experiment": name,
@@ -108,15 +122,24 @@ def load_experiments(experiments_dir: Path) -> list[dict]:
             "value_accuracy": data.get("value_accuracy", 0),
             "ref_overlap": data.get("ref_overlap", 0),
             "na_accuracy": data.get("na_accuracy", 0),
-            "avg_latency": data.get("avg_latency_seconds", 0),
+            "avg_latency": avg_latency,
+            "latency_suspect": latency_suspect,
             "total_cost": data.get("estimated_cost_usd", 0),
             "input_tokens": data.get("input_tokens", 0),
             "output_tokens": data.get("output_tokens", 0),
         }
 
-        # Keep the best run per model (by overall score)
+        # Keep the best CLEAN run per model.
+        # Prefer runs with normal latency. Only use high-latency runs if
+        # no clean run exists for that model.
         if model_id in seen_models:
-            if entry["overall_score"] > seen_models[model_id]["overall_score"]:
+            existing = seen_models[model_id]
+            # Prefer clean latency over suspect latency
+            if existing["latency_suspect"] and not entry["latency_suspect"]:
+                seen_models[model_id] = entry
+            elif entry["latency_suspect"] and not existing["latency_suspect"]:
+                pass  # keep existing clean run
+            elif entry["overall_score"] > existing["overall_score"]:
                 seen_models[model_id] = entry
         else:
             seen_models[model_id] = entry
@@ -215,13 +238,25 @@ def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
 
 def plot_size_vs_latency(experiments: list[dict], output_dir: Path):
     """Plot 2: Model Size vs. Latency."""
+    # Exclude experiments with suspect latencies (retry storms make the data useless)
+    clean = [e for e in experiments if not e.get("latency_suspect")]
+    suspect = [e for e in experiments if e.get("latency_suspect")]
+
+    if suspect:
+        print(f"  Latency plot: excluding {len(suspect)} experiments with suspect latency: "
+              f"{[e['display_name'] for e in suspect]}")
+
+    if not clean:
+        print("  No clean latency data to plot")
+        return
+
     fig, ax = plt.subplots(figsize=(11, 7))
 
-    sizes = [e["size_b"] for e in experiments]
-    latencies = [e["avg_latency"] for e in experiments]
-    names = [e["display_name"] for e in experiments]
-    est_flags = [e["size_estimated"] for e in experiments]
-    colors = [get_color(e["display_name"]) for e in experiments]
+    sizes = [e["size_b"] for e in clean]
+    latencies = [e["avg_latency"] for e in clean]
+    names = [e["display_name"] for e in clean]
+    est_flags = [e["size_estimated"] for e in clean]
+    colors = [get_color(e["display_name"]) for e in clean]
 
     ax.scatter(sizes, latencies, c=colors, s=150, zorder=5, edgecolors="white", linewidth=1.5)
     annotate_points(ax, sizes, latencies, names, est_flags)
@@ -231,10 +266,13 @@ def plot_size_vs_latency(experiments: list[dict], output_dir: Path):
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B"))
 
     # Add a note about what latency captures
+    excluded_note = ""
+    if suspect:
+        excluded_note = f"\nExcluded {len(suspect)} runs with >60s avg latency (retry/throttle issues)"
     ax.text(
         0.02, 0.98,
-        "Latency = end-to-end per question (retrieval + LLM inference)\n"
-        "(*) = estimated model size",
+        f"Latency = end-to-end per question (retrieval + LLM inference)\n"
+        f"(*) = estimated model size{excluded_note}",
         transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
     )
 
@@ -332,6 +370,7 @@ def print_summary_table(experiments: list[dict]):
     print(f"{'-'*100}")
     for e in sorted(experiments, key=lambda x: x["overall_score"], reverse=True):
         est = "*" if e["size_estimated"] else ""
+        lat_flag = " !!" if e.get("latency_suspect") else ""
         print(
             f"{e['display_name']:<25s} "
             f"{e['size_b']:>5d}B "
@@ -339,7 +378,7 @@ def print_summary_table(experiments: list[dict]):
             f"{e['value_accuracy']:>6.3f} "
             f"{e['ref_overlap']:>6.3f} "
             f"{e['na_accuracy']:>6.3f} "
-            f"{e['avg_latency']:>8.2f}s "
+            f"{e['avg_latency']:>8.2f}s{lat_flag:3s} "
             f"${e['total_cost']:>6.4f} "
             f"{est:>5s}"
         )

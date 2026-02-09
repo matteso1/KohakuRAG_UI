@@ -90,6 +90,7 @@ class BedrockChatModel:
         self,
         *,
         model_id: str = "us.anthropic.claude-3-haiku-20240307-v1:0",
+        inference_profile_arn: str | None = None,
         profile_name: str | None = None,
         region_name: str | None = None,
         system_prompt: str | None = None,
@@ -103,7 +104,12 @@ class BedrockChatModel:
         Set up the Bedrock connection.
 
         Args:
-            model_id: Which model to use. Defaults to Claude 3 Haiku (best balance of speed/cost).
+            model_id: Which model to use. Used for request/response format detection.
+                Defaults to Claude 3 Haiku (best balance of speed/cost).
+            inference_profile_arn: Optional Application Inference Profile ARN for cost tracking.
+                If set, API calls use this ARN (so AWS attributes costs to the profile's tags)
+                while model_id is still used for request/response format detection.
+                Example: 'arn:aws:bedrock:us-east-2:123456:application-inference-profile/abc123'
             profile_name: Your AWS SSO profile (e.g., 'bedrock_nils'). Falls back to AWS_PROFILE env var.
             region_name: The AWS region where the model is enabled. Defaults to us-east-2 (Ohio).
             system_prompt: The persona the model should adopt.
@@ -140,7 +146,13 @@ class BedrockChatModel:
             or "us-east-2"
         )
 
+        # model_id is ALWAYS used for family detection (request/response format).
+        # _invoke_model_id is what we pass to invoke_model() -- either the profile ARN
+        # (for cost tracking) or the model_id itself.
         self._model_id = model_id
+        self._inference_profile_arn = inference_profile_arn
+        self._invoke_model_id = inference_profile_arn or model_id
+
         self._max_tokens = max_tokens
         self._system_prompt = system_prompt or "You are a helpful assistant."
         self._max_retries = max_retries
@@ -347,7 +359,7 @@ class BedrockChatModel:
         body = self._build_request_body(prompt, system_prompt)
 
         response = self._client.invoke_model(
-            modelId=self._model_id,
+            modelId=self._invoke_model_id,
             body=json.dumps(body),
             contentType="application/json",
             accept="application/json",
@@ -431,8 +443,9 @@ class BedrockChatModel:
         raise RuntimeError("Unexpected end of retry loop")
 
     def __repr__(self) -> str:
-        return (
-            f"BedrockChatModel(model_id={self._model_id!r}, "
-            f"region_name={self._region_name!r}, "
-            f"profile_name={self._profile_name!r})"
-        )
+        parts = [f"model_id={self._model_id!r}"]
+        if self._inference_profile_arn:
+            parts.append(f"inference_profile_arn=...{self._inference_profile_arn[-20:]!r}")
+        parts.append(f"region_name={self._region_name!r}")
+        parts.append(f"profile_name={self._profile_name!r}")
+        return f"BedrockChatModel({', '.join(parts)})"

@@ -228,6 +228,37 @@ class ExperimentRunner:
         self.semaphore: asyncio.Semaphore | None = None
         self.results: list[QuestionResult] = []
 
+    def _resolve_profile_arn(self, model_id: str) -> str | None:
+        """Look up the inference profile ARN for a model from the profile mapping file.
+
+        Returns the ARN if a mapping exists, None otherwise. The experiment will
+        still work without a profile -- it just won't have tagged cost tracking.
+        """
+        mapping_path = Path(__file__).parent.parent / "artifacts" / "profile_mapping.json"
+        if not mapping_path.exists():
+            return None
+
+        try:
+            with open(mapping_path) as f:
+                mapping = json.load(f)
+
+            # Match by original_model_id field
+            for _name, info in mapping.items():
+                if info.get("original_model_id") == model_id:
+                    return info.get("profile_arn")
+
+            # Also try partial match (model_id might have "us." prefix or not)
+            model_lower = model_id.lower()
+            for _name, info in mapping.items():
+                orig = info.get("original_model_id", "").lower()
+                if orig and (orig in model_lower or model_lower in orig):
+                    return info.get("profile_arn")
+
+        except (json.JSONDecodeError, OSError):
+            pass
+
+        return None
+
     async def initialize(self) -> None:
         """Initialize the RAG pipeline with config settings."""
         # Resolve paths relative to project root
@@ -241,9 +272,16 @@ class ExperimentRunner:
         profile = self.config.get("bedrock_profile", "bedrock_nils")
         region = self.config.get("bedrock_region", "us-east-2")
 
+        # Look up inference profile ARN for cost tracking (if mapping exists)
+        inference_profile_arn = self._resolve_profile_arn(model_id)
+
         print(f"[init] Loading Bedrock model: {model_id}")
+        if inference_profile_arn:
+            print(f"[init] Cost tracking via inference profile: ...{inference_profile_arn[-30:]}")
+
         self.chat_model = BedrockChatModel(
             model_id=model_id,
+            inference_profile_arn=inference_profile_arn,
             profile_name=profile,
             region_name=region,
             system_prompt=SYSTEM_PROMPT,
