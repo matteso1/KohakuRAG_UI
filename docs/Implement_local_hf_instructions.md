@@ -167,6 +167,8 @@ elif provider == "hf_local":
     )
 ```
 
+Example: scripts/wattbot_answer.py.
+
 Do not change prompt construction / citation logic. Only change the model backend call.
 
 ## 4) Implement **local embeddings** (no Jina/OpenAI)
