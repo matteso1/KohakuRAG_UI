@@ -153,9 +153,15 @@ def get_gpu_vram_snapshot(device_id: int = 0) -> dict:
 
 def reset_gpu_peak_stats(device_id: int = 0) -> None:
     """Reset peak memory tracking. Call BEFORE the experiment starts."""
-    if HAS_TORCH and torch.cuda.is_available():
+    if not HAS_TORCH or not torch.cuda.is_available():
+        return
+    try:
         device = torch.device(f"cuda:{device_id}")
         torch.cuda.reset_peak_memory_stats(device)
+    except RuntimeError:
+        # CUDA context may not be initialized yet (no kernels launched).
+        # Peak stats start at zero anyway, so safe to skip.
+        pass
 
 
 def get_gpu_info(device_id: int = 0) -> dict:
