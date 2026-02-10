@@ -26,6 +26,7 @@ Thumbs.db
 
 # Test dataset (secret — not committed to repo)
 data/test_solutions.csv
+data/embeddings/
 data/corpus/
 data/pdfs/
 
