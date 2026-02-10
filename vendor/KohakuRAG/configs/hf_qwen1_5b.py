@@ -25,9 +25,10 @@ hf_dtype = "bf16"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 
-# Embedding settings (local HF)
-embedding_model = "hf_local"
-embedding_model_id = "BAAI/bge-base-en-v1.5"
+# Embedding settings (Jina v4 - must match index)
+embedding_model = "jinav4"
+embedding_dim = 1024
+embedding_task = "retrieval"
 
 # Retrieval settings
 top_k = 8
