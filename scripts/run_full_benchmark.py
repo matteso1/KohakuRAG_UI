@@ -26,11 +26,14 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+EXPERIMENTS_BASE = Path(__file__).parent.parent / "artifacts" / "experiments"
 
 
 # ============================================================================
@@ -69,6 +72,29 @@ BEDROCK_MODELS = {
 
 # All models combined
 ALL_MODELS = {**HF_LOCAL_MODELS, **BEDROCK_MODELS}
+
+
+def experiment_dir(experiment_name: str, env: str = "") -> Path:
+    """Return the expected output directory for an experiment."""
+    if env:
+        return EXPERIMENTS_BASE / env / experiment_name
+    return EXPERIMENTS_BASE / experiment_name
+
+
+def check_existing(experiment_name: str, env: str = "") -> str | None:
+    """If summary.json exists for this experiment, return the score line. Else None."""
+    summary_path = experiment_dir(experiment_name, env) / "summary.json"
+    if not summary_path.exists():
+        return None
+    try:
+        with open(summary_path) as f:
+            data = json.load(f)
+        score = data.get("overall_score")
+        if score is not None:
+            return f"OVERALL SCORE  : {score:.3f} (cached)"
+        return "completed (cached)"
+    except (json.JSONDecodeError, KeyError):
+        return None
 
 
 def run_experiment(config_name: str, experiment_name: str, env: str = "",
@@ -170,6 +196,10 @@ def main():
         choices=["4bit", "bf16", "fp16", "auto"],
         help="Model precision/quantization for HF local models (default: 4bit)",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-run experiments even if results already exist",
+    )
     args = parser.parse_args()
 
     # Select model set
@@ -221,6 +251,22 @@ def main():
             exp_name = f"{exp_name}-smoke"
 
         print(f"[{i}/{len(available_models)}] {config_name} -> {exp_name}")
+
+        # Skip if results already exist (unless --force)
+        if not args.force:
+            cached = check_existing(exp_name, args.env)
+            if cached:
+                print(f"  [SKIP] already exists - {cached}")
+                print()
+                results[config_name] = {
+                    "experiment": exp_name,
+                    "success": True,
+                    "summary": cached,
+                    "time": 0,
+                    "skipped": True,
+                }
+                continue
+
         start = time.time()
 
         success, summary = run_experiment(config_name, exp_name, env=args.env,
@@ -237,19 +283,27 @@ def main():
             "success": success,
             "summary": summary,
             "time": elapsed,
+            "skipped": False,
         }
 
     # Final summary
     total_time = time.time() - total_start
-    passed = sum(1 for r in results.values() if r["success"])
+    skipped = sum(1 for r in results.values() if r.get("skipped"))
+    passed = sum(1 for r in results.values() if r["success"] and not r.get("skipped"))
     failed = sum(1 for r in results.values() if not r["success"])
 
+    skip_msg = f", {skipped} skipped" if skipped else ""
     print(f"\n{'='*70}")
-    print(f"RESULTS: {passed} passed, {failed} failed ({total_time:.0f}s total)")
+    print(f"RESULTS: {passed} passed, {failed} failed{skip_msg} ({total_time:.0f}s total)")
     print(f"{'='*70}")
 
     for config_name, r in results.items():
-        status = "PASS" if r["success"] else "FAIL"
+        if r.get("skipped"):
+            status = "SKIP"
+        elif r["success"]:
+            status = "PASS"
+        else:
+            status = "FAIL"
         print(f"  [{status}] {config_name:<35s} {r['time']:>6.1f}s  {r['summary'][:60]}")
 
     if failed > 0:
@@ -257,6 +311,8 @@ def main():
         sys.exit(1)
     else:
         print(f"\nAll {passed} models passed!")
+        if skipped:
+            print(f"({skipped} skipped — use --force to re-run)")
         if args.smoke_test:
             print("\nRun without --smoke-test for the full benchmark.")
 
