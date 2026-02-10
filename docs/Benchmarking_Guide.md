@@ -7,6 +7,30 @@ All commands assume you are at the **repo root** with your venv active.
 
 ---
 
+## 0) Prerequisites — Build the vector index
+
+Before running any experiments, you need a vector database. The config files
+reference `artifacts/wattbot_jinav4.db`, which is built by the KohakuRAG
+indexing pipeline.
+
+```bash
+# 1. Prepare documents: download PDFs and extract structured docs
+#    (see vendor/KohakuRAG/docs/wattbot.md for full details)
+
+# 2. Build the JinaV4 index
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
+
+# 3. Verify the database exists
+ls -lh artifacts/wattbot_jinav4.db
+```
+
+You also need `data/train_QA.csv` (the ground-truth question set) and
+`data/metadata.csv`. These should already be in the repo.
+
+---
+
 ## 1) Running a single experiment
 
 Every experiment is driven by a **config file** in `configs/`.
@@ -334,8 +358,9 @@ on a machine with an NVIDIA GPU):
 | **VRAM (peak)**       | `torch.cuda.max_memory_allocated()` after experiment   |
 | **Model disk size**   | Total size of HuggingFace cache dir for the model      |
 | **Model load time**   | Wall-clock time to load model + embedder               |
-| **Energy (Wh)**       | Trapezoidal integration of `nvidia-smi` power readings |
+| **Energy (Wh)**       | NVML hardware counter (preferred) or trapezoidal integration of `nvidia-smi` power readings |
 | **Avg/Peak power (W)**| From 1-second interval `nvidia-smi` polling            |
+| **CPU RSS peak**      | Peak resident set size via `psutil` background polling |
 | **GPU name**          | From `torch.cuda.get_device_properties()`              |
 
 These are saved in `summary.json` under the `"hardware"` key:
@@ -347,8 +372,10 @@ These are saved in `summary.json` under the `"hardware"` key:
     "gpu_vram_total_gb": 48.0,
     "model_disk_size_gb": 13.47,
     "gpu_energy_wh": 2.541,
+    "gpu_energy_method": "nvml",
     "gpu_avg_power_watts": 185.3,
     "model_load_time_seconds": 12.4,
+    "cpu_rss_peak_gb": 8.42,
     "gpu_name": "NVIDIA RTX A6000"
   }
 }

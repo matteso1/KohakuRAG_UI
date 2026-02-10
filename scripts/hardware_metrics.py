@@ -2,12 +2,16 @@
 Hardware Metrics Collection for Model Experiments
 
 Measures:
-- GPU VRAM usage (peak allocated, peak reserved)
+- GPU VRAM usage (peak allocated, peak reserved, per-GPU for multi-GPU)
 - Model disk size (HuggingFace cache)
 - GPU power draw and energy consumption (Watt-hours)
+- CPU RSS peak memory
 - System memory usage
 
-Uses nvidia-smi for power monitoring (works on any NVIDIA GPU).
+Energy measurement priority:
+1. NVML total_energy_consumption counter (most accurate, if GPU supports it)
+2. nvidia-smi power.draw sampling with trapezoidal integration (fallback)
+
 Falls back gracefully when GPU is not available.
 """
 
@@ -25,6 +29,20 @@ try:
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
+
+# Optional pynvml import (for NVML energy counters)
+try:
+    import pynvml
+    HAS_PYNVML = True
+except ImportError:
+    HAS_PYNVML = False
+
+# Optional psutil import (for CPU RSS monitoring)
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
 
 
 @dataclass
@@ -54,6 +72,13 @@ class HardwareMetrics:
 
     # Timing
     model_load_time_seconds: float = 0.0    # Time to load model into VRAM
+
+    # CPU memory
+    cpu_rss_peak_bytes: int = 0
+    cpu_rss_peak_gb: float = 0.0
+
+    # Energy method used
+    gpu_energy_method: str = ""          # "nvml", "power_sampling", or "none"
 
     # System
     gpu_name: str = ""
@@ -258,6 +283,116 @@ class GPUPowerMonitor:
 
 
 # =============================================================================
+# NVML Energy Counter (preferred over nvidia-smi polling when available)
+# =============================================================================
+
+class NVMLEnergyCounter:
+    """Uses NVML total_energy_consumption counter for precise energy measurement.
+
+    This is more accurate than nvidia-smi power sampling because it uses the
+    GPU's built-in hardware energy counter. Falls back gracefully if NVML is
+    not available or the GPU doesn't support energy counters.
+    """
+
+    def __init__(self):
+        self.available = False
+        self._handles: list = []
+        self._start_mj: dict[str, float] = {}
+
+        if not HAS_PYNVML:
+            return
+
+        try:
+            pynvml.nvmlInit()
+            n = pynvml.nvmlDeviceGetCount()
+            self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(n)]
+            # Probe whether energy counter is supported
+            for h in self._handles:
+                pynvml.nvmlDeviceGetTotalEnergyConsumption(h)
+            self.available = True
+        except Exception:
+            self.available = False
+
+    def start(self) -> None:
+        """Record starting energy counter values."""
+        if not self.available:
+            return
+        self._start_mj = {}
+        for i, h in enumerate(self._handles):
+            try:
+                self._start_mj[str(i)] = float(pynvml.nvmlDeviceGetTotalEnergyConsumption(h))
+            except Exception:
+                pass
+
+    def stop(self) -> dict[str, float]:
+        """Return energy consumed per GPU in Watt-hours since start()."""
+        if not self.available:
+            return {}
+        result: dict[str, float] = {}
+        for i, h in enumerate(self._handles):
+            try:
+                end_mj = float(pynvml.nvmlDeviceGetTotalEnergyConsumption(h))
+                start_mj = self._start_mj.get(str(i), end_mj)
+                delta_mj = max(0.0, end_mj - start_mj)
+                result[str(i)] = (delta_mj / 1000.0) / 3600.0  # mJ -> J -> Wh
+            except Exception:
+                pass
+        return result
+
+
+# =============================================================================
+# CPU RSS Monitor
+# =============================================================================
+
+class CPURSSMonitor:
+    """Monitors peak CPU RSS (Resident Set Size) in a background thread.
+
+    Uses psutil to sample RSS at regular intervals and tracks the peak.
+    Falls back gracefully if psutil is not installed.
+    """
+
+    def __init__(self, interval: float = 0.25):
+        self.interval = interval
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.peak_rss: int = 0
+        self._available = HAS_PSUTIL
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def start(self) -> None:
+        if not self._available:
+            return
+        self.peak_rss = 0
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> int:
+        """Stop monitoring and return peak RSS in bytes."""
+        if self._thread is None:
+            return self.peak_rss
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+        self._thread = None
+        return self.peak_rss
+
+    def _loop(self) -> None:
+        proc = psutil.Process() if HAS_PSUTIL else None
+        while not self._stop_event.is_set():
+            try:
+                if proc is not None:
+                    rss = proc.memory_info().rss
+                    if rss > self.peak_rss:
+                        self.peak_rss = rss
+            except Exception:
+                pass
+            self._stop_event.wait(self.interval)
+
+
+# =============================================================================
 # Convenience: Collect All Metrics
 # =============================================================================
 
@@ -284,12 +419,47 @@ def collect_post_experiment_metrics(
     model_id: str,
     device_id: int = 0,
     power_monitor: GPUPowerMonitor | None = None,
+    nvml_energy: NVMLEnergyCounter | None = None,
+    cpu_monitor: CPURSSMonitor | None = None,
     model_load_time: float = 0.0,
 ) -> HardwareMetrics:
-    """Collect all metrics AFTER the experiment completes."""
+    """Collect all metrics AFTER the experiment completes.
+
+    Energy measurement priority:
+    1. NVML counter (nvml_energy) - most accurate
+    2. nvidia-smi power sampling (power_monitor) - fallback
+    """
     gpu_info = get_gpu_info(device_id)
     disk_info = get_model_disk_size(model_id)
     vram = get_gpu_vram_snapshot(device_id)
+
+    # Determine energy values: prefer NVML if available
+    energy_wh = 0.0
+    energy_method = "none"
+    avg_power = 0.0
+    peak_power = 0.0
+    power_samples = 0
+
+    if nvml_energy is not None and nvml_energy.available:
+        nvml_results = nvml_energy.stop()
+        energy_wh = nvml_results.get(str(device_id), 0.0)
+        energy_method = "nvml"
+        # Still use power_monitor for avg/peak power stats
+        if power_monitor:
+            avg_power = power_monitor.avg_power_watts
+            peak_power = power_monitor.peak_power_watts
+            power_samples = power_monitor.num_samples
+    elif power_monitor:
+        energy_wh = power_monitor.energy_wh
+        avg_power = power_monitor.avg_power_watts
+        peak_power = power_monitor.peak_power_watts
+        power_samples = power_monitor.num_samples
+        energy_method = "power_sampling"
+
+    # CPU RSS
+    cpu_rss = 0
+    if cpu_monitor is not None:
+        cpu_rss = cpu_monitor.stop()
 
     metrics = HardwareMetrics(
         # VRAM
@@ -303,13 +473,18 @@ def collect_post_experiment_metrics(
         model_disk_size_bytes=disk_info.get("size_bytes", 0),
         model_disk_size_gb=disk_info.get("size_gb", 0.0),
         model_cache_path=disk_info.get("path", ""),
-        # Power
-        gpu_energy_wh=power_monitor.energy_wh if power_monitor else 0.0,
-        gpu_avg_power_watts=power_monitor.avg_power_watts if power_monitor else 0.0,
-        gpu_peak_power_watts=power_monitor.peak_power_watts if power_monitor else 0.0,
-        gpu_power_samples=power_monitor.num_samples if power_monitor else 0,
+        # Power / Energy
+        gpu_energy_wh=energy_wh,
+        gpu_avg_power_watts=avg_power,
+        gpu_peak_power_watts=peak_power,
+        gpu_power_samples=power_samples,
         # Timing
         model_load_time_seconds=model_load_time,
+        # CPU
+        cpu_rss_peak_bytes=cpu_rss,
+        cpu_rss_peak_gb=_bytes_to_gb(cpu_rss),
+        # Energy method
+        gpu_energy_method=energy_method,
         # System
         gpu_name=gpu_info.get("name", ""),
         gpu_device_id=device_id,
