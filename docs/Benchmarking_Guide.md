@@ -176,9 +176,11 @@ python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env 
 ```
 
 The benchmark runner:
+- **Skips models that already have results** (`summary.json` exists for that
+  experiment name + env). Use `--force` to re-run everything.
 - Skips models whose config files don't exist
 - Runs each model as a subprocess with a 30-minute timeout
-- Prints a pass/fail summary at the end
+- Prints a pass/fail/skip summary at the end
 
 ---
 
