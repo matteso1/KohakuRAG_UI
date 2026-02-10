@@ -68,7 +68,7 @@ ALL_MODELS = {**HF_LOCAL_MODELS, **BEDROCK_MODELS}
 
 def run_experiment(config_name: str, experiment_name: str) -> tuple[bool, str]:
     """Run a single experiment. Returns (success, output_summary)."""
-    config_path = f"configs/{config_name}.py"
+    config_path = f"vendor/KohakuRAG/configs/{config_name}.py"
 
     if not Path(config_path).exists():
         return False, f"Config not found: {config_path}"
@@ -152,7 +152,7 @@ def main():
     available_models = {}
     skipped = []
     for config_name, exp_name in models.items():
-        if Path(f"configs/{config_name}.py").exists():
+        if Path(f"vendor/KohakuRAG/configs/{config_name}.py").exists():
             available_models[config_name] = exp_name
         else:
             skipped.append(config_name)
@@ -161,7 +161,7 @@ def main():
         print(f"Skipping {len(skipped)} models (no config file): {', '.join(skipped)}")
 
     if not available_models:
-        print("No models available to benchmark. Create config files in configs/")
+        print("No models available to benchmark. Create config files in vendor/KohakuRAG/configs/")
         return
 
     mode = "SMOKE TEST" if args.smoke_test else "FULL BENCHMARK"

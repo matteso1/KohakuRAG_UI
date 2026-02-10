@@ -4,17 +4,17 @@ WattBot Evaluation Config - Qwen 2.5 3B Instruct (Local HF)
 Qwen 2.5 3B sits between 1.5B and 7B. Runs on ~8GB VRAM (bf16).
 
 Usage:
-    python scripts/run_experiment.py --config configs/hf_qwen3b.py
+    python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen3b.py
 """
 
 # Database settings
-db = "artifacts/wattbot_jinav4.db"
+db = "../../artifacts/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 
 # Input/output
-questions = "data/train_QA.csv"
-output = "artifacts/submission_qwen3b.csv"
-metadata = "data/metadata.csv"
+questions = "../../data/train_QA.csv"
+output = "../../artifacts/submission_qwen3b.csv"
+metadata = "../../data/metadata.csv"
 
 # LLM settings - Qwen 2.5 3B Instruct (local)
 llm_provider = "hf_local"

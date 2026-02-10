@@ -7,9 +7,9 @@ Usage:
 from kohakuengine import Config
 
 # Document and database settings
-metadata = "data/metadata.csv"
-docs_dir = "artifacts/docs_with_images"  # Must include images for multimodal
-db = "artifacts/wattbot_jinav4.db"
+metadata = "../../data/metadata.csv"
+docs_dir = "../../artifacts/docs_with_images"  # Must include images for multimodal
+db = "../../artifacts/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 use_citations = False
 

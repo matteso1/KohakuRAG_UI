@@ -60,16 +60,16 @@ For `metadata.csv`, see `vendor/KohakuRAG/docs/wattbot.md`.
 
 ## 1) Running a single experiment
 
-Every experiment is driven by a **config file** in `configs/`.
+Every experiment is driven by a **config file** in `vendor/KohakuRAG/configs/`.
 Each config specifies the LLM provider, model, embedding settings, and retrieval
 parameters.
 
 ```bash
 # Run with Qwen 2.5 7B (local HF)
-python scripts/run_experiment.py --config configs/hf_qwen7b.py
+python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
 
 # Give it a custom name
-python scripts/run_experiment.py --config configs/hf_qwen7b.py --name qwen7b-v1
+python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-v1
 ```
 
 Output lands in `artifacts/experiments/<name>/`:
@@ -91,7 +91,7 @@ prints the WattBot score directly:
 python scripts/run_wattbot_eval.py
 
 # With a config file
-python scripts/run_wattbot_eval.py --config configs/hf_qwen7b.py
+python scripts/run_wattbot_eval.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
 
 # Override provider/model via CLI (no config file needed)
 python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-1.5B-Instruct
@@ -231,10 +231,10 @@ Open two terminals and assign each experiment to a different GPU:
 
 ```bash
 # Terminal 1 — GPU 0
-CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py --config configs/hf_qwen7b.py --name qwen7b-gpu0
+CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-gpu0
 
 # Terminal 2 — GPU 1
-CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py --config configs/hf_llama3_8b.py --name llama3-8b-gpu1
+CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-gpu1
 ```
 
 ### Option B: Script it
@@ -244,11 +244,11 @@ CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py --config configs/hf_llam
 # run_parallel.sh — run two experiments on separate GPUs
 
 CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py \
-    --config configs/hf_qwen7b.py --name qwen7b-bench &
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-bench &
 PID0=$!
 
 CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py \
-    --config configs/hf_llama3_8b.py --name llama3-8b-bench &
+    --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-bench &
 PID1=$!
 
 wait $PID0 $PID1
@@ -280,10 +280,10 @@ per-process `CUDA_VISIBLE_DEVICES` assignment.
 Copy an existing config and modify:
 
 ```bash
-cp configs/hf_qwen7b.py configs/hf_newmodel.py
+cp vendor/KohakuRAG/configs/hf_qwen7b.py vendor/KohakuRAG/configs/hf_newmodel.py
 ```
 
-Edit `configs/hf_newmodel.py`:
+Edit `vendor/KohakuRAG/configs/hf_newmodel.py`:
 
 ```python
 # LLM settings
@@ -328,7 +328,7 @@ The key should be a substring that matches the model ID.
 
 ```bash
 # Quick smoke test
-python scripts/run_experiment.py --config configs/hf_newmodel.py --name newmodel-smoke
+python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_newmodel.py --name newmodel-smoke
 
 # Check the output
 cat artifacts/experiments/newmodel-smoke/summary.json | python -m json.tool
@@ -497,16 +497,6 @@ print(scaling[["model", "params_b", "overall_score", "vram_allocated_gb", "energ
 
 ```
 KohakuRAG_UI/
-├── configs/                  # Experiment configs (one per model)
-│   ├── hf_qwen1_5b.py       # Qwen 2.5 1.5B
-│   ├── hf_qwen3b.py         # Qwen 2.5 3B
-│   ├── hf_qwen7b.py         # Qwen 2.5 7B
-│   ├── hf_qwen14b.py        # Qwen 2.5 14B
-│   ├── hf_qwen32b.py        # Qwen 2.5 32B
-│   ├── hf_llama3_8b.py
-│   ├── hf_mistral7b.py
-│   ├── hf_phi3_mini.py
-│   └── ...
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── build_index.py        # Build vector index (no kogine needed)
 │   ├── run_experiment.py     # Run one experiment (+ hardware metrics)
@@ -535,5 +525,18 @@ KohakuRAG_UI/
 ├── notebooks/
 │   └── test_local_hf_pipeline.ipynb
 └── vendor/KohakuRAG/         # Core RAG library
-    └── src/kohakurag/
+    ├── configs/              # All configs (experiment + indexing)
+    │   ├── hf_qwen7b.py     # Experiment configs (hf_*.py)
+    │   ├── hf_qwen1_5b.py
+    │   ├── hf_qwen3b.py
+    │   ├── hf_qwen14b.py
+    │   ├── hf_qwen32b.py
+    │   ├── hf_llama3_8b.py
+    │   ├── hf_mistral7b.py
+    │   ├── hf_phi3_mini.py
+    │   ├── jinav4/index.py   # Indexing configs
+    │   ├── text_only/
+    │   └── with_images/
+    ├── scripts/              # Indexing scripts
+    └── src/kohakurag/        # Core library
 ```

@@ -7,7 +7,7 @@ mechanism.
 
 Usage:
     # Build with JinaV4 embeddings (matches experiment configs)
-    python scripts/build_index.py --config configs/jinav4/index.py
+    python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py
 
     # Build with defaults (Jina v3, artifacts/wattbot.db)
     python scripts/build_index.py
@@ -68,7 +68,7 @@ def main():
     parser.add_argument(
         "--config", "-c",
         default=None,
-        help="Path to config file (e.g., configs/jinav4/index.py). "
+        help="Path to config file (e.g., vendor/KohakuRAG/configs/jinav4/index.py). "
              "Overrides default build settings."
     )
     parser.add_argument(
@@ -173,7 +173,7 @@ def main():
         print("     (then parse PDFs into structured JSON — see vendor/KohakuRAG/docs/wattbot.md)")
         print()
         print("  2. Use citation-based indexing (lighter, uses metadata.csv only):")
-        print("     python scripts/build_index.py --config configs/jinav4/index.py --use-citations")
+        print("     python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py --use-citations")
         print()
         sys.exit(1)
 
@@ -200,7 +200,7 @@ def main():
 
     print(f"\nDone! Database written to: {build_mod.db}")
     print(f"You can now run experiments with:")
-    print(f"  python scripts/run_experiment.py --config configs/hf_qwen7b.py")
+    print(f"  python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py")
 
 
 if __name__ == "__main__":
