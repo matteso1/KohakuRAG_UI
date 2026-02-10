@@ -10,7 +10,7 @@ All commands assume you are at the **repo root** with your venv active.
 ## 0) Prerequisites — Build the vector index
 
 Before running any experiments, you need a vector database. The config files
-reference `artifacts/wattbot_jinav4.db`, which is built by the indexing pipeline.
+reference `data/embeddings/wattbot_jinav4.db`, which is built by the indexing pipeline.
 
 ### Data prerequisites
 
@@ -33,7 +33,7 @@ kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
 cd ../..
 
 # Verify the database was created
-ls -lh artifacts/wattbot_jinav4.db
+ls -lh data/embeddings/wattbot_jinav4.db
 ```
 
 The build script will:
@@ -42,7 +42,7 @@ The build script will:
 3. Parse PDFs into structured JSON (saved to `data/corpus/`)
 4. Build the vector index from those documents
 
-Downloaded PDFs are cached in `artifacts/raw_pdfs/` so subsequent runs skip
+Downloaded PDFs are cached in `data/pdfs/` so subsequent runs skip
 already-fetched files.
 
 ---
@@ -295,7 +295,7 @@ Brief description: what the model is, VRAM requirements, any special notes.
 """
 
 # Database settings (keep these the same)
-db = "../../artifacts/wattbot_jinav4.db"
+db = "../../data/embeddings/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 
 # Input/output
@@ -421,7 +421,7 @@ cp vendor/KohakuRAG/configs/hf_qwen72b.py vendor/KohakuRAG/configs/hf_qwen72b_4b
 Change two fields:
 ```python
 hf_dtype = "4bit"                                      # was "bf16"
-output = "../../artifacts/submission_qwen72b_4bit.csv"  # unique output
+output = "../../artifacts/submission_qwen72b_4bit.csv"  # unique output (experiment outputs stay in artifacts/)
 ```
 
 This requires `bitsandbytes`: `uv pip install bitsandbytes`
@@ -592,9 +592,16 @@ print(scaling[["model", "params_b", "overall_score", "vram_allocated_gb", "energ
 
 ```
 KohakuRAG_UI/
+├── data/                     # Tracked in git (small enough to share)
+│   ├── train_QA.csv          # Ground truth questions
+│   ├── metadata.csv          # Document bibliography
+│   ├── embeddings/           # Vector databases (.db files)
+│   │   └── wattbot_jinav4.db
+│   ├── pdfs/                 # Downloaded source PDFs (cached)
+│   └── corpus/               # Parsed JSON documents
 ├── scripts/                  # Benchmarking & analysis tools
-│   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS measurement
-│   ├── run_experiment.py     # Run one experiment (+ hardware metrics)
+│   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
+│   ├── run_experiment.py     # Run one experiment (--env for machine label)
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
@@ -605,7 +612,7 @@ KohakuRAG_UI/
 │   ├── plot_model_size.py
 │   ├── plot_from_matrix.py
 │   └── plot_score_breakdown.py
-├── artifacts/                # Output (gitignored)
+├── artifacts/                # Experiment outputs (gitignored, machine-specific)
 │   ├── experiments/          # Per-experiment results
 │   │   ├── qwen7b-v1/
 │   │   │   ├── submission.csv
@@ -614,8 +621,6 @@ KohakuRAG_UI/
 │   │   └── ...
 │   ├── plots/                # Generated charts
 │   └── results_matrix.csv
-├── data/
-│   └── train_QA.csv          # Ground truth questions
 ├── notebooks/
 │   └── test_local_hf_pipeline.ipynb
 └── vendor/KohakuRAG/         # Core RAG library

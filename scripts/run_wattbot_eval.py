@@ -67,7 +67,7 @@ from score import score as compute_wattbot_score
 
 DEFAULT_INPUT = "data/train_QA.csv"
 DEFAULT_OUTPUT = "artifacts/submission.csv"
-DEFAULT_DB = "artifacts/wattbot.db"
+DEFAULT_DB = "data/embeddings/wattbot.db"
 DEFAULT_PROVIDER = "hf_local"
 
 # Default HF model settings

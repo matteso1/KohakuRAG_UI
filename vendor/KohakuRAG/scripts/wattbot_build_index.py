@@ -32,12 +32,12 @@ from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel
 
 metadata = "../../data/metadata.csv"
 docs_dir = "../../data/corpus"
-db = "../../artifacts/wattbot.db"
+db = "../../data/embeddings/wattbot.db"
 table_prefix = "wattbot"
 use_citations = False
 
 # PDF fetching settings (used when docs_dir doesn't exist)
-pdf_dir = "../../artifacts/raw_pdfs"  # Where to cache downloaded PDFs
+pdf_dir = "../../data/pdfs"  # Where to cache downloaded PDFs
 
 # Embedding settings
 embedding_model = "jina"  # Options: "jina" (v3), "jinav4"

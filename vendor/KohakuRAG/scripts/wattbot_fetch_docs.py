@@ -25,7 +25,7 @@ from kohakurag.pdf_utils import pdf_to_document_payload
 # ============================================================================
 
 metadata = "../../data/metadata.csv"
-pdf_dir = "../../artifacts/raw_pdfs"
+pdf_dir = "../../data/pdfs"
 output_dir = "../../data/corpus"
 force_download = False
 limit = 0

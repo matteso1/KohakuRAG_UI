@@ -8,7 +8,7 @@ Usage:
 """
 
 # Database settings
-db = "../../artifacts/wattbot_jinav4.db"
+db = "../../data/embeddings/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 
 # Input/output

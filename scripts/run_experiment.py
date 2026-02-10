@@ -362,7 +362,7 @@ class ExperimentRunner:
         """Initialize the RAG pipeline with config settings."""
         project_root = Path(__file__).parent.parent
 
-        db_raw = self.config.get("db", "artifacts/wattbot_jinav4.db")
+        db_raw = self.config.get("db", "data/embeddings/wattbot_jinav4.db")
         db_path = project_root / db_raw.removeprefix("../").removeprefix("../")
         if not db_path.exists():
             raise FileNotFoundError(
