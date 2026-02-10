@@ -19,7 +19,6 @@ metadata = "../../data/metadata.csv"
 # LLM settings - Mistral 7B Instruct (local)
 llm_provider = "hf_local"
 hf_model_id = "mistralai/Mistral-7B-Instruct-v0.3"
-hf_dtype = "4bit"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 

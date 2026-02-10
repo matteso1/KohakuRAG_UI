@@ -72,6 +72,10 @@ python scripts/run_experiment.py \
     --name qwen7b-v1
 ```
 
+**Precision flag:** All local HF models default to `--precision 4bit` (NF4
+quantization via `bitsandbytes`). Override with `--precision bf16`, `fp16`, or
+`auto`. Precision is saved to `summary.json` as the `quantization` field.
+
 ### Using the test dataset
 
 The competition test set (`test_solutions.csv`) is **not** stored in the repo.
@@ -122,22 +126,24 @@ python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-1
 
 ## 2) Available configs
 
-| Config file              | Model                       | Params | VRAM (bf16) | VRAM (4-bit) | Provider  |
-|--------------------------|-----------------------------|--------|-------------|--------------|-----------|
-| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct     | 1.5B   | ~4 GB       | —            | hf_local  |
-| `hf_qwen3b.py`          | Qwen 2.5 3B Instruct       | 3B     | ~8 GB       | —            | hf_local  |
-| `hf_qwen7b.py`          | Qwen 2.5 7B Instruct       | 7B     | ~16 GB      | —            | hf_local  |
-| `hf_qwen14b.py`         | Qwen 2.5 14B Instruct      | 14B    | ~30 GB      | —            | hf_local  |
-| `hf_qwen32b.py`         | Qwen 2.5 32B Instruct      | 32B    | ~65 GB      | —            | hf_local  |
-| `hf_qwen72b.py`         | Qwen 2.5 72B Instruct      | 72B    | ~140 GB     | —            | hf_local  |
-| `hf_qwen72b_4bit.py`    | Qwen 2.5 72B Instruct (4-bit) | 72B | —           | ~40 GB       | hf_local  |
-| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct      | 8B     | ~18 GB      | —            | hf_local  |
-| `hf_llama3_70b_4bit.py` | Llama 3.1 70B Instruct (4-bit) | 70B | —          | ~40 GB       | hf_local  |
-| `hf_gemma2_9b.py`       | Gemma 2 9B Instruct        | 9B     | ~20 GB      | —            | hf_local  |
-| `hf_gemma2_27b.py`      | Gemma 2 27B Instruct       | 27B    | ~55 GB      | —            | hf_local  |
-| `hf_mixtral_8x7b.py`    | Mixtral 8x7B Instruct (MoE)| 46.7B  | ~24 GB      | —            | hf_local  |
-| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3   | 7B     | ~16 GB      | —            | hf_local  |
-| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)        | 3.8B   | ~8 GB       | —            | hf_local  |
+All local models default to **4-bit NF4 quantization** (`--precision 4bit`).
+VRAM estimates below reflect the 4-bit default. Pass `--precision bf16` for
+full precision (roughly 4× more VRAM).
+
+| Config file              | Model                        | Params | VRAM (4-bit) | Provider  |
+|--------------------------|------------------------------|--------|--------------|-----------|
+| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct      | 1.5B   | ~2 GB        | hf_local  |
+| `hf_qwen3b.py`          | Qwen 2.5 3B Instruct        | 3B     | ~3 GB        | hf_local  |
+| `hf_qwen7b.py`          | Qwen 2.5 7B Instruct        | 7B     | ~6 GB        | hf_local  |
+| `hf_qwen14b.py`         | Qwen 2.5 14B Instruct       | 14B    | ~10 GB       | hf_local  |
+| `hf_qwen32b.py`         | Qwen 2.5 32B Instruct       | 32B    | ~20 GB       | hf_local  |
+| `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
+| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct       | 8B     | ~6 GB        | hf_local  |
+| `hf_gemma2_9b.py`       | Gemma 2 9B Instruct         | 9B     | ~7 GB        | hf_local  |
+| `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
+| `hf_mixtral_8x7b.py`    | Mixtral 8x7B Instruct (MoE) | 46.7B  | ~26 GB       | hf_local  |
+| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3    | 7B     | ~6 GB        | hf_local  |
+| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)         | 3.8B   | ~3 GB        | hf_local  |
 
 Bedrock configs (from the `bedrock` branch) also work if you have
 `llm_bedrock.py` and AWS credentials set up.
@@ -164,6 +170,9 @@ python scripts/run_full_benchmark.py --model qwen7b --env GB10
 
 # All providers (local + bedrock, if bedrock configs exist)
 python scripts/run_full_benchmark.py --env PowerEdge
+
+# Run all models in bf16 instead of default 4-bit
+python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env PowerEdge
 ```
 
 The benchmark runner:
@@ -308,7 +317,8 @@ per-process `CUDA_VISIBLE_DEVICES` assignment.
   to share VRAM.
 - Check GPU usage: `nvidia-smi` or `watch -n 1 nvidia-smi`.
 - If a model doesn't fit, try a smaller one (e.g., `hf_qwen1_5b.py` or
-  `hf_phi3_mini.py`) or use `hf_dtype = "fp16"` / quantization.
+  `hf_phi3_mini.py`). Models already default to 4-bit quantization;
+  use `--precision bf16` only if you have enough VRAM.
 
 ---
 
@@ -347,7 +357,6 @@ metadata = "../../data/metadata.csv"
 # LLM settings
 llm_provider = "hf_local"
 hf_model_id = "organization/Model-13B-Instruct"  # HuggingFace model ID
-hf_dtype = "bf16"           # "bf16", "fp16", "4bit", or "auto"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 
@@ -374,9 +383,10 @@ max_concurrent = 2  # lower (1) for large models, higher (3-4) for small ones
 **Key things to change:**
 - `output` — give it a unique filename so submissions don't overwrite each other
 - `hf_model_id` — the HuggingFace model identifier
-- `hf_dtype` — use `"bf16"` for most models; `"4bit"` for very large models that
-  need quantization (requires `bitsandbytes`: `uv pip install bitsandbytes`)
 - `max_concurrent` — lower for larger models (GPU memory), higher for smaller ones
+
+**Note:** Precision is controlled at runtime via `--precision` (default: `4bit`),
+not in the config file. Config files define model identity only.
 
 **Important:** Keep the `../../` path prefix on `db`, `questions`, `output`, and
 `metadata`. These paths are relative to `vendor/KohakuRAG/` (where `kogine` runs
@@ -427,7 +437,7 @@ QWEN_MODELS = {
         "name": "qwen13b",
         "model_id": "Qwen/Qwen2.5-13B-Instruct",
         "params_b": 13,
-        "approx_vram_gb": 28,  # approximate bf16 VRAM
+        "approx_vram_gb": 10,  # approximate 4-bit VRAM
     },
 }
 ```
@@ -450,23 +460,6 @@ The key should be a substring that matches the model ID in experiment results.
 ### Step 6: Update this guide
 
 Add the new config to the table in Section 2 so others know it's available.
-
-### Adding a 4-bit quantized variant
-
-For very large models (70B+), you may want a 4-bit quantized config that uses
-less VRAM. Create a separate config file with `_4bit` suffix:
-
-```bash
-cp vendor/KohakuRAG/configs/hf_qwen72b.py vendor/KohakuRAG/configs/hf_qwen72b_4bit.py
-```
-
-Change two fields:
-```python
-hf_dtype = "4bit"                                      # was "bf16"
-output = "../../artifacts/submission_qwen72b_4bit.csv"  # unique output (experiment outputs stay in artifacts/)
-```
-
-This requires `bitsandbytes`: `uv pip install bitsandbytes`
 
 ### Adding a non-HF model (API-based)
 
@@ -589,10 +582,13 @@ python scripts/run_qwen_scaling.py --skip-existing --env GB10
 
 # See what would run without running
 python scripts/run_qwen_scaling.py --dry-run
+
+# Run in bf16 (full precision) instead of default 4-bit
+python scripts/run_qwen_scaling.py --precision bf16 --env PowerEdge
 ```
 
-Available Qwen sizes: 1.5B (~4GB), 3B (~8GB), 7B (~16GB), 14B (~30GB), 32B (~65GB),
-72B (~140GB bf16 / ~40GB 4-bit).
+Available Qwen sizes (4-bit VRAM): 1.5B (~2GB), 3B (~3GB), 7B (~6GB), 14B (~10GB),
+32B (~20GB), 72B (~40GB). Pass `--precision bf16` for full precision (roughly 4× more).
 
 The script:
 - Runs models **sequentially** (frees GPU between runs for clean measurements)
@@ -699,9 +695,7 @@ KohakuRAG_UI/
     │   ├── hf_qwen14b.py
     │   ├── hf_qwen32b.py
     │   ├── hf_qwen72b.py
-    │   ├── hf_qwen72b_4bit.py
     │   ├── hf_llama3_8b.py
-    │   ├── hf_llama3_70b_4bit.py
     │   ├── hf_gemma2_9b.py
     │   ├── hf_gemma2_27b.py
     │   ├── hf_mixtral_8x7b.py

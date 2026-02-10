@@ -20,7 +20,6 @@ metadata = "../../data/metadata.csv"
 # LLM settings - Gemma 2 27B Instruct (local)
 llm_provider = "hf_local"
 hf_model_id = "google/gemma-2-27b-it"
-hf_dtype = "4bit"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 

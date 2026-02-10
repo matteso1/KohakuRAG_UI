@@ -48,10 +48,8 @@ HF_LOCAL_MODELS = {
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
     "hf_qwen72b": "qwen72b-bench",
-    "hf_qwen72b_4bit": "qwen72b-4bit-bench",
     "hf_gemma2_9b": "gemma2-9b-bench",
     "hf_gemma2_27b": "gemma2-27b-bench",
-    "hf_llama3_70b_4bit": "llama3-70b-4bit-bench",
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
 }
 
@@ -73,7 +71,8 @@ ALL_MODELS = {**HF_LOCAL_MODELS, **BEDROCK_MODELS}
 
 
 def run_experiment(config_name: str, experiment_name: str, env: str = "",
-                    questions: str | None = None) -> tuple[bool, str]:
+                    questions: str | None = None,
+                    precision: str = "4bit") -> tuple[bool, str]:
     """Run a single experiment. Returns (success, output_summary)."""
     config_path = f"vendor/KohakuRAG/configs/{config_name}.py"
 
@@ -84,6 +83,7 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         sys.executable, "scripts/run_experiment.py",
         "--config", config_path,
         "--name", experiment_name,
+        "--precision", precision,
     ]
     if env:
         cmd.extend(["--env", env])
@@ -154,6 +154,11 @@ def main():
         "--questions", "-q", default=None,
         help="Override questions CSV path (e.g. data/test_solutions.csv)",
     )
+    parser.add_argument(
+        "--precision", "-p", default="4bit",
+        choices=["4bit", "bf16", "fp16", "auto"],
+        help="Model precision/quantization for HF local models (default: 4bit)",
+    )
     args = parser.parse_args()
 
     # Select model set
@@ -208,7 +213,8 @@ def main():
         start = time.time()
 
         success, summary = run_experiment(config_name, exp_name, env=args.env,
-                                           questions=args.questions)
+                                           questions=args.questions,
+                                           precision=args.precision)
         elapsed = time.time() - start
 
         status = "PASS" if success else "FAIL"
