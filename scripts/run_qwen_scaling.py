@@ -122,7 +122,7 @@ def get_available_vram_gb() -> float:
     return 0.0
 
 
-def run_single_model(config_path: str, experiment_name: str) -> tuple[bool, dict | None]:
+def run_single_model(config_path: str, experiment_name: str, env: str = "") -> tuple[bool, dict | None]:
     """Run a single experiment via subprocess, return (success, summary_dict)."""
     output_dir = Path("artifacts/experiments/qwen-scaling") / experiment_name
 
@@ -131,6 +131,8 @@ def run_single_model(config_path: str, experiment_name: str) -> tuple[bool, dict
         "--config", config_path,
         "--name", f"qwen-scaling/{experiment_name}",
     ]
+    if env:
+        cmd.extend(["--env", env])
 
     print(f"\n{'='*70}")
     print(f"Running: {experiment_name} ({config_path})")
@@ -170,10 +172,11 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
-        "model", "params_b", "quantization",
+        "model", "params_b", "quantization", "run_environment", "hostname",
         "overall_score", "value_accuracy", "ref_overlap", "na_accuracy",
         "avg_latency_s", "avg_retrieval_s", "avg_generation_s", "total_time_s",
         "vram_allocated_gb", "vram_reserved_gb", "vram_total_gb",
+        "gpu_name", "gpu_count",
         "model_disk_gb", "model_load_time_s", "llm_load_time_s", "embedder_load_time_s",
         "energy_wh", "energy_method", "avg_power_w", "peak_power_w",
         "cpu_rss_peak_gb",
@@ -196,6 +199,8 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
                 "model": summary.get("model_id", model_info.get("model_id", "")),
                 "params_b": model_info.get("params_b", ""),
                 "quantization": summary.get("quantization", summary.get("config_snapshot", {}).get("hf_dtype", "bf16")),
+                "run_environment": summary.get("run_environment", ""),
+                "hostname": hw.get("hostname", ""),
                 "overall_score": f"{summary.get('overall_score', 0):.4f}",
                 "value_accuracy": f"{summary.get('value_accuracy', 0):.4f}",
                 "ref_overlap": f"{summary.get('ref_overlap', 0):.4f}",
@@ -207,6 +212,8 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
                 "vram_allocated_gb": f"{hw.get('gpu_vram_allocated_gb', 0):.2f}",
                 "vram_reserved_gb": f"{hw.get('gpu_vram_reserved_gb', 0):.2f}",
                 "vram_total_gb": f"{hw.get('gpu_vram_total_gb', 0):.1f}",
+                "gpu_name": hw.get("gpu_name", ""),
+                "gpu_count": hw.get("gpu_count", 0),
                 "model_disk_gb": f"{hw.get('model_disk_size_gb', 0):.2f}",
                 "model_load_time_s": f"{hw.get('model_load_time_seconds', 0):.1f}",
                 "llm_load_time_s": f"{hw.get('llm_load_time_seconds', 0):.1f}",
@@ -280,6 +287,10 @@ def main():
         "--force-all", action="store_true",
         help="Run all sizes even if they might not fit in VRAM",
     )
+    parser.add_argument(
+        "--env", "-e", default="",
+        help="Run environment label (e.g. 'GB10', 'PowerEdge') for cross-machine comparison",
+    )
 
     args = parser.parse_args()
 
@@ -341,7 +352,7 @@ def main():
 
     for size_key in sorted(sizes_to_run, key=_sort_key):
         model_info = QWEN_MODELS[size_key]
-        success, summary = run_single_model(model_info["config"], model_info["name"])
+        success, summary = run_single_model(model_info["config"], model_info["name"], env=args.env)
         summaries[size_key] = summary
 
         # Force garbage collection between models to free VRAM

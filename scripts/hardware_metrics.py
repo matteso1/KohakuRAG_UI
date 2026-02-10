@@ -16,7 +16,9 @@ Falls back gracefully when GPU is not available.
 """
 
 import os
+import platform
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -85,11 +87,49 @@ class HardwareMetrics:
     # System
     gpu_name: str = ""
     gpu_device_id: int = 0
+    gpu_count: int = 0                   # Number of GPUs visible
     cuda_version: str = ""
+
+    # Machine identification
+    hostname: str = ""
+    cpu_model: str = ""
+    os_platform: str = ""                # e.g. "Linux-4.4.0-aarch64" or "Linux-5.15.0-x86_64"
 
 
 def _bytes_to_gb(b: int) -> float:
     return round(b / (1024 ** 3), 3)
+
+
+def get_machine_info() -> dict:
+    """Collect machine identification: hostname, CPU model, OS platform, GPU count."""
+    info: dict = {
+        "hostname": socket.gethostname(),
+        "os_platform": f"{platform.system()}-{platform.release()}-{platform.machine()}",
+        "cpu_model": "",
+        "gpu_count": 0,
+    }
+
+    # CPU model from /proc/cpuinfo (Linux) or platform fallback
+    try:
+        cpuinfo = Path("/proc/cpuinfo").read_text()
+        for line in cpuinfo.splitlines():
+            if line.lower().startswith("model name"):
+                info["cpu_model"] = line.split(":", 1)[1].strip()
+                break
+        # ARM chips may use "Hardware" or "Model" instead
+        if not info["cpu_model"]:
+            for line in cpuinfo.splitlines():
+                if line.lower().startswith(("hardware", "model\t")):
+                    info["cpu_model"] = line.split(":", 1)[1].strip()
+                    break
+    except Exception:
+        info["cpu_model"] = platform.processor() or "unknown"
+
+    # GPU count
+    if HAS_TORCH and torch.cuda.is_available():
+        info["gpu_count"] = torch.cuda.device_count()
+
+    return info
 
 
 # =============================================================================
@@ -465,6 +505,8 @@ def collect_post_experiment_metrics(
     if cpu_monitor is not None:
         cpu_rss = cpu_monitor.stop()
 
+    machine = get_machine_info()
+
     metrics = HardwareMetrics(
         # VRAM
         gpu_vram_allocated_bytes=vram.get("max_allocated", 0),
@@ -494,7 +536,12 @@ def collect_post_experiment_metrics(
         # System
         gpu_name=gpu_info.get("name", ""),
         gpu_device_id=device_id,
+        gpu_count=machine["gpu_count"],
         cuda_version=gpu_info.get("cuda_version", ""),
+        # Machine identification
+        hostname=machine["hostname"],
+        cpu_model=machine["cpu_model"],
+        os_platform=machine["os_platform"],
     )
 
     return metrics

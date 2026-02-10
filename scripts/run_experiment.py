@@ -126,6 +126,8 @@ class ExperimentSummary:
     # Hardware metrics (local models)
     hardware: dict = field(default_factory=dict)
     config_snapshot: dict = field(default_factory=dict)
+    # Run environment (machine label for cross-machine comparison)
+    run_environment: str = ""  # e.g. "GB10", "PowerEdge", "Bedrock-us-east-1"
 
 
 # API pricing per 1M tokens (for cost estimation)
@@ -641,6 +643,7 @@ class ExperimentRunner:
             estimated_cost_usd=estimated_cost,
             hardware=hw_dict,
             config_snapshot=self.config,
+            run_environment=self.config.get("_run_environment", ""),
         )
 
     def save_results(self, summary: ExperimentSummary) -> None:
@@ -685,10 +688,11 @@ class ExperimentRunner:
 # Main
 # =============================================================================
 
-async def main(config_path: str, experiment_name: str | None = None) -> None:
+async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "") -> None:
     """Run an experiment with the given config."""
     config = load_config(config_path)
     config["_config_path"] = config_path
+    config["_run_environment"] = run_environment
 
     # Generate experiment name if not provided
     if experiment_name is None:
@@ -720,6 +724,8 @@ async def main(config_path: str, experiment_name: str | None = None) -> None:
     print(f"Provider     : {summary.llm_provider}")
     print(f"Model        : {summary.model_id}")
     print(f"Quantization : {summary.quantization}")
+    if summary.run_environment:
+        print(f"Environment  : {summary.run_environment}")
     print(f"Questions    : {summary.num_questions}")
     print(f"Correct      : {summary.questions_correct} ({100*summary.value_accuracy:.1f}%)")
     print(f"Wrong        : {summary.questions_wrong}")
@@ -742,6 +748,10 @@ async def main(config_path: str, experiment_name: str | None = None) -> None:
     hw = summary.hardware
     if hw:
         print(f"\nHardware Metrics:")
+        if hw.get("hostname"):
+            gpu_ct = hw.get("gpu_count", 0)
+            gpu_note = f" ({gpu_ct} GPU{'s' if gpu_ct != 1 else ''})" if gpu_ct else ""
+            print(f"  Host         : {hw['hostname']}{gpu_note}")
         if hw.get("gpu_name"):
             print(f"  GPU          : {hw['gpu_name']}")
         if hw.get("gpu_vram_allocated_gb"):
@@ -778,9 +788,14 @@ def cli():
         default=None,
         help="Experiment name (default: auto-generated from model + timestamp)"
     )
+    parser.add_argument(
+        "--env", "-e",
+        default="",
+        help="Run environment label for cross-machine comparison (e.g. 'GB10', 'PowerEdge')"
+    )
 
     args = parser.parse_args()
-    asyncio.run(main(args.config, args.name))
+    asyncio.run(main(args.config, args.name, args.env))
 
 
 if __name__ == "__main__":

@@ -72,7 +72,7 @@ BEDROCK_MODELS = {
 ALL_MODELS = {**HF_LOCAL_MODELS, **BEDROCK_MODELS}
 
 
-def run_experiment(config_name: str, experiment_name: str) -> tuple[bool, str]:
+def run_experiment(config_name: str, experiment_name: str, env: str = "") -> tuple[bool, str]:
     """Run a single experiment. Returns (success, output_summary)."""
     config_path = f"vendor/KohakuRAG/configs/{config_name}.py"
 
@@ -84,6 +84,8 @@ def run_experiment(config_name: str, experiment_name: str) -> tuple[bool, str]:
         "--config", config_path,
         "--name", experiment_name,
     ]
+    if env:
+        cmd.extend(["--env", env])
 
     try:
         result = subprocess.run(
@@ -131,6 +133,10 @@ def main():
         "--provider", type=str, default=None,
         choices=["hf_local", "bedrock", "all"],
         help="Run only models from a specific provider",
+    )
+    parser.add_argument(
+        "--env", "-e", default="",
+        help="Run environment label (e.g. 'GB10', 'PowerEdge') for cross-machine comparison",
     )
     args = parser.parse_args()
 
@@ -185,7 +191,7 @@ def main():
         print(f"[{i}/{len(available_models)}] {config_name} -> {exp_name}")
         start = time.time()
 
-        success, summary = run_experiment(config_name, exp_name)
+        success, summary = run_experiment(config_name, exp_name, env=args.env)
         elapsed = time.time() - start
 
         status = "PASS" if success else "FAIL"
