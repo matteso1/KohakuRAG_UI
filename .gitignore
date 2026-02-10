@@ -27,7 +27,10 @@ Thumbs.db
 # Experiment outputs (large, machine-specific)
 artifacts/
 
-# Keep data/ tracked (embeddings, PDFs, QA data are small enough)
+# Vector databases are derived (built from data/corpus/) and too large for GitHub (>100MB).
+# Each machine rebuilds via: cd vendor/KohakuRAG && kogine run scripts/wattbot_build_index.py ...
+*.db
+*.sqlite
 
 # Logs
 *.log

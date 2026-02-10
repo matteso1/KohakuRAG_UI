@@ -10,7 +10,9 @@ All commands assume you are at the **repo root** with your venv active.
 ## 0) Prerequisites — Build the vector index
 
 Before running any experiments, you need a vector database. The config files
-reference `data/embeddings/wattbot_jinav4.db`, which is built by the indexing pipeline.
+reference `data/embeddings/wattbot_jinav4.db`, which is built locally by the
+indexing pipeline. The `.db` files are **gitignored** (>100MB) so each machine
+must build its own index from the tracked source data.
 
 ### Data prerequisites
 
@@ -592,12 +594,12 @@ print(scaling[["model", "params_b", "overall_score", "vram_allocated_gb", "energ
 
 ```
 KohakuRAG_UI/
-├── data/                     # Tracked in git (small enough to share)
+├── data/                     # Tracked in git (source data shared across machines)
 │   ├── train_QA.csv          # Ground truth questions
 │   ├── metadata.csv          # Document bibliography
-│   ├── embeddings/           # Vector databases (.db files)
-│   │   └── wattbot_jinav4.db
-│   ├── pdfs/                 # Downloaded source PDFs (cached)
+│   ├── embeddings/           # Vector databases — gitignored, built locally (>100MB)
+│   │   └── wattbot_jinav4.db # (built by kogine, not in git)
+│   ├── pdfs/                 # Downloaded source PDFs
 │   └── corpus/               # Parsed JSON documents
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
