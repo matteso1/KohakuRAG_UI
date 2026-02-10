@@ -147,7 +147,7 @@ def get_gpu_vram_snapshot(device_id: int = 0) -> dict:
         "reserved": torch.cuda.memory_reserved(device),
         "max_allocated": torch.cuda.max_memory_allocated(device),
         "max_reserved": torch.cuda.max_memory_reserved(device),
-        "total": torch.cuda.get_device_properties(device).total_mem,
+        "total": torch.cuda.get_device_properties(device).total_memory,
     }
 
 
@@ -174,8 +174,8 @@ def get_gpu_info(device_id: int = 0) -> dict:
     return {
         "name": props.name,
         "cuda_version": torch.version.cuda or "unknown",
-        "total_bytes": props.total_mem,
-        "total_gb": _bytes_to_gb(props.total_mem),
+        "total_bytes": props.total_memory,
+        "total_gb": _bytes_to_gb(props.total_memory),
     }
 
 

@@ -475,6 +475,8 @@ class ExperimentRunner:
                     pred_ref_str = json.dumps([pred_ref])
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 error_msg = str(e)
                 pred_value = "is_blank"
                 pred_ref_str = "is_blank"

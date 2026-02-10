@@ -513,9 +513,9 @@ class HuggingFaceLocalChatModel(ChatModel):
             )
         else:
             if dtype == "bf16":
-                load_kwargs["torch_dtype"] = torch.bfloat16
+                load_kwargs["dtype"] = torch.bfloat16
             elif dtype == "fp16":
-                load_kwargs["torch_dtype"] = torch.float16
+                load_kwargs["dtype"] = torch.float16
 
         # Load model with automatic device placement
         self._model = AutoModelForCausalLM.from_pretrained(
@@ -564,7 +564,9 @@ class HuggingFaceLocalChatModel(ChatModel):
 
         inputs = self._tokenizer(text, return_tensors="pt")
         input_len = inputs["input_ids"].shape[-1]
-        inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+        # For device_map="auto" models, get device from first parameter
+        target_device = next(self._model.parameters()).device
+        inputs = {k: v.to(target_device) for k, v in inputs.items()}
 
         do_sample = self._temperature > 0
         with torch.no_grad():
