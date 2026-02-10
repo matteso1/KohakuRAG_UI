@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -101,13 +102,23 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         output = result.stdout + result.stderr
         success = result.returncode == 0
 
-        # Print the experiment report block (from "EXPERIMENT COMPLETE" onward)
+        # Print the experiment report block (from "EXPERIMENT COMPLETE" onward),
+        # filtering out noisy stderr lines (progress bars, warnings, etc.)
         report_lines = output.split("\n")
         in_report = False
+        _noise_re = re.compile(
+            r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
+            r"|FutureWarning|warnings\.warn|torch_dtype|TRANSFORMERS_CACHE"
+            r"|malicious code|downloaded from https://huggingface"
+            r"|\d+%\|[█▏▎▍▌▋▊▉ ]*\|"
+        )
         for line in report_lines:
             if "EXPERIMENT COMPLETE" in line:
                 in_report = True
             if in_report:
+                stripped = line.strip()
+                if not stripped or _noise_re.search(line):
+                    continue
                 print(f"  {line}")
 
         # Look for the score line
