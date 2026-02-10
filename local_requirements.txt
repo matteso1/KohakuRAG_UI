@@ -20,6 +20,10 @@ python-dotenv
 # Quantization
 bitsandbytes
 
+# PDF download and parsing (for auto-fetching corpus from metadata URLs)
+httpx
+pymupdf
+
 # KohakuEngine (config runner for indexing scripts)
 kohaku-engine==0.0.2
 

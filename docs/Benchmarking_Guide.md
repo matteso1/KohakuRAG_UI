@@ -12,49 +12,55 @@ All commands assume you are at the **repo root** with your venv active.
 Before running any experiments, you need a vector database. The config files
 reference `artifacts/wattbot_jinav4.db`, which is built by the indexing pipeline.
 
+### Data prerequisites
+
+You need two files in `data/`:
+- `data/train_QA.csv` — ground-truth question set (should already be in the repo)
+- `data/metadata.csv` — document bibliography with `id`, `title`, `url` columns
+  (see `vendor/KohakuRAG/docs/wattbot.md` for details)
+
 ### Install dependencies
 
 ```bash
-uv pip install kohaku-engine==0.0.2   # config runner for indexing scripts
+uv pip install -r local_requirements.txt  # includes kohaku-engine, httpx, etc.
 ```
 
-This is already listed in `local_requirements.txt`, so if you've run
-`uv pip install -r local_requirements.txt` it should be available.
-
-### Build the index with kogine
+### Build the index (recommended: standalone script)
 
 ```bash
-# From repo root — run the indexing script with JinaV4 config
-cd vendor/KohakuRAG
-kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
-cd ../..
+# Build with JinaV4 embeddings
+# If data/corpus/ doesn't exist, PDFs are auto-downloaded from metadata URLs
+python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py
 
 # Verify the database was created
 ls -lh artifacts/wattbot_jinav4.db
 ```
 
-This requires:
-- `data/metadata.csv` — document bibliography
-- `artifacts/docs/` or `artifacts/docs_with_images/` — structured JSON docs
-  from the PDF parsing pipeline (see `vendor/KohakuRAG/docs/wattbot.md`)
+The build script will:
+1. Check for structured JSON docs in `data/corpus/`
+2. If missing, **automatically download PDFs** using URLs from `data/metadata.csv`
+3. Parse PDFs into structured JSON (saved to `data/corpus/`)
+4. Build the vector index from those documents
 
-### Alternative: standalone build script (no kogine)
+Downloaded PDFs are cached in `artifacts/raw_pdfs/` so subsequent runs skip
+already-fetched files.
 
-If you prefer not to install KohakuEngine:
+### Alternative: citation-only index (lightweight, no PDF download)
 
 ```bash
-# Full indexing
-python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py
-
-# Quick start with just metadata.csv (no parsed PDFs needed, lower quality)
 python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py --use-citations
 ```
 
-### Data prerequisites
+This builds a lighter index using just the citation text from `metadata.csv`.
+Faster but lower retrieval quality.
 
-You need `data/train_QA.csv` (the ground-truth question set) and
-`data/metadata.csv`. `train_QA.csv` should already be in the repo.
-For `metadata.csv`, see `vendor/KohakuRAG/docs/wattbot.md`.
+### Alternative: build with kogine
+
+```bash
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
+```
 
 ---
 

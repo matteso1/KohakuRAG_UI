@@ -8,7 +8,7 @@ from kohakuengine import Config
 
 # Document and database settings
 metadata = "../../data/metadata.csv"
-docs_dir = "../../artifacts/docs_with_images"  # Must include images for multimodal
+docs_dir = "../../data/corpus"  # Structured JSON docs (auto-fetched from metadata URLs if missing)
 db = "../../artifacts/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 use_citations = False
