@@ -89,6 +89,10 @@ class QuestionResult:
     retrieval_seconds: float = 0.0
     generation_seconds: float = 0.0
     error: str | None = None
+    # Full context for debugging / analysis
+    rendered_prompt: str = ""  # The complete prompt sent to the LLM
+    retrieved_snippets: list = field(default_factory=list)  # [{node_id, doc_title, text, score, rank}]
+    num_snippets: int = 0
 
 
 @dataclass
@@ -438,6 +442,21 @@ class ExperimentRunner:
                 pred_explanation = result.answer.explanation
                 raw_response = getattr(result, "raw_response", "")
                 timing = getattr(result, "timing", {})
+                rendered_prompt = getattr(result, "prompt", "")
+
+                # Serialize retrieval snippets for debugging
+                snippets_data = []
+                retrieval = getattr(result, "retrieval", None)
+                if retrieval and hasattr(retrieval, "snippets"):
+                    for s in retrieval.snippets:
+                        snippets_data.append({
+                            "node_id": s.node_id,
+                            "document_title": s.document_title,
+                            "text": s.text,
+                            "score": round(s.score, 4),
+                            "rank": s.rank,
+                            "metadata": s.metadata,
+                        })
 
                 if isinstance(pred_ref, list):
                     pred_ref_str = json.dumps(pred_ref)
@@ -452,6 +471,8 @@ class ExperimentRunner:
                 pred_ref_str = "is_blank"
                 pred_explanation = f"Error: {error_msg}"
                 timing = {}
+                rendered_prompt = ""
+                snippets_data = []
 
             latency = time.time() - start_time
             retrieval_s = timing.get("retrieval_s", 0.0)
@@ -491,6 +512,9 @@ class ExperimentRunner:
                 retrieval_seconds=retrieval_s,
                 generation_seconds=generation_s,
                 error=error_msg,
+                rendered_prompt=rendered_prompt,
+                retrieved_snippets=snippets_data,
+                num_snippets=len(snippets_data),
             )
 
     async def run(self, questions_df: pd.DataFrame) -> ExperimentSummary:
