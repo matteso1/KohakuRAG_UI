@@ -48,12 +48,12 @@ HF_LOCAL_MODELS = {
     "hf_qwen7b": "qwen7b-bench",
     "hf_qwen14b": "qwen14b-bench",
     "hf_qwen32b": "qwen32b-bench",
-    "hf_llama3_8b": "llama3-8b-bench",
+    "hf_llama3_8b": "llama3-8b-bench",       # gated — needs HF_TOKEN
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
     "hf_qwen72b": "qwen72b-bench",
-    "hf_gemma2_9b": "gemma2-9b-bench",
-    "hf_gemma2_27b": "gemma2-27b-bench",
+    "hf_gemma2_9b": "gemma2-9b-bench",       # gated — needs HF_TOKEN
+    "hf_gemma2_27b": "gemma2-27b-bench",     # gated — needs HF_TOKEN
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
 }
 
@@ -136,6 +136,8 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
             r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
             r"|FutureWarning|warnings\.warn|torch_dtype|TRANSFORMERS_CACHE"
             r"|malicious code|downloaded from https://huggingface"
+            r"|^\s*- (configuration|modeling)_"
+            r"|Setting `pad_token_id`"
             r"|\d+%\|[█▏▎▍▌▋▊▉ ]*\|"
         )
         for line in report_lines:
@@ -156,6 +158,10 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
                 score_line = line.strip()[:120]
 
         if not success:
+            # Check for gated model / auth errors
+            full_output = "\n".join(report_lines)
+            if "401" in full_output or "Access denied" in full_output:
+                return False, "Gated model — accept license on HuggingFace + set HF_TOKEN"
             error_lines = [l for l in report_lines if "Error" in l or "error" in l]
             error_summary = error_lines[-1][:150] if error_lines else "Unknown error"
             return False, error_summary
