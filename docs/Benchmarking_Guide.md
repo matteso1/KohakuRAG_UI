@@ -55,12 +55,24 @@ Every experiment is driven by a **config file** in `vendor/KohakuRAG/configs/`.
 Each config specifies the LLM provider, model, embedding settings, and retrieval
 parameters.
 
-```bash
-# Run with Qwen 2.5 7B (local HF)
-python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
+**Always pass `--env` to tag which machine you're running on.** This is saved in
+`summary.json` and comparison CSVs so you can distinguish results across machines.
 
-# Give it a custom name
-python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-v1
+```bash
+# Run with Qwen 2.5 7B on the GB10
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --env GB10
+
+# Same model on the PowerEdge
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --env PowerEdge
+
+# Give it a custom name + env
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --name qwen7b-v1 --env GB10
 ```
 
 Output lands in `artifacts/experiments/<name>/`:
@@ -116,18 +128,20 @@ Bedrock configs (from the `bedrock` branch) also work if you have
 
 ## 3) Running all models (full benchmark)
 
+**Always pass `--env`** so every sub-experiment is tagged with the machine name.
+
 ```bash
 # Smoke test first (1 question per model, catches config/loading errors fast)
-python scripts/run_full_benchmark.py --smoke-test --provider hf_local
+python scripts/run_full_benchmark.py --smoke-test --provider hf_local --env GB10
 
-# Full benchmark — all local HF models
-python scripts/run_full_benchmark.py --provider hf_local
+# Full benchmark — all local HF models on the PowerEdge
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
 
 # Single model only
-python scripts/run_full_benchmark.py --model qwen7b
+python scripts/run_full_benchmark.py --model qwen7b --env GB10
 
 # All providers (local + bedrock, if bedrock configs exist)
-python scripts/run_full_benchmark.py
+python scripts/run_full_benchmark.py --env PowerEdge
 ```
 
 The benchmark runner:
@@ -231,10 +245,12 @@ Open two terminals and assign each experiment to a different GPU:
 
 ```bash
 # Terminal 1 — GPU 0
-CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-gpu0
+CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-gpu0 --env PowerEdge
 
 # Terminal 2 — GPU 1
-CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-gpu1
+CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-gpu1 --env PowerEdge
 ```
 
 ### Option B: Script it
@@ -242,13 +258,14 @@ CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py --config vendor/KohakuRA
 ```bash
 #!/bin/bash
 # run_parallel.sh — run two experiments on separate GPUs
+ENV="PowerEdge"
 
 CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py \
-    --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-bench &
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py --name qwen7b-bench --env $ENV &
 PID0=$!
 
 CUDA_VISIBLE_DEVICES=1 python scripts/run_experiment.py \
-    --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-bench &
+    --config vendor/KohakuRAG/configs/hf_llama3_8b.py --name llama3-8b-bench --env $ENV &
 PID1=$!
 
 wait $PID0 $PID1
@@ -348,7 +365,7 @@ from), and the experiment scripts strip the prefix automatically.
 # Single-question smoke test
 python scripts/run_experiment.py \
     --config vendor/KohakuRAG/configs/hf_newmodel13b.py \
-    --name newmodel13b-smoke
+    --name newmodel13b-smoke --env GB10
 
 # Check the output
 python -m json.tool artifacts/experiments/newmodel13b-smoke/summary.json
@@ -471,41 +488,63 @@ only looks at the CSV columns, not how they were generated.
 
 ---
 
-## 9) Hardware metrics
+## 9) Hardware metrics & run environment
 
-Every experiment now collects hardware metrics automatically (when running
-on a machine with an NVIDIA GPU):
+Every experiment collects hardware metrics and machine identification
+automatically. Use `--env` to add an explicit label for cross-machine comparison.
+
+### Machine identification
+
+| Field                 | How it's collected                                     | Example                  |
+|-----------------------|--------------------------------------------------------|--------------------------|
+| **`run_environment`** | `--env` flag (user-specified)                          | `"GB10"`, `"PowerEdge"`  |
+| **`hostname`**        | `socket.gethostname()` (auto)                          | `"endemann-gb10"`        |
+| **`cpu_model`**       | `/proc/cpuinfo` (auto)                                 | `"ARMv8 Processor"`      |
+| **`gpu_count`**       | `torch.cuda.device_count()` (auto)                     | `2`                      |
+| **`gpu_name`**        | `torch.cuda.get_device_properties()` (auto)            | `"NVIDIA RTX A6000"`     |
+| **`os_platform`**     | `platform.system()-release-machine` (auto)             | `"Linux-5.15.0-x86_64"`  |
+
+Hostname, CPU, and GPU count are auto-detected — but **`--env` is the primary
+way to label runs** for later comparison (e.g., filtering a CSV by `run_environment`).
+
+### Hardware performance metrics
 
 | Metric                | How it's measured                                      |
 |-----------------------|--------------------------------------------------------|
 | **VRAM (peak)**       | `torch.cuda.max_memory_allocated()` after experiment   |
 | **Model disk size**   | Total size of HuggingFace cache dir for the model      |
-| **Model load time**   | Wall-clock time to load model + embedder               |
+| **Model load time**   | Wall-clock time to load LLM + embedder (split)         |
 | **Energy (Wh)**       | NVML hardware counter (preferred) or trapezoidal integration of `nvidia-smi` power readings |
 | **Avg/Peak power (W)**| From 1-second interval `nvidia-smi` polling            |
 | **CPU RSS peak**      | Peak resident set size via `psutil` background polling |
-| **GPU name**          | From `torch.cuda.get_device_properties()`              |
 
-These are saved in `summary.json` under the `"hardware"` key:
+These are saved in `summary.json`:
 
 ```json
 {
+  "run_environment": "PowerEdge",
   "hardware": {
+    "hostname": "endemann-poweredge",
+    "cpu_model": "Intel Xeon w5-2465X",
+    "gpu_count": 2,
+    "gpu_name": "NVIDIA RTX A6000",
+    "os_platform": "Linux-5.15.0-x86_64",
     "gpu_vram_allocated_gb": 14.23,
     "gpu_vram_total_gb": 48.0,
     "model_disk_size_gb": 13.47,
     "gpu_energy_wh": 2.541,
     "gpu_energy_method": "nvml",
     "gpu_avg_power_watts": 185.3,
-    "model_load_time_seconds": 12.4,
-    "cpu_rss_peak_gb": 8.42,
-    "gpu_name": "NVIDIA RTX A6000"
+    "llm_load_time_seconds": 10.2,
+    "embedder_load_time_seconds": 2.2,
+    "cpu_rss_peak_gb": 8.42
   }
 }
 ```
 
 For API models (Bedrock/OpenRouter), VRAM and power metrics will be zero but
-API cost tracking (token counts + estimated USD) is still recorded.
+API cost tracking (token counts + estimated USD) is still recorded. You should
+still pass `--env` for Bedrock runs (e.g., `--env Bedrock-us-east-1`).
 
 ---
 
@@ -515,14 +554,14 @@ To measure how WattBot performance scales with model size (keeping
 everything else constant), there's a dedicated script:
 
 ```bash
-# Run all Qwen sizes that fit in your GPU
-python scripts/run_qwen_scaling.py
+# Run all Qwen sizes that fit in your GPU (always tag the machine!)
+python scripts/run_qwen_scaling.py --env GB10
 
 # Run specific sizes only
-python scripts/run_qwen_scaling.py --sizes 1.5 3 7
+python scripts/run_qwen_scaling.py --sizes 1.5 3 7 --env PowerEdge
 
 # Skip sizes already run (resume after crash)
-python scripts/run_qwen_scaling.py --skip-existing
+python scripts/run_qwen_scaling.py --skip-existing --env GB10
 
 # See what would run without running
 python scripts/run_qwen_scaling.py --dry-run
