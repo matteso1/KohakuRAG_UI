@@ -43,7 +43,7 @@ EXPERIMENTS_BASE = Path(__file__).parent.parent / "artifacts" / "experiments"
 
 # Local HuggingFace models
 HF_LOCAL_MODELS = {
-    "hf_qwen1_5b": "qwen1.5b-bench",
+    # "hf_qwen1_5b": "qwen1.5b-bench",       # too small to be useful
     "hf_qwen3b": "qwen3b-bench",
     "hf_qwen7b": "qwen7b-bench",
     "hf_qwen14b": "qwen14b-bench",
