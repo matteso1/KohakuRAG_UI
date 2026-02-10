@@ -4,12 +4,9 @@ If the docs directory (structured JSONs from parsed PDFs) doesn't exist,
 the script will automatically download PDFs using URLs from metadata.csv,
 parse them into structured JSON, and then index them.
 
-Usage (KohakuEngine):
+Usage:
     cd vendor/KohakuRAG
     kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
-
-Usage (standalone wrapper from repo root):
-    python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py
 """
 
 import asyncio

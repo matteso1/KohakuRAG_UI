@@ -25,12 +25,12 @@ You need two files in `data/`:
 uv pip install -r local_requirements.txt  # includes kohaku-engine, httpx, etc.
 ```
 
-### Build the index (recommended: standalone script)
+### Build the index
 
 ```bash
-# Build with JinaV4 embeddings
-# If data/corpus/ doesn't exist, PDFs are auto-downloaded from metadata URLs
-python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
 
 # Verify the database was created
 ls -lh artifacts/wattbot_jinav4.db
@@ -44,23 +44,6 @@ The build script will:
 
 Downloaded PDFs are cached in `artifacts/raw_pdfs/` so subsequent runs skip
 already-fetched files.
-
-### Alternative: citation-only index (lightweight, no PDF download)
-
-```bash
-python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py --use-citations
-```
-
-This builds a lighter index using just the citation text from `metadata.csv`.
-Faster but lower retrieval quality.
-
-### Alternative: build with kogine
-
-```bash
-cd vendor/KohakuRAG
-kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
-cd ../..
-```
 
 ---
 
@@ -117,6 +100,10 @@ python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-1
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct      | 72B    | ~140 GB     | —            | hf_local  |
 | `hf_qwen72b_4bit.py`    | Qwen 2.5 72B Instruct (4-bit) | 72B | —           | ~40 GB       | hf_local  |
 | `hf_llama3_8b.py`       | Llama 3.1 8B Instruct      | 8B     | ~18 GB      | —            | hf_local  |
+| `hf_llama3_70b_4bit.py` | Llama 3.1 70B Instruct (4-bit) | 70B | —          | ~40 GB       | hf_local  |
+| `hf_gemma2_9b.py`       | Gemma 2 9B Instruct        | 9B     | ~20 GB      | —            | hf_local  |
+| `hf_gemma2_27b.py`      | Gemma 2 27B Instruct       | 27B    | ~55 GB      | —            | hf_local  |
+| `hf_mixtral_8x7b.py`    | Mixtral 8x7B Instruct (MoE)| 46.7B  | ~24 GB      | —            | hf_local  |
 | `hf_mistral7b.py`       | Mistral 7B Instruct v0.3   | 7B     | ~16 GB      | —            | hf_local  |
 | `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)        | 3.8B   | ~8 GB       | —            | hf_local  |
 
@@ -606,14 +593,13 @@ print(scaling[["model", "params_b", "overall_score", "vram_allocated_gb", "energ
 ```
 KohakuRAG_UI/
 ├── scripts/                  # Benchmarking & analysis tools
-│   ├── build_index.py        # Build vector index (no kogine needed)
+│   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS measurement
 │   ├── run_experiment.py     # Run one experiment (+ hardware metrics)
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
 │   ├── run_ensemble.py       # Combine multiple runs
 │   ├── score.py              # WattBot scoring
-│   ├── hardware_metrics.py   # VRAM, disk, energy measurement
 │   ├── generate_results_matrix.py
 │   ├── audit_experiments.py
 │   ├── plot_model_size.py
@@ -642,6 +628,10 @@ KohakuRAG_UI/
     │   ├── hf_qwen72b.py
     │   ├── hf_qwen72b_4bit.py
     │   ├── hf_llama3_8b.py
+    │   ├── hf_llama3_70b_4bit.py
+    │   ├── hf_gemma2_9b.py
+    │   ├── hf_gemma2_27b.py
+    │   ├── hf_mixtral_8x7b.py
     │   ├── hf_mistral7b.py
     │   ├── hf_phi3_mini.py
     │   ├── jinav4/index.py   # Indexing configs

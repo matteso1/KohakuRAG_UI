@@ -170,7 +170,7 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
-        "model", "params_b",
+        "model", "params_b", "quantization",
         "overall_score", "value_accuracy", "ref_overlap", "na_accuracy",
         "avg_latency_s", "total_time_s",
         "vram_allocated_gb", "vram_reserved_gb", "vram_total_gb",
@@ -195,6 +195,7 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
             writer.writerow({
                 "model": summary.get("model_id", model_info.get("model_id", "")),
                 "params_b": model_info.get("params_b", ""),
+                "quantization": summary.get("quantization", summary.get("config_snapshot", {}).get("hf_dtype", "bf16")),
                 "overall_score": f"{summary.get('overall_score', 0):.4f}",
                 "value_accuracy": f"{summary.get('value_accuracy', 0):.4f}",
                 "ref_overlap": f"{summary.get('ref_overlap', 0):.4f}",

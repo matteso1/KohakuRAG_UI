@@ -96,6 +96,7 @@ class ExperimentSummary:
     config_path: str
     model_id: str
     llm_provider: str
+    quantization: str  # "bf16", "fp16", "4bit", "auto", or "api" for API providers
     timestamp: str
     num_questions: int
     total_time_seconds: float
@@ -355,9 +356,8 @@ class ExperimentRunner:
                 f"Database not found: {db_path}\n\n"
                 f"The vector database must be built before running experiments.\n"
                 f"Run from the repo root:\n\n"
-                f"  python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py\n\n"
-                f"Or for a quick start using only metadata.csv (no parsed docs needed):\n\n"
-                f"  python scripts/build_index.py --config vendor/KohakuRAG/configs/jinav4/index.py --use-citations\n\n"
+                f"  cd vendor/KohakuRAG\n"
+                f"  kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py\n\n"
                 f"See docs/Benchmarking_Guide.md section 0 for full details."
             )
 
@@ -556,11 +556,18 @@ class ExperimentRunner:
         )
         hw_dict = asdict(hw_metrics)
 
+        # Determine quantization/dtype
+        if provider == "hf_local":
+            quantization = self.config.get("hf_dtype", "bf16")
+        else:
+            quantization = "api"
+
         return ExperimentSummary(
             name=self.experiment_name,
             config_path=str(self.config.get("_config_path", "unknown")),
             model_id=model_id,
             llm_provider=provider,
+            quantization=quantization,
             timestamp=datetime.now().isoformat(),
             num_questions=total,
             total_time_seconds=total_time,
@@ -655,6 +662,7 @@ async def main(config_path: str, experiment_name: str | None = None) -> None:
     print(f"{'='*60}")
     print(f"Provider     : {summary.llm_provider}")
     print(f"Model        : {summary.model_id}")
+    print(f"Quantization : {summary.quantization}")
     print(f"Questions    : {summary.num_questions}")
     print(f"Correct      : {summary.questions_correct} ({100*summary.value_accuracy:.1f}%)")
     print(f"Wrong        : {summary.questions_wrong}")
