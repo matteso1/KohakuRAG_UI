@@ -20,7 +20,6 @@ metadata = "../../data/metadata.csv"
 # LLM settings - Phi-3.5 Mini Instruct (local)
 llm_provider = "hf_local"
 hf_model_id = "microsoft/Phi-3.5-mini-instruct"
-hf_dtype = "4bit"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 

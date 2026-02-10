@@ -268,7 +268,7 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
         return HuggingFaceLocalChatModel(
             model=config.get("hf_model_id", "Qwen/Qwen2.5-7B-Instruct"),
             system_prompt=system_prompt,
-            dtype=config.get("hf_dtype", "bf16"),
+            dtype=config.get("hf_dtype", "4bit"),
             max_new_tokens=config.get("hf_max_new_tokens", 512),
             temperature=config.get("hf_temperature", 0.2),
             max_concurrent=config.get("max_concurrent", 2),
@@ -619,7 +619,7 @@ class ExperimentRunner:
 
         # Determine quantization/dtype
         if provider == "hf_local":
-            quantization = self.config.get("hf_dtype", "bf16")
+            quantization = self.config.get("hf_dtype", "4bit")
         else:
             quantization = "api"
 
@@ -693,11 +693,15 @@ class ExperimentRunner:
 # Main
 # =============================================================================
 
-async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None) -> None:
+async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit") -> None:
     """Run an experiment with the given config."""
     config = load_config(config_path)
     config["_config_path"] = config_path
     config["_run_environment"] = run_environment
+
+    # CLI --precision overrides any hf_dtype in config (only relevant for hf_local)
+    if config.get("llm_provider") == "hf_local":
+        config["hf_dtype"] = precision
 
     # Generate experiment name if not provided
     if experiment_name is None:
@@ -814,9 +818,15 @@ def cli():
         default=None,
         help="Override questions CSV path (e.g. data/test_solutions.csv)"
     )
+    parser.add_argument(
+        "--precision", "-p",
+        default="4bit",
+        choices=["4bit", "bf16", "fp16", "auto"],
+        help="Model precision/quantization (default: 4bit). Only applies to hf_local models."
+    )
 
     args = parser.parse_args()
-    asyncio.run(main(args.config, args.name, args.env, args.questions))
+    asyncio.run(main(args.config, args.name, args.env, args.questions, args.precision))
 
 
 if __name__ == "__main__":

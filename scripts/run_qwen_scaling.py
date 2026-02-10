@@ -55,47 +55,40 @@ QWEN_MODELS = {
         "name": "qwen1.5b",
         "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
         "params_b": 1.5,
-        "approx_vram_gb": 4,
+        "approx_vram_gb": 2,
     },
     "3": {
         "config": "vendor/KohakuRAG/configs/hf_qwen3b.py",
         "name": "qwen3b",
         "model_id": "Qwen/Qwen2.5-3B-Instruct",
         "params_b": 3,
-        "approx_vram_gb": 8,
+        "approx_vram_gb": 3,
     },
     "7": {
         "config": "vendor/KohakuRAG/configs/hf_qwen7b.py",
         "name": "qwen7b",
         "model_id": "Qwen/Qwen2.5-7B-Instruct",
         "params_b": 7,
-        "approx_vram_gb": 16,
+        "approx_vram_gb": 6,
     },
     "14": {
         "config": "vendor/KohakuRAG/configs/hf_qwen14b.py",
         "name": "qwen14b",
         "model_id": "Qwen/Qwen2.5-14B-Instruct",
         "params_b": 14,
-        "approx_vram_gb": 30,
+        "approx_vram_gb": 10,
     },
     "32": {
         "config": "vendor/KohakuRAG/configs/hf_qwen32b.py",
         "name": "qwen32b",
         "model_id": "Qwen/Qwen2.5-32B-Instruct",
         "params_b": 32,
-        "approx_vram_gb": 65,
+        "approx_vram_gb": 20,
     },
     "72": {
         "config": "vendor/KohakuRAG/configs/hf_qwen72b.py",
         "name": "qwen72b",
         "model_id": "Qwen/Qwen2.5-72B-Instruct",
-        "params_b": 72,
-        "approx_vram_gb": 140,
-    },
-    "72-4bit": {
-        "config": "vendor/KohakuRAG/configs/hf_qwen72b_4bit.py",
-        "name": "qwen72b-4bit",
-        "model_id": "Qwen/Qwen2.5-72B-Instruct (4-bit)",
         "params_b": 72,
         "approx_vram_gb": 40,
     },
@@ -122,7 +115,8 @@ def get_available_vram_gb() -> float:
     return 0.0
 
 
-def run_single_model(config_path: str, experiment_name: str, env: str = "") -> tuple[bool, dict | None]:
+def run_single_model(config_path: str, experiment_name: str, env: str = "",
+                     precision: str = "4bit") -> tuple[bool, dict | None]:
     """Run a single experiment via subprocess, return (success, summary_dict)."""
     output_dir = Path("artifacts/experiments/qwen-scaling") / experiment_name
 
@@ -130,6 +124,7 @@ def run_single_model(config_path: str, experiment_name: str, env: str = "") -> t
         sys.executable, "scripts/run_experiment.py",
         "--config", config_path,
         "--name", f"qwen-scaling/{experiment_name}",
+        "--precision", precision,
     ]
     if env:
         cmd.extend(["--env", env])
@@ -198,7 +193,7 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
             writer.writerow({
                 "model": summary.get("model_id", model_info.get("model_id", "")),
                 "params_b": model_info.get("params_b", ""),
-                "quantization": summary.get("quantization", summary.get("config_snapshot", {}).get("hf_dtype", "bf16")),
+                "quantization": summary.get("quantization", summary.get("config_snapshot", {}).get("hf_dtype", "4bit")),
                 "run_environment": summary.get("run_environment", ""),
                 "hostname": hw.get("hostname", ""),
                 "overall_score": f"{summary.get('overall_score', 0):.4f}",
@@ -291,6 +286,11 @@ def main():
         "--env", "-e", default="",
         help="Run environment label (e.g. 'GB10', 'PowerEdge') for cross-machine comparison",
     )
+    parser.add_argument(
+        "--precision", "-p", default="4bit",
+        choices=["4bit", "bf16", "fp16", "auto"],
+        help="Model precision/quantization (default: 4bit)",
+    )
 
     args = parser.parse_args()
 
@@ -352,7 +352,8 @@ def main():
 
     for size_key in sorted(sizes_to_run, key=_sort_key):
         model_info = QWEN_MODELS[size_key]
-        success, summary = run_single_model(model_info["config"], model_info["name"], env=args.env)
+        success, summary = run_single_model(model_info["config"], model_info["name"],
+                                            env=args.env, precision=args.precision)
         summaries[size_key] = summary
 
         # Force garbage collection between models to free VRAM

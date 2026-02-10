@@ -21,7 +21,6 @@ metadata = "../../data/metadata.csv"
 # LLM settings - Mixtral 8x7B Instruct (local)
 llm_provider = "hf_local"
 hf_model_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-hf_dtype = "4bit"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 
