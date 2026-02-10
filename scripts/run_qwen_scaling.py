@@ -85,7 +85,27 @@ QWEN_MODELS = {
         "params_b": 32,
         "approx_vram_gb": 65,
     },
+    "72": {
+        "config": "vendor/KohakuRAG/configs/hf_qwen72b.py",
+        "name": "qwen72b",
+        "model_id": "Qwen/Qwen2.5-72B-Instruct",
+        "params_b": 72,
+        "approx_vram_gb": 140,
+    },
+    "72-4bit": {
+        "config": "vendor/KohakuRAG/configs/hf_qwen72b_4bit.py",
+        "name": "qwen72b-4bit",
+        "model_id": "Qwen/Qwen2.5-72B-Instruct (4-bit)",
+        "params_b": 72,
+        "approx_vram_gb": 40,
+    },
 }
+
+
+def _sort_key(size_key: str) -> tuple[float, str]:
+    """Sort key for model size keys: numeric part first, then suffix."""
+    parts = size_key.split("-", 1)
+    return (float(parts[0]), parts[1] if len(parts) > 1 else "")
 
 
 def get_available_vram_gb() -> float:
@@ -165,7 +185,7 @@ def generate_comparison_csv(summaries: dict, output_path: Path):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
 
-        for size_key, summary in sorted(summaries.items(), key=lambda x: float(x[0])):
+        for size_key, summary in sorted(summaries.items(), key=lambda x: _sort_key(x[0])):
             if summary is None:
                 continue
 
@@ -211,7 +231,7 @@ def print_comparison_table(summaries: dict):
     print(f"{'Model':<30s} {'Params':>7s} {'Score':>7s} {'Value':>7s} {'VRAM':>8s} {'Disk':>7s} {'Energy':>8s} {'Latency':>9s}")
     print(f"{'-'*100}")
 
-    for size_key in sorted(summaries.keys(), key=float):
+    for size_key in sorted(summaries.keys(), key=_sort_key):
         s = summaries[size_key]
         if s is None:
             model_name = QWEN_MODELS.get(size_key, {}).get("model_id", f"Qwen {size_key}B")
@@ -314,7 +334,7 @@ def main():
     summaries = {}
     total_start = time.time()
 
-    for size_key in sorted(sizes_to_run, key=float):
+    for size_key in sorted(sizes_to_run, key=_sort_key):
         model_info = QWEN_MODELS[size_key]
         success, summary = run_single_model(model_info["config"], model_info["name"])
         summaries[size_key] = summary
