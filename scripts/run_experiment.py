@@ -444,7 +444,15 @@ class ExperimentRunner:
         # Compute aggregate metrics
         value_acc = sum(1 for r in self.results if r.value_correct) / total
         ref_overlap = sum(r.ref_score for r in self.results) / total
-        na_acc = sum(1 for r in self.results if r.na_correct) / total
+
+        # NA Recall: of all truly NA questions, how many did the model correctly abstain on?
+        # This replaces the old metric which counted over all questions (inflating to ~99%)
+        truly_na = [r for r in self.results if is_blank(r.gt_value)]
+        if truly_na:
+            na_acc = sum(1 for r in truly_na if r.na_correct) / len(truly_na)
+        else:
+            na_acc = 1.0  # No NA questions in this set
+
         overall = 0.75 * value_acc + 0.15 * ref_overlap + 0.10 * na_acc
         avg_latency = sum(r.latency_seconds for r in self.results) / total
         error_count = sum(1 for r in self.results if r.error)

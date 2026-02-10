@@ -287,11 +287,23 @@ def score(solution: pd.DataFrame,
     )
 
     comp = bits.mean(numeric_only=True)
+
+    # NA Recall: of all truly NA questions, how many did the model correctly abstain?
+    truly_na_mask = merged.apply(
+        lambda r: is_blank(r.filter(like="_sol").rename(lambda c: c[:-4])["answer_value"]),
+        axis=1,
+    )
+    n_truly_na = truly_na_mask.sum()
+    if n_truly_na > 0:
+        na_recall = bits.loc[truly_na_mask, "na"].mean()
+    else:
+        na_recall = 1.0  # No NA questions in this set
+
     overall = (
         0.75*comp["val"] +
         0.00*comp["unit"] +  # unit remains binary & weight=0
         0.15*comp["ref"] +   # now the mean Jaccard score
-        0.10*comp["na"]
+        0.10*na_recall
     )
 
     # ----- Component accuracy / score
@@ -299,7 +311,7 @@ def score(solution: pd.DataFrame,
     print(f"  value match  : {comp['val']:.3f}")
     print(f"  unit match   : {comp['unit']:.3f}")
     print(f"  ref overlap  : {comp['ref']:.3f}")  # renamed
-    print(f"  NA agreement : {comp['na']:.3f}")
+    print(f"  NA recall    : {na_recall:.3f}  ({n_truly_na} truly-NA questions)")
     print(f"OVERALL SCORE  : {overall:.3f}\n")
 
     # ----- Answer-value accuracy by coded evidence flags (multi-label; SOLUTION ONLY, NO FALLBACK)

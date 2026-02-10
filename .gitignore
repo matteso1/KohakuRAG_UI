@@ -42,8 +42,25 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Artifacts and data (large files)
-artifacts/
+# Artifacts -- ignore everything EXCEPT specific result files
+# Step 1: ignore everything under artifacts
+artifacts/*
+# Step 2: un-ignore the directories we need
+!artifacts/experiments/
+!artifacts/plots/
+!artifacts/results_matrix*.csv
+!artifacts/profile_mapping.json
+# Step 3: inside experiments/, ignore everything then whitelist
+artifacts/experiments/*
+!artifacts/experiments/*/
+# Step 4: inside each experiment dir, ignore everything then whitelist
+artifacts/experiments/*/*
+!artifacts/experiments/*/summary.json
+!artifacts/experiments/*/submission.csv
+# Step 5: inside plots/, only keep .png
+artifacts/plots/*
+!artifacts/plots/*.png
+
 data/
 *.db
 *.sqlite

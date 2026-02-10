@@ -168,6 +168,20 @@ def main():
     # We might need to handle Ref scoring if we want exact WattBot score.
     # Ref score usually needs overlap calculation. generate_results_matrix calls row_bits which does it.
     
+    # Identify truly-NA rows from ground truth (GT_Value is blank)
+    gt_val_col = "GT_Value"
+    if gt_val_col in df.columns:
+        truly_na_mask = df[gt_val_col].fillna("").astype(str).str.strip().str.lower().isin(
+            {"", "na", "n/a", "is_blank"}
+        ) | df[gt_val_col].fillna("").astype(str).str.lower().str.startswith(
+            "unable to answer with confidence"
+        )
+    else:
+        truly_na_mask = pd.Series([False] * len(df), index=df.index)
+
+    n_truly_na = truly_na_mask.sum()
+    print(f"  Truly-NA questions: {n_truly_na} / {len(df)}")
+
     for model in models:
         val_col = f"{model}_ValCorrect"
         ref_col = f"{model}_RefScore"
@@ -177,19 +191,21 @@ def main():
              val_acc = df[val_col].mean()
              ref_acc = df[ref_col].mean()
 
-             # Use actual NA scores if available, otherwise fall back to 1.0
-             if na_col in df.columns:
-                 na_acc = df[na_col].mean()
+             # NA Recall: of truly NA questions, how many did the model correctly abstain?
+             if na_col in df.columns and n_truly_na > 0:
+                 na_recall = df.loc[truly_na_mask, na_col].mean()
+             elif n_truly_na == 0:
+                 na_recall = 1.0  # No NA questions
              else:
-                 na_acc = 1.0  # Fallback for old matrices without NA column
+                 na_recall = 1.0  # Fallback for old matrices without NA column
 
-             # WattBot Score = 0.75*Val + 0.15*Ref + 0.10*NA
-             overall_score = 0.75 * val_acc + 0.15 * ref_acc + 0.10 * na_acc
+             # WattBot Score = 0.75*Val + 0.15*Ref + 0.10*NA_Recall
+             overall_score = 0.75 * val_acc + 0.15 * ref_acc + 0.10 * na_recall
 
              overall_scores[model] = {
                  "Value Accuracy": val_acc,
                  "Ref Overlap": ref_acc,
-                 "NA Accuracy": na_acc,
+                 "NA Recall": na_recall,
                  "Overall": overall_score,
                  "n_questions": len(df)
              }
@@ -212,7 +228,7 @@ def main():
     
     ax.set_ylim(0, 1.1)
     n_questions = len(df)
-    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions})", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)")
+    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions})", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA Recall)")
     
     # Add value labels
     for bar in bars:

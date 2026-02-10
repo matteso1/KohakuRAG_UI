@@ -129,6 +129,7 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None) -> l
             "display_name": display_name,
             "size_b": size_b,
             "size_estimated": estimated,
+            "num_questions": data.get("num_questions", 0),
             "overall_score": data.get("overall_score", 0),
             "value_accuracy": data.get("value_accuracy", 0),
             "ref_overlap": data.get("ref_overlap", 0),
@@ -395,7 +396,13 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path):
     ax.set_yticklabels(names, fontsize=11)
     ax.set_xlim(0, 1.0)
     ax.set_xlabel("WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)", fontsize=11)
-    ax.set_title(f"Model Performance Ranking (n={41} questions, fresh benchmark)", fontsize=14, fontweight="bold")
+    n_questions = experiments[0].get("num_questions", len(experiments))
+    # Try to get actual count from first experiment's summary
+    for e in experiments:
+        if e.get("num_questions"):
+            n_questions = e["num_questions"]
+            break
+    ax.set_title(f"Model Performance Ranking (n={n_questions} questions)", fontsize=14, fontweight="bold")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="x", linestyle="--", alpha=0.3)

@@ -59,15 +59,18 @@ def load_and_score(gt_path: Path, experiments_dir: Path):
 
         val_scores = []
         ref_scores = []
-        na_scores = []
+        na_scores = []      # na_correct per row
+        na_is_truly_na = []  # whether this row is a truly NA question
 
         for qid in common_ids:
             gt_row = gt_df.loc[qid]
             sub_row = sub_df.loc[qid]
 
+            gt_val = str(gt_row.get("answer_value", ""))
+
             bits = row_bits(
                 sol={
-                    "answer_value": str(gt_row.get("answer_value", "")),
+                    "answer_value": gt_val,
                     "answer_unit": str(gt_row.get("answer_unit", "")),
                     "ref_id": str(gt_row.get("ref_id", "")),
                 },
@@ -80,10 +83,19 @@ def load_and_score(gt_path: Path, experiments_dir: Path):
             val_scores.append(bits["val"])
             ref_scores.append(bits["ref"])
             na_scores.append(bits["na"])
+            na_is_truly_na.append(is_blank(gt_val))
 
         val_acc = np.mean(val_scores)
         ref_acc = np.mean(ref_scores)
-        na_acc = np.mean(na_scores)
+
+        # NA Recall: of all truly NA questions, how many correctly abstained?
+        truly_na_mask = [i for i, t in enumerate(na_is_truly_na) if t]
+        if truly_na_mask:
+            na_recall = np.mean([na_scores[i] for i in truly_na_mask])
+        else:
+            na_recall = 1.0  # No NA questions in this set
+        na_acc = na_recall
+
         overall = 0.75 * val_acc + 0.15 * ref_acc + 0.10 * na_acc
 
         results[model_name] = {
@@ -124,7 +136,7 @@ def plot_breakdown(results: dict, output_path: Path):
 
     bars1 = ax.bar(x - 1.5*width, val_scores, width, label=f"Value Acc (75%)", color=colors["Value"])
     bars2 = ax.bar(x - 0.5*width, ref_scores, width, label=f"Ref Overlap (15%)", color=colors["Ref"])
-    bars3 = ax.bar(x + 0.5*width, na_scores, width, label=f"NA Acc (10%)", color=colors["NA"])
+    bars3 = ax.bar(x + 0.5*width, na_scores, width, label=f"NA Recall (10%)", color=colors["NA"])
     bars4 = ax.bar(x + 1.5*width, overall_scores, width, label=f"Overall", color=colors["Overall"], alpha=0.8)
 
     # Add value labels on bars
@@ -145,7 +157,7 @@ def plot_breakdown(results: dict, output_path: Path):
     add_labels(bars4)  # Only label overall to avoid clutter
 
     ax.set_ylabel("Score", fontsize=12)
-    ax.set_title("WattBot Score Breakdown by Component\n(Weight: 75% Value + 15% Ref + 10% NA)", fontsize=14)
+    ax.set_title("WattBot Score Breakdown by Component\n(Weight: 75% Value + 15% Ref + 10% NA Recall)", fontsize=14)
     ax.set_xticks(x)
     ax.set_xticklabels(sorted_models, rotation=45, ha="right", fontsize=10)
     ax.legend(loc="upper right")
@@ -155,7 +167,7 @@ def plot_breakdown(results: dict, output_path: Path):
     # Add note about NA questions
     ax.text(
         0.02, 0.98,
-        "NA = Unanswerable questions (GT answer_value='is_blank')",
+        "NA Recall = Of truly unanswerable questions, how many did the model correctly abstain on?",
         transform=ax.transAxes,
         fontsize=9,
         verticalalignment="top",
