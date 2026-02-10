@@ -110,7 +110,7 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         return False, f"Config not found: {config_path}"
 
     cmd = [
-        sys.executable, "scripts/run_experiment.py",
+        sys.executable, "-u", "scripts/run_experiment.py",
         "--config", config_path,
         "--name", experiment_name,
         "--precision", precision,
@@ -120,31 +120,56 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     if questions:
         cmd.extend(["--questions", questions])
 
+    _noise_re = re.compile(
+        r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
+        r"|FutureWarning|warnings\.warn|torch_dtype|TRANSFORMERS_CACHE"
+        r"|malicious code|downloaded from https://huggingface"
+        r"|^\s*- (configuration|modeling)_"
+        r"|Setting `pad_token_id`"
+        r"|\d+%\|[█▏▎▍▌▋▊▉ ]*\|"
+    )
+    # Matches e.g. "[3/41] Q123: some answer [OK] (8.2s | ret=0.5s gen=7.7s)"
+    _progress_re = re.compile(r"^\[(\d+)/(\d+)\].*\[(?:OK|WRONG)\]\s*\((\d+\.\d+)s")
+
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=1800,  # 30 minute timeout (local models can be slow)
         )
 
-        output = result.stdout + result.stderr
-        success = result.returncode == 0
-
-        # Print the experiment report block (from "EXPERIMENT COMPLETE" onward),
-        # filtering out noisy stderr lines (progress bars, warnings, etc.)
-        report_lines = output.split("\n")
+        all_lines = []
         in_report = False
-        _noise_re = re.compile(
-            r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
-            r"|FutureWarning|warnings\.warn|torch_dtype|TRANSFORMERS_CACHE"
-            r"|malicious code|downloaded from https://huggingface"
-            r"|^\s*- (configuration|modeling)_"
-            r"|Setting `pad_token_id`"
-            r"|\d+%\|[█▏▎▍▌▋▊▉ ]*\|"
-        )
-        for line in report_lines:
+        score_line = ""
+        current_q = 0
+        total_q = 0
+        elapsed_sum = 0.0
+        start_time = time.time()
+
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            all_lines.append(line)
+
+            # Extract progress from per-question output
+            m = _progress_re.match(line)
+            if m:
+                current_q = int(m.group(1))
+                total_q = int(m.group(2))
+                q_time = float(m.group(3))
+                elapsed_sum += q_time
+                avg = elapsed_sum / current_q
+                eta = avg * (total_q - current_q)
+                bar_len = 20
+                filled = int(bar_len * current_q / total_q) if total_q else 0
+                bar = "█" * filled + "░" * (bar_len - filled)
+                print(f"\r  {bar} {current_q}/{total_q}  avg={avg:.1f}s  ETA={eta:.0f}s  ", end="", flush=True)
+                continue
+
+            # Capture report section
             if "EXPERIMENT COMPLETE" in line:
+                if current_q > 0:
+                    print()  # newline after progress bar
                 in_report = True
             if in_report:
                 stripped = line.strip()
@@ -152,26 +177,30 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
                     continue
                 print(f"  {line}")
 
-        # Look for the score line
-        score_line = ""
-        for line in report_lines:
+            # Capture score line
             if "OVERALL SCORE" in line:
                 score_line = line.strip()
-            elif "Error" in line and "Traceback" not in line:
-                score_line = line.strip()[:120]
+
+        proc.wait(timeout=1800)
+        success = proc.returncode == 0
 
         if not success:
-            # Check for gated model / auth errors
-            full_output = "\n".join(report_lines)
+            full_output = "\n".join(all_lines)
             if "401" in full_output or "Access denied" in full_output:
                 return False, "Gated model — accept license on HuggingFace + set HF_TOKEN"
-            error_lines = [l for l in report_lines if "Error" in l or "error" in l]
+            error_lines = [l for l in all_lines if "Error" in l or "error" in l]
             error_summary = error_lines[-1][:150] if error_lines else "Unknown error"
+            # Clear progress bar before error output
+            if current_q > 0:
+                print()
             return False, error_summary
 
         return True, score_line
 
     except subprocess.TimeoutExpired:
+        proc.kill()
+        if current_q > 0:
+            print()
         return False, "TIMEOUT (>30 min)"
     except Exception as e:
         return False, str(e)[:150]
