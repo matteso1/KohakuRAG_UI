@@ -27,12 +27,25 @@ from score import row_bits, is_blank, ref_overlap_score
 
 
 def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) -> dict[str, list[dict]]:
-    """Load results.json from each experiment."""
+    """Load results.json from each experiment.
+
+    Supports both flat (experiments/<name>/) and env-nested
+    (experiments/<env>/<name>/) directory layouts.
+    """
     all_results = {}
 
+    # Build lookup: experiment name -> results.json path
+    all_results_paths = {
+        p.parent.name: p
+        for p in experiments_dir.glob("**/results.json")
+    }
+
     for name in experiment_names:
+        # Try direct path first (supports <env>/<name> syntax), then name-only lookup
         results_path = experiments_dir / name / "results.json"
         if not results_path.exists():
+            results_path = all_results_paths.get(name)
+        if results_path is None or not results_path.exists():
             print(f"Warning: No results found for {name}")
             continue
 

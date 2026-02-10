@@ -100,7 +100,7 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None) -> l
     experiments = []
     seen_models = {}  # model_id -> best experiment
 
-    for summary_path in sorted(experiments_dir.glob("*/summary.json")):
+    for summary_path in sorted(experiments_dir.glob("**/summary.json")):
         try:
             with open(summary_path) as f:
                 data = json.load(f)

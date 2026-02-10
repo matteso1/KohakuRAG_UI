@@ -44,12 +44,14 @@ def audit():
     issues = []
     clean_experiments = []
 
-    for exp_dir in sorted(experiments_dir.iterdir()):
+    # Find all experiment dirs (supports both flat and <env>/<name>/ layouts)
+    exp_dirs = sorted(
+        p.parent for p in experiments_dir.glob("**/summary.json")
+    )
+
+    for exp_dir in exp_dirs:
         summary_path = exp_dir / "summary.json"
         results_path = exp_dir / "results.json"
-
-        if not summary_path.exists():
-            continue
 
         with open(summary_path) as f:
             s = json.load(f)
@@ -156,7 +158,7 @@ def audit():
             })
 
     print(f"{'='*110}")
-    print(f"\nTotal experiments: {len(list(experiments_dir.iterdir()))}")
+    print(f"\nTotal experiments: {len(exp_dirs)}")
     print(f"Clean experiments: {len(clean_experiments)}")
     print(f"Experiments with issues: {len(issues)}")
 

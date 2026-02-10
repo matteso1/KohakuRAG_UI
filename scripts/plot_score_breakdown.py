@@ -56,20 +56,20 @@ def load_and_score(gt_path: Path, experiments_dir: Path):
 
     results = {}
 
-    for exp_dir in experiments_dir.iterdir():
-        if not exp_dir.is_dir():
-            continue
+    # Find all experiment dirs (supports both flat and <env>/<name>/ layouts)
+    all_exp_dirs = sorted(
+        p.parent for p in experiments_dir.glob("**/submission.csv")
+    )
 
+    for exp_dir in all_exp_dirs:
         sub_path = exp_dir / "submission.csv"
-        if not sub_path.exists():
-            continue
 
         model_name = exp_dir.name
 
-        # Skip v1 versions if v2 exists
+        # Skip v1 versions if v2 exists (check sibling directory)
         if model_name.endswith("-v1"):
             v2_name = model_name.replace("-v1", "-v2")
-            if (experiments_dir / v2_name).exists():
+            if (exp_dir.parent / v2_name).exists():
                 continue
 
         sub_df = pd.read_csv(sub_path)
