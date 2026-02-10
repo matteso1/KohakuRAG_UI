@@ -284,7 +284,7 @@ class BedrockChatModel:
                 ],
             }
 
-    def _parse_response(self, result: dict) -> tuple[str, int, int]:
+    def _parse_response(self, result: dict, headers: dict | None = None) -> tuple[str, int, int]:
         """Parse the response based on model family."""
         family = self._detect_model_family()
 
@@ -327,9 +327,12 @@ class BedrockChatModel:
                         text = text[think_end + len("</think>"):].strip()
             else:
                 text = result.get("generation", "")
-            # DeepSeek doesn't return token counts in response
+            # DeepSeek returns token counts in HTTP headers, not response body
             input_tokens = 0
             output_tokens = 0
+            if headers:
+                input_tokens = int(headers.get("x-amzn-bedrock-input-token-count", 0))
+                output_tokens = int(headers.get("x-amzn-bedrock-output-token-count", 0))
             return text, input_tokens, output_tokens
 
         elif family == "openai":
@@ -403,7 +406,9 @@ class BedrockChatModel:
         )
 
         result = json.loads(response["body"].read())
-        return self._parse_response(result)
+        # Pass HTTP headers for models that return token counts there (e.g. DeepSeek)
+        headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        return self._parse_response(result, headers=headers)
 
     async def complete(
         self,

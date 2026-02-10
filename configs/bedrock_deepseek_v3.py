@@ -51,7 +51,7 @@ retrieval_threshold = 0.25
 
 # Other settings - lower concurrency for large model
 max_retries = 3
-max_concurrent = 2
+max_concurrent = 1
 
 
 def config_gen():

@@ -7,8 +7,9 @@ Streamlit interface for the KohakuRAG pipeline. Answers questions about AI susta
 This repo wraps [KohakuRAG](https://github.com/KohakuBlueleaf/KohakuRAG) (the #1 solution from WattBot 2025) with a web interface and deploys it on AWS. The goal is a pay-per-use chatbot that answers questions about the environmental impacts of AI, with proper citations.
 
 **Current Status:**
-- Bedrock integration: complete
-- Streamlit UI: in progress (Blaise)
+
+- Bedrock integration: **Complete & Verified** (Pricing audit done Feb 2026)
+- Streamlit UI: **Complete** (Dark theme, Cost Efficiency plots)
 - Deployment: planned
 
 ## Architecture
@@ -62,18 +63,21 @@ python scripts/demo_bedrock_rag.py --question "What is the carbon footprint of t
 
 ## Benchmark Scores
 
-| Config | Score | Notes |
-|--------|-------|-------|
-| JinaV3 + Haiku | 0.665 | Current baseline |
-| JinaV4 + Sonnet | 0.633 | Better model, context issues |
-| Winning solution | 0.861 | GPT-OSS-120B + 9x ensemble |
+| Config | Score | Cost/1M (In/Out) | Notes |
+|--------|-------|------------------|-------|
+| JinaV3 + Haiku | 0.665 | $0.80 / $4.00 | Previous baseline |
+| JinaV4 + Sonnet 3.5 | 0.747 | $3.00 / $15.00 | High accuracy leader |
+| GPT-OSS 120B | 0.725 | $0.15 / $0.60 | Best cost efficiency |
+| DeepSeek R1 | 0.735 | $1.35 / $5.40 | Strong reasoning, moderate cost |
 
-Gap is mostly model size and ensemble voting. Could get closer with Sonnet + ensemble but costs 50x more per query.
+Gap is mostly model size and ensemble voting. DeepSeek R1 shows strong reasoning capabilities at a fraction of Sonnet's cost.
 
 ## Cost
 
-- Haiku: ~$0.003/query
-- Sonnet: ~$0.03/query
+- **Claude 3 Haiku**: ~$2.86 per full benchmark run
+- **Claude 3.5 Sonnet**: ~$10.80 per run
+- **GPT-OSS 120B**: ~$0.51 per run (Highly efficient)
+- **DeepSeek R1**: ~$1.87 per run
 - Idle: $0 (Bedrock is pay-per-use)
 
 ## Repo Structure
@@ -101,11 +105,13 @@ KohakuRAG_UI/
 ## For Blaise
 
 Download the index:
+
 ```bash
 aws s3 cp s3://wattbot-nils-kohakurag/indexes/wattbot_jinav4.db artifacts/
 ```
 
 Basic usage:
+
 ```python
 from llm_bedrock import BedrockChatModel
 
@@ -124,6 +130,7 @@ See `scripts/demo_bedrock_rag.py` for full pipeline example.
 
 - [Progress Report](docs/tuesday-progress-report.md) - Week 1 accomplishments
 - [Bedrock Proposal](docs/bedrock-integration-proposal.md) - Technical design
+- [Bedrock Integration Details](docs/BEDROCK_INTEGRATION.md) - **New**: Pricing audit, DeepSeek token tracking, Cost Analysis
 
 ## Team
 

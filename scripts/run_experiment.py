@@ -100,12 +100,11 @@ class ExperimentSummary:
     config_snapshot: dict = field(default_factory=dict)
 
 
-# Bedrock pricing per 1M tokens (as of Feb 2026)
-# https://aws.amazon.com/bedrock/pricing/
-# Prices are for on-demand inference in us-east-2. Cross-region may differ slightly.
+# Bedrock pricing per 1M tokens — US East (Ohio), Standard On-Demand
+# Source: https://aws.amazon.com/bedrock/pricing/ (verified 2026-02-10)
 BEDROCK_PRICING = {
     # Anthropic Claude family
-    "claude-3-haiku": {"input": 0.25, "output": 1.25},
+    "claude-3-haiku": {"input": 0.80, "output": 4.00},
     "claude-3-5-haiku": {"input": 0.80, "output": 4.00},
     "claude-3-sonnet": {"input": 3.00, "output": 15.00},
     "claude-3-5-sonnet": {"input": 3.00, "output": 15.00},
@@ -113,17 +112,17 @@ BEDROCK_PRICING = {
     "claude-3-opus": {"input": 15.00, "output": 75.00},
     # Meta Llama family
     "llama3-70b": {"input": 0.72, "output": 0.72},
-    "llama4-scout": {"input": 0.17, "output": 0.17},
-    "llama4-maverick": {"input": 0.49, "output": 0.49},
+    "llama4-scout": {"input": 0.17, "output": 0.66},
+    "llama4-maverick": {"input": 0.24, "output": 0.97},
     # Amazon Nova
     "nova-pro": {"input": 0.80, "output": 3.20},
     # Mistral
     "mistral-small": {"input": 0.10, "output": 0.30},
     # DeepSeek
-    "deepseek": {"input": 1.35, "output": 5.40},       # DeepSeek R1 distill on Bedrock
-    # OpenAI GPT-OSS (open-weight, Aug 2025)
-    "gpt-oss-20b": {"input": 0.15, "output": 0.30},    # Very cheap, comparable to Nova Lite
-    "gpt-oss-120b": {"input": 0.30, "output": 0.60},   # ~half of Claude 3 Haiku
+    "deepseek": {"input": 1.35, "output": 5.40},       # DeepSeek R1 — Standard tier
+    # OpenAI GPT-OSS (open-weight)
+    "gpt-oss-20b": {"input": 0.09, "output": 0.39},
+    "gpt-oss-120b": {"input": 0.15, "output": 0.60},
 }
 
 

@@ -129,19 +129,84 @@ def wilson_ci(k, n, z=1.96):
     spread = z * math.sqrt(p*(1-p)/n + z**2/(4*n**2)) / denom
     return max(0, centre - spread), min(1, centre + spread)
 
+# Bedrock pricing — US East (Ohio), Standard On-Demand, per 1M tokens
+# Source: https://aws.amazon.com/bedrock/pricing/ (verified 2026-02-10)
+BEDROCK_PRICING = {
+    # model_id substring → (input $/1M, output $/1M)
+    "claude-3-haiku":       (0.80,   4.00),   # Claude 3 Haiku — On-Demand
+    "claude-3-5-haiku":     (0.80,   4.00),   # Claude 3.5 Haiku — On-Demand
+    "claude-3-5-sonnet":    (3.00,  15.00),   # Claude 3.5 Sonnet — On-Demand
+    "claude-3-7-sonnet":    (3.00,  15.00),   # Claude 3.7 Sonnet — On-Demand
+    "deepseek.r1":          (1.35,   5.40),   # DeepSeek R1 — Standard tier
+    "llama3-3-70b":         (0.72,   0.72),   # Llama 3.3 70B Instruct
+    "llama4-maverick":      (0.24,   0.97),   # Llama 4 Maverick 17B
+    "llama4-scout":         (0.17,   0.66),   # Llama 4 Scout 17B
+    "gpt-oss-120b":         (0.15,   0.60),   # OpenAI GPT-OSS 120B — On-Demand
+    "gpt-oss-20b":          (0.09,   0.39),   # OpenAI GPT-OSS 20B — On-Demand
+    "nova-pro":             (0.80,   3.20),   # Amazon Nova Pro
+    "mistral-small":        (0.10,   0.30),   # Mistral Small
+}
+
+def _get_pricing(model_id: str):
+    """Match a model_id to its Bedrock pricing."""
+    model_lower = model_id.lower()
+    for key, prices in BEDROCK_PRICING.items():
+        if key in model_lower:
+            return prices
+    return None
+
 def load_summaries():
-    """Load cost / latency from summary.json files."""
-    info = {}
+    """Load cost / latency from summary.json files.
+
+    Costs are computed from token counts × Bedrock pricing.
+    For models with 0 token counts (e.g. DeepSeek R1 via OpenRouter),
+    we estimate tokens from the average of other models on the same benchmark.
+    """
+    raw = {}
     for d in EXP_DIR.iterdir():
         s = d / "summary.json"
         if not s.exists(): continue
         try:
             data = json.loads(s.read_text())
-            info[d.name] = {
-                "cost": data.get("estimated_cost_usd", 0),
-                "latency": data.get("avg_latency_seconds", 0),
-            }
+            raw[d.name] = data
         except: pass
+
+    # First pass: compute costs where we have tokens
+    info = {}
+    token_counts = []  # collect for estimating missing ones
+    for name, data in raw.items():
+        model_id = data.get("model_id", "")
+        inp_tok = data.get("input_tokens", 0)
+        out_tok = data.get("output_tokens", 0)
+        latency = data.get("avg_latency_seconds", 0)
+        pricing = _get_pricing(model_id)
+
+        if pricing and inp_tok > 0:
+            cost = (inp_tok * pricing[0] + out_tok * pricing[1]) / 1_000_000
+            token_counts.append((inp_tok, out_tok))
+        elif pricing and inp_tok == 0:
+            cost = None  # will estimate in second pass
+        else:
+            cost = 0
+
+        info[name] = {
+            "cost": cost,
+            "latency": latency,
+            "model_id": model_id,
+        }
+
+    # Second pass: estimate costs for models with 0 tokens
+    if token_counts:
+        avg_inp = sum(t[0] for t in token_counts) / len(token_counts)
+        avg_out = sum(t[1] for t in token_counts) / len(token_counts)
+        for name, entry in info.items():
+            if entry["cost"] is None:
+                pricing = _get_pricing(entry["model_id"])
+                if pricing:
+                    entry["cost"] = (avg_inp * pricing[0] + avg_out * pricing[1]) / 1_000_000
+                else:
+                    entry["cost"] = 0
+
     return info
 
 def save(name):
@@ -466,21 +531,19 @@ def plot_pareto_scatter(models, xs, ys, xlabel, ylabel, title, filename,
 def plot_cost_efficiency(models, scores, summaries):
     """
     Horizontal bar chart: score per dollar.
-    Free models (DeepSeek R1) get a special annotation since cost=0.
+    All costs computed from Bedrock pricing × token counts.
     """
     rows = []
-    free_models = []
     for m in models:
         if m not in summaries or m not in scores:
             continue
-        cost = summaries[m]["cost"]
+        cost = summaries[m].get("cost", 0)
+        if not cost or cost <= 0:
+            continue
         score = scores[m]["overall"]
-        if cost <= 0:
-            free_models.append((m, score))
-        else:
-            rows.append((m, score, cost, score / cost))
+        rows.append((m, score, cost, score / cost))
 
-    if not rows and not free_models:
+    if not rows:
         return
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -502,18 +565,6 @@ def plot_cost_efficiency(models, scores, summaries):
         ax.text(w + max(efficiencies)*0.02, bar.get_y() + bar.get_height()/2,
                 f"Score: {s:.3f}  |  Cost: ${c:.2f}",
                 va="center", fontsize=9, color="#555")
-
-    for j, (m, score) in enumerate(free_models):
-        y_pos = len(rows) + j
-        y_positions.append(y_pos)
-        names.append(DISPLAY.get(m, m))
-        ax.barh(y_pos, max(efficiencies) * 1.15, color=fcolor(m), height=0.6,
-                edgecolor="white", linewidth=0.8, zorder=3, alpha=0.7,
-                hatch="//")
-        ax.text(max(efficiencies) * 0.5, y_pos,
-                f"FREE  |  Score: {score:.3f}",
-                va="center", ha="center", fontsize=10, fontweight="bold",
-                color="white", zorder=5)
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels(names, fontsize=12)
