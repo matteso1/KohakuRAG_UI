@@ -190,12 +190,24 @@ def main():
              # WattBot Score = 0.75*Val + 0.15*Ref + 0.10*NA_recall
              overall_score = 0.75 * val_acc + 0.15 * ref_acc + 0.10 * na_recall
 
+             # Compute 95% CI via error propagation across weighted components
+             n = len(df)
+             val_se = np.sqrt(val_acc * (1 - val_acc) / n) if n > 0 else 0
+             ref_se = df[ref_col].std() / np.sqrt(n) if n > 1 else 0
+             if na_col in df.columns and "GT_Value" in df.columns and na_gt_mask.any():
+                 n_na = na_gt_mask.sum()
+                 na_se = np.sqrt(na_recall * (1 - na_recall) / n_na) if n_na > 1 else 0
+             else:
+                 na_se = 0
+             overall_se = np.sqrt((0.75 * val_se)**2 + (0.15 * ref_se)**2 + (0.10 * na_se)**2)
+
              overall_scores[model] = {
                  "Value Accuracy": val_acc,
                  "Ref Overlap": ref_acc,
                  "NA Recall": na_recall,
                  "Overall": overall_score,
-                 "n_questions": len(df)
+                 "n_questions": n,
+                 "overall_ci": 1.96 * overall_se,  # 95% CI half-width
              }
         else:
             print(f"Warning: Score columns missing for {model}")
@@ -211,12 +223,14 @@ def main():
     model_names = [p[0] for p in sorted_pairs]
     scores = [p[1] for p in sorted_pairs]
     
+    ci_widths = [overall_scores[m]["overall_ci"] for m in model_names]
     colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(models)))
-    bars = ax.bar(model_names, scores, color=colors, width=0.6)
-    
-    ax.set_ylim(0, 1.1)
+    bars = ax.bar(model_names, scores, color=colors, width=0.6,
+                  yerr=ci_widths, capsize=4, error_kw={'linewidth': 1.5, 'color': '#333'})
+
+    ax.set_ylim(0, 1.15)
     n_questions = len(df)
-    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions})", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)")
+    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions}, 95% CI)", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)")
     
     # Add value labels
     for bar in bars:

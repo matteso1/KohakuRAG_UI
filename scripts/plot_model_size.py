@@ -72,6 +72,20 @@ MODEL_SIZES = {
 }
 
 
+def wilson_ci_half(p: float, n: int, confidence: float = 0.95) -> float:
+    """Wilson CI half-width for a proportion p with n trials.
+
+    Returns the half-width of the 95% CI (i.e., score ± this value).
+    """
+    if n == 0 or p < 0 or p > 1:
+        return 0.0
+    z = 1.96 if confidence == 0.95 else 1.645
+    denom = 1 + z**2 / n
+    center = (p + z**2 / (2 * n)) / denom
+    spread = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / denom
+    return spread
+
+
 def match_model_size(model_id: str) -> tuple[str, float, bool] | None:
     """Match a model ID to our size registry. Returns (name, size_B, estimated)."""
     model_lower = model_id.lower()
@@ -126,6 +140,14 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None) -> l
         if latency_suspect:
             print(f"  Warning: {name} has high avg latency ({avg_latency:.0f}s)")
 
+        # Compute Wilson CI for score components
+        nq = n_questions if n_questions > 0 else 1
+        val_ci = wilson_ci_half(data.get("value_accuracy", 0), nq)
+        ref_ci = wilson_ci_half(data.get("ref_overlap", 0), nq)
+        na_ci = wilson_ci_half(data.get("na_accuracy", 0), nq)
+        # Overall CI via error propagation of weighted components
+        overall_ci = np.sqrt((0.75 * val_ci)**2 + (0.15 * ref_ci)**2 + (0.10 * na_ci)**2)
+
         entry = {
             "experiment": name,
             "model_id": model_id,
@@ -137,6 +159,11 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None) -> l
             "value_accuracy": data.get("value_accuracy", 0),
             "ref_overlap": data.get("ref_overlap", 0),
             "na_accuracy": data.get("na_accuracy", 0),
+            "num_questions": n_questions,
+            "overall_ci": overall_ci,
+            "val_ci": val_ci,
+            "ref_ci": ref_ci,
+            "na_ci": na_ci,
             "avg_latency": avg_latency,
             "latency_suspect": latency_suspect,
             "total_cost": data.get("estimated_cost_usd", 0),
@@ -222,6 +249,14 @@ def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
     """Plot 1: Model Size vs. WattBot Component Scores."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
+    # Map metric key -> CI key
+    ci_keys = {
+        "overall_score": "overall_ci",
+        "value_accuracy": "val_ci",
+        "ref_overlap": "ref_ci",
+        "na_accuracy": "na_ci",
+    }
+
     metrics = [
         ("overall_score", "Overall WattBot Score", axes[0, 0]),
         ("value_accuracy", "Value Accuracy (75% weight)", axes[0, 1]),
@@ -237,8 +272,10 @@ def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
 
     for metric_key, metric_label, ax in metrics:
         values = [e[metric_key] for e in experiments]
+        ci_half = [e.get(ci_keys[metric_key], 0) for e in experiments]
 
-        for x, y, c, m in zip(sizes, values, colors, markers):
+        for x, y, ci, c, m in zip(sizes, values, ci_half, colors, markers):
+            ax.errorbar(x, y, yerr=ci, fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
             ax.scatter(x, y, c=c, s=120, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
         annotate_points(ax, sizes, values, names, est_flags)
 
@@ -377,6 +414,7 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path):
     sorted_exp = sorted(experiments, key=lambda x: x["overall_score"])
     names = [e["display_name"] for e in sorted_exp]
     scores = [e["overall_score"] for e in sorted_exp]
+    ci_widths = [e.get("overall_ci", 0) for e in sorted_exp]
     colors = [get_color(n) for n in names]
     # Add indicator for local vs API
     labels = []
@@ -384,18 +422,19 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path):
         suffix = " [local]" if e.get("llm_provider") == "hf_local" else ""
         labels.append(f"{e['display_name']}{suffix}")
 
-    bars = ax.barh(range(len(labels)), scores, color=colors, edgecolor="white", linewidth=1.2, height=0.65)
+    bars = ax.barh(range(len(labels)), scores, color=colors, edgecolor="white", linewidth=1.2, height=0.65,
+                   xerr=ci_widths, capsize=3, error_kw={'linewidth': 1.2, 'color': '#333'})
 
-    for i, (bar, score) in enumerate(zip(bars, scores)):
-        ax.text(bar.get_width() + 0.008, bar.get_y() + bar.get_height() / 2,
+    for i, (bar, score, ci) in enumerate(zip(bars, scores, ci_widths)):
+        ax.text(bar.get_width() + ci + 0.01, bar.get_y() + bar.get_height() / 2,
                 f"{score:.3f}", va="center", fontsize=10, fontweight="bold")
 
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, fontsize=11)
-    ax.set_xlim(0, 1.0)
+    ax.set_xlim(0, 1.05)
     ax.set_xlabel("WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)", fontsize=11)
-    n_q = experiments[0].get("num_questions", "?") if experiments else "?"
-    ax.set_title(f"Model Performance Ranking", fontsize=14, fontweight="bold")
+    n_q = sorted_exp[0].get("num_questions", "?") if sorted_exp else "?"
+    ax.set_title(f"Model Performance Ranking (n={n_q}, 95% CI)", fontsize=14, fontweight="bold")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="x", linestyle="--", alpha=0.3)
@@ -458,16 +497,23 @@ def plot_score_breakdown(experiments: list[dict], output_dir: Path):
     val_scores = [e["value_accuracy"] for e in sorted_exp]
     ref_scores = [e["ref_overlap"] for e in sorted_exp]
     na_scores = [e["na_accuracy"] for e in sorted_exp]
+    val_ci = [e.get("val_ci", 0) for e in sorted_exp]
+    ref_ci = [e.get("ref_ci", 0) for e in sorted_exp]
+    na_ci = [e.get("na_ci", 0) for e in sorted_exp]
 
-    ax.bar(x - width, val_scores, width, label="Value Accuracy (75%)", color="#6366f1", alpha=0.85)
-    ax.bar(x, ref_scores, width, label="Reference Overlap (15%)", color="#f59e0b", alpha=0.85)
-    ax.bar(x + width, na_scores, width, label="NA Recall (10%)", color="#10b981", alpha=0.85)
+    err_kw = {'linewidth': 1, 'color': '#333'}
+    ax.bar(x - width, val_scores, width, label="Value Accuracy (75%)", color="#6366f1", alpha=0.85,
+           yerr=val_ci, capsize=2, error_kw=err_kw)
+    ax.bar(x, ref_scores, width, label="Reference Overlap (15%)", color="#f59e0b", alpha=0.85,
+           yerr=ref_ci, capsize=2, error_kw=err_kw)
+    ax.bar(x + width, na_scores, width, label="NA Recall (10%)", color="#10b981", alpha=0.85,
+           yerr=na_ci, capsize=2, error_kw=err_kw)
 
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=35, ha="right", fontsize=10)
-    ax.set_ylim(0, 1.05)
+    ax.set_ylim(0, 1.15)
     ax.set_ylabel("Score", fontsize=11)
-    ax.set_title("Score Component Breakdown by Model", fontsize=14, fontweight="bold")
+    ax.set_title("Score Component Breakdown by Model (95% Wilson CI)", fontsize=14, fontweight="bold")
     ax.legend(loc="upper right", fontsize=9)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
