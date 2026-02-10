@@ -11,7 +11,7 @@ Usage:
     python scripts/run_wattbot_eval.py
 
     # With a specific config:
-    python scripts/run_wattbot_eval.py --config configs/hf_qwen7b.py
+    python scripts/run_wattbot_eval.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
 
     # Override provider via CLI:
     python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-7B-Instruct
@@ -429,7 +429,7 @@ Examples:
     python scripts/run_wattbot_eval.py
 
     # With config file:
-    python scripts/run_wattbot_eval.py --config configs/hf_qwen7b.py
+    python scripts/run_wattbot_eval.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
 
     # Override model via CLI:
     python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-7B-Instruct

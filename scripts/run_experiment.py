@@ -13,8 +13,8 @@ Supports:
     - bedrock: AWS Bedrock models (requires llm_bedrock module)
 
 Usage:
-    python scripts/run_experiment.py --config configs/hf_qwen7b.py
-    python scripts/run_experiment.py --config configs/hf_qwen7b.py --name "qwen7b-test"
+    python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
+    python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name "qwen7b-test"
 
 Output:
     - artifacts/experiments/<name>/submission.csv - Kaggle format submission
@@ -702,7 +702,7 @@ def cli():
     parser.add_argument(
         "--config", "-c",
         required=True,
-        help="Path to config file (e.g., configs/hf_qwen7b.py)"
+        help="Path to config file (e.g., vendor/KohakuRAG/configs/hf_qwen7b.py)"
     )
     parser.add_argument(
         "--name", "-n",

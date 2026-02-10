@@ -51,35 +51,35 @@ from pathlib import Path
 
 QWEN_MODELS = {
     "1.5": {
-        "config": "configs/hf_qwen1_5b.py",
+        "config": "vendor/KohakuRAG/configs/hf_qwen1_5b.py",
         "name": "qwen1.5b",
         "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
         "params_b": 1.5,
         "approx_vram_gb": 4,
     },
     "3": {
-        "config": "configs/hf_qwen3b.py",
+        "config": "vendor/KohakuRAG/configs/hf_qwen3b.py",
         "name": "qwen3b",
         "model_id": "Qwen/Qwen2.5-3B-Instruct",
         "params_b": 3,
         "approx_vram_gb": 8,
     },
     "7": {
-        "config": "configs/hf_qwen7b.py",
+        "config": "vendor/KohakuRAG/configs/hf_qwen7b.py",
         "name": "qwen7b",
         "model_id": "Qwen/Qwen2.5-7B-Instruct",
         "params_b": 7,
         "approx_vram_gb": 16,
     },
     "14": {
-        "config": "configs/hf_qwen14b.py",
+        "config": "vendor/KohakuRAG/configs/hf_qwen14b.py",
         "name": "qwen14b",
         "model_id": "Qwen/Qwen2.5-14B-Instruct",
         "params_b": 14,
         "approx_vram_gb": 30,
     },
     "32": {
-        "config": "configs/hf_qwen32b.py",
+        "config": "vendor/KohakuRAG/configs/hf_qwen32b.py",
         "name": "qwen32b",
         "model_id": "Qwen/Qwen2.5-32B-Instruct",
         "params_b": 32,

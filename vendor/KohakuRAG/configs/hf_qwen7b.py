@@ -5,18 +5,18 @@ Qwen 2.5 7B is a strong open-source instruction-tuned model from Alibaba.
 Runs locally on a single GPU with ~16GB VRAM (bf16).
 
 Usage:
-    python scripts/run_experiment.py --config configs/hf_qwen7b.py
-    python scripts/run_wattbot_eval.py --config configs/hf_qwen7b.py
+    python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
+    python scripts/run_wattbot_eval.py --config vendor/KohakuRAG/configs/hf_qwen7b.py
 """
 
 # Database settings
-db = "artifacts/wattbot_jinav4.db"
+db = "../../artifacts/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 
 # Input/output
-questions = "data/train_QA.csv"
-output = "artifacts/submission_qwen7b.csv"
-metadata = "data/metadata.csv"
+questions = "../../data/train_QA.csv"
+output = "../../artifacts/submission_qwen7b.csv"
+metadata = "../../data/metadata.csv"
 
 # LLM settings - Qwen 2.5 7B Instruct (local)
 llm_provider = "hf_local"

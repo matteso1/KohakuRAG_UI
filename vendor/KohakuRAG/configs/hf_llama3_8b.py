@@ -4,17 +4,17 @@ WattBot Evaluation Config - Llama 3.1 8B Instruct (Local HF)
 Meta's Llama 3.1 8B Instruct. Runs on a single GPU with ~18GB VRAM (bf16).
 
 Usage:
-    python scripts/run_experiment.py --config configs/hf_llama3_8b.py
+    python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_llama3_8b.py
 """
 
 # Database settings
-db = "artifacts/wattbot_jinav4.db"
+db = "../../artifacts/wattbot_jinav4.db"
 table_prefix = "wattbot_jv4"
 
 # Input/output
-questions = "data/train_QA.csv"
-output = "artifacts/submission_llama3_8b.csv"
-metadata = "data/metadata.csv"
+questions = "../../data/train_QA.csv"
+output = "../../artifacts/submission_llama3_8b.csv"
+metadata = "../../data/metadata.csv"
 
 # LLM settings - Llama 3.1 8B Instruct (local)
 llm_provider = "hf_local"
