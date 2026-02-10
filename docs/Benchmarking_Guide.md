@@ -101,13 +101,18 @@ python scripts/run_wattbot_eval.py --provider hf_local --hf-model Qwen/Qwen2.5-1
 
 ## 2) Available configs
 
-| Config file              | Model                   | VRAM needed | Provider  |
-|--------------------------|-------------------------|-------------|-----------|
-| `hf_qwen7b.py`          | Qwen 2.5 7B Instruct   | ~16 GB      | hf_local  |
-| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct | ~4 GB       | hf_local  |
-| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct   | ~18 GB      | hf_local  |
-| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3| ~16 GB      | hf_local  |
-| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)    | ~8 GB       | hf_local  |
+| Config file              | Model                       | Params | VRAM (bf16) | VRAM (4-bit) | Provider  |
+|--------------------------|-----------------------------|--------|-------------|--------------|-----------|
+| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct     | 1.5B   | ~4 GB       | —            | hf_local  |
+| `hf_qwen3b.py`          | Qwen 2.5 3B Instruct       | 3B     | ~8 GB       | —            | hf_local  |
+| `hf_qwen7b.py`          | Qwen 2.5 7B Instruct       | 7B     | ~16 GB      | —            | hf_local  |
+| `hf_qwen14b.py`         | Qwen 2.5 14B Instruct      | 14B    | ~30 GB      | —            | hf_local  |
+| `hf_qwen32b.py`         | Qwen 2.5 32B Instruct      | 32B    | ~65 GB      | —            | hf_local  |
+| `hf_qwen72b.py`         | Qwen 2.5 72B Instruct      | 72B    | ~140 GB     | —            | hf_local  |
+| `hf_qwen72b_4bit.py`    | Qwen 2.5 72B Instruct (4-bit) | 72B | —           | ~40 GB       | hf_local  |
+| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct      | 8B     | ~18 GB      | —            | hf_local  |
+| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3   | 7B     | ~16 GB      | —            | hf_local  |
+| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)        | 3.8B   | ~8 GB       | —            | hf_local  |
 
 Bedrock configs (from the `bedrock` branch) also work if you have
 `llm_bedrock.py` and AWS credentials set up.
@@ -275,69 +280,162 @@ per-process `CUDA_VISIBLE_DEVICES` assignment.
 
 ## 7) Adding a new model
 
+Follow these steps whenever you want to add a new model (local HF or API).
+
 ### Step 1: Create a config file
 
-Copy an existing config and modify:
+Copy the closest existing config and modify it. All configs live in
+`vendor/KohakuRAG/configs/`.
 
 ```bash
-cp vendor/KohakuRAG/configs/hf_qwen7b.py vendor/KohakuRAG/configs/hf_newmodel.py
+# Example: adding a new 13B model
+cp vendor/KohakuRAG/configs/hf_qwen7b.py vendor/KohakuRAG/configs/hf_newmodel13b.py
 ```
 
-Edit `vendor/KohakuRAG/configs/hf_newmodel.py`:
+Edit `vendor/KohakuRAG/configs/hf_newmodel13b.py`:
 
 ```python
+"""
+WattBot Evaluation Config - New Model 13B Instruct (Local HF)
+
+Brief description: what the model is, VRAM requirements, any special notes.
+"""
+
+# Database settings (keep these the same)
+db = "../../artifacts/wattbot_jinav4.db"
+table_prefix = "wattbot_jv4"
+
+# Input/output
+questions = "../../data/train_QA.csv"
+output = "../../artifacts/submission_newmodel13b.csv"  # unique output path
+metadata = "../../data/metadata.csv"
+
 # LLM settings
 llm_provider = "hf_local"
-hf_model_id = "organization/Model-Name-Instruct"  # HuggingFace model ID
-hf_dtype = "bf16"        # or "fp16", "auto"
+hf_model_id = "organization/Model-13B-Instruct"  # HuggingFace model ID
+hf_dtype = "bf16"           # "bf16", "fp16", "4bit", or "auto"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 
-# Adjust concurrency based on model size
-max_concurrent = 2  # lower for bigger models
+# Embedding settings (keep these the same)
+embedding_model = "hf_local"
+embedding_model_id = "BAAI/bge-base-en-v1.5"
+
+# Retrieval settings (keep these the same for fair comparison)
+top_k = 8
+planner_max_queries = 3
+deduplicate_retrieval = True
+rerank_strategy = "combined"
+top_k_final = 10
+
+# Unanswerable detection
+retrieval_threshold = 0.25
+
+# Other settings
+max_retries = 2
+max_concurrent = 2  # lower (1) for large models, higher (3-4) for small ones
 ```
 
-### Step 2: Register in the benchmark runner (optional)
+**Key things to change:**
+- `output` — give it a unique filename so submissions don't overwrite each other
+- `hf_model_id` — the HuggingFace model identifier
+- `hf_dtype` — use `"bf16"` for most models; `"4bit"` for very large models that
+  need quantization (requires `bitsandbytes`: `uv pip install bitsandbytes`)
+- `max_concurrent` — lower for larger models (GPU memory), higher for smaller ones
 
-If you want `run_full_benchmark.py` to include it, add to
-`scripts/run_full_benchmark.py`:
+**Important:** Keep the `../../` path prefix on `db`, `questions`, `output`, and
+`metadata`. These paths are relative to `vendor/KohakuRAG/` (where `kogine` runs
+from), and the experiment scripts strip the prefix automatically.
+
+### Step 2: Test with a smoke run
+
+```bash
+# Single-question smoke test
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_newmodel13b.py \
+    --name newmodel13b-smoke
+
+# Check the output
+python -m json.tool artifacts/experiments/newmodel13b-smoke/summary.json
+```
+
+If this passes, the model loads correctly and can answer questions.
+
+### Step 3: Register in the benchmark runner
+
+To include the model in `run_full_benchmark.py`, add an entry to the
+`HF_LOCAL_MODELS` dict in `scripts/run_full_benchmark.py`:
 
 ```python
 HF_LOCAL_MODELS = {
     ...
-    "hf_newmodel": "newmodel-bench",  # key = config filename without .py
+    "hf_newmodel13b": "newmodel13b-bench",  # key = config filename (no .py)
 }
 ```
 
-### Step 3: Register model size for plots (optional)
+Then verify:
+```bash
+# Check it shows up
+python scripts/run_full_benchmark.py --model newmodel13b --smoke-test
+```
 
-If you want `plot_model_size.py` to include the model in size-based plots,
-add to the `MODEL_SIZES` dict in `scripts/plot_model_size.py`:
+### Step 4: Register in the scaling experiment (Qwen family only)
+
+If adding a new Qwen model size, also add to the `QWEN_MODELS` dict in
+`scripts/run_qwen_scaling.py`:
+
+```python
+QWEN_MODELS = {
+    ...
+    "13": {
+        "config": "vendor/KohakuRAG/configs/hf_qwen13b.py",
+        "name": "qwen13b",
+        "model_id": "Qwen/Qwen2.5-13B-Instruct",
+        "params_b": 13,
+        "approx_vram_gb": 28,  # approximate bf16 VRAM
+    },
+}
+```
+
+### Step 5: Register model size for plots (optional)
+
+To include the model in size-based plots, add to the `MODEL_SIZES` dict in
+`scripts/plot_model_size.py`:
 
 ```python
 MODEL_SIZES = {
     ...
-    "newmodel": ("New Model 13B", 13, False, "Open-source, confirmed 13B"),
-    #            display name    size_B  estimated?   notes
+    "newmodel13b": ("New Model 13B", 13, False, "Open-source, confirmed 13B"),
+    #               display name    size_B  estimated?   notes
 }
 ```
 
-The key should be a substring that matches the model ID.
+The key should be a substring that matches the model ID in experiment results.
 
-### Step 4: Test it
+### Step 6: Update this guide
+
+Add the new config to the table in Section 2 so others know it's available.
+
+### Adding a 4-bit quantized variant
+
+For very large models (70B+), you may want a 4-bit quantized config that uses
+less VRAM. Create a separate config file with `_4bit` suffix:
 
 ```bash
-# Quick smoke test
-python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_newmodel.py --name newmodel-smoke
-
-# Check the output
-cat artifacts/experiments/newmodel-smoke/summary.json | python -m json.tool
+cp vendor/KohakuRAG/configs/hf_qwen72b.py vendor/KohakuRAG/configs/hf_qwen72b_4bit.py
 ```
+
+Change two fields:
+```python
+hf_dtype = "4bit"                                      # was "bf16"
+output = "../../artifacts/submission_qwen72b_4bit.csv"  # unique output
+```
+
+This requires `bitsandbytes`: `uv pip install bitsandbytes`
 
 ### Adding a non-HF model (API-based)
 
-For OpenRouter, OpenAI, or Bedrock models, set `llm_provider` accordingly
-in the config:
+For OpenRouter, OpenAI, or Bedrock models, set `llm_provider` accordingly:
 
 ```python
 # OpenRouter example
@@ -349,6 +447,9 @@ max_concurrent = 10
 embedding_model = "hf_local"
 embedding_model_id = "BAAI/bge-base-en-v1.5"
 ```
+
+For Bedrock, ensure `llm_bedrock.py` is on the Python path and AWS credentials
+are configured (see the `bedrock` branch for examples).
 
 ---
 
@@ -432,7 +533,8 @@ python scripts/run_qwen_scaling.py --skip-existing
 python scripts/run_qwen_scaling.py --dry-run
 ```
 
-Available Qwen sizes: 1.5B (~4GB), 3B (~8GB), 7B (~16GB), 14B (~30GB), 32B (~65GB).
+Available Qwen sizes: 1.5B (~4GB), 3B (~8GB), 7B (~16GB), 14B (~30GB), 32B (~65GB),
+72B (~140GB bf16 / ~40GB 4-bit).
 
 The script:
 - Runs models **sequentially** (frees GPU between runs for clean measurements)
@@ -531,6 +633,8 @@ KohakuRAG_UI/
     │   ├── hf_qwen3b.py
     │   ├── hf_qwen14b.py
     │   ├── hf_qwen32b.py
+    │   ├── hf_qwen72b.py
+    │   ├── hf_qwen72b_4bit.py
     │   ├── hf_llama3_8b.py
     │   ├── hf_mistral7b.py
     │   ├── hf_phi3_mini.py

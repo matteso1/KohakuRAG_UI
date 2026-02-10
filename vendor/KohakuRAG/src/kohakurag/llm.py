@@ -470,7 +470,7 @@ class HuggingFaceLocalChatModel(ChatModel):
         Args:
             model: HuggingFace model identifier or local path
             system_prompt: Default system message for all completions
-            dtype: Torch dtype - "bf16", "fp16", or "auto"
+            dtype: Torch dtype - "bf16", "fp16", "4bit", or "auto"
             max_concurrent: Maximum concurrent inference requests
             max_new_tokens: Maximum tokens to generate per request
             temperature: Sampling temperature (0 = greedy)
@@ -495,18 +495,32 @@ class HuggingFaceLocalChatModel(ChatModel):
             self._model_id, use_fast=True
         )
 
-        # Resolve dtype
-        torch_dtype = None
-        if dtype == "bf16":
-            torch_dtype = torch.bfloat16
-        elif dtype == "fp16":
-            torch_dtype = torch.float16
+        # Resolve dtype and quantization
+        load_kwargs = {"device_map": "auto"}
+
+        if dtype == "4bit":
+            try:
+                from transformers import BitsAndBytesConfig
+            except ImportError:
+                raise ImportError(
+                    "4-bit quantization requires bitsandbytes. "
+                    "Install with: pip install bitsandbytes"
+                )
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+            )
+        else:
+            if dtype == "bf16":
+                load_kwargs["torch_dtype"] = torch.bfloat16
+            elif dtype == "fp16":
+                load_kwargs["torch_dtype"] = torch.float16
 
         # Load model with automatic device placement
         self._model = AutoModelForCausalLM.from_pretrained(
             self._model_id,
-            torch_dtype=torch_dtype,
-            device_map="auto",
+            **load_kwargs,
         )
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:

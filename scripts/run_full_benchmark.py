@@ -47,6 +47,8 @@ HF_LOCAL_MODELS = {
     "hf_llama3_8b": "llama3-8b-bench",
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
+    "hf_qwen72b": "qwen72b-bench",
+    "hf_qwen72b_4bit": "qwen72b-4bit-bench",
 }
 
 # AWS Bedrock models (requires llm_bedrock module + AWS credentials)
