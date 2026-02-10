@@ -48,12 +48,12 @@ HF_LOCAL_MODELS = {
     "hf_qwen7b": "qwen7b-bench",
     "hf_qwen14b": "qwen14b-bench",
     "hf_qwen32b": "qwen32b-bench",
-    "hf_llama3_8b": "llama3-8b-bench",       # gated — needs HF_TOKEN
+    # "hf_llama3_8b": "llama3-8b-bench",     # gated — needs HF_TOKEN
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
     "hf_qwen72b": "qwen72b-bench",
-    "hf_gemma2_9b": "gemma2-9b-bench",       # gated — needs HF_TOKEN
-    "hf_gemma2_27b": "gemma2-27b-bench",     # gated — needs HF_TOKEN
+    # "hf_gemma2_9b": "gemma2-9b-bench",     # gated — needs HF_TOKEN
+    # "hf_gemma2_27b": "gemma2-27b-bench",   # gated — needs HF_TOKEN
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
 }
 
