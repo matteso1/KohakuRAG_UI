@@ -154,7 +154,8 @@ def get_gpu_vram_snapshot(device_id: int = 0) -> dict:
 def reset_gpu_peak_stats(device_id: int = 0) -> None:
     """Reset peak memory tracking. Call BEFORE the experiment starts."""
     if HAS_TORCH and torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(device_id)
+        device = torch.device(f"cuda:{device_id}")
+        torch.cuda.reset_peak_memory_stats(device)
 
 
 def get_gpu_info(device_id: int = 0) -> dict:
@@ -162,7 +163,8 @@ def get_gpu_info(device_id: int = 0) -> dict:
     if not HAS_TORCH or not torch.cuda.is_available():
         return {"name": "N/A", "cuda_version": "N/A", "total_gb": 0}
 
-    props = torch.cuda.get_device_properties(device_id)
+    device = torch.device(f"cuda:{device_id}")
+    props = torch.cuda.get_device_properties(device)
     return {
         "name": props.name,
         "cuda_version": torch.version.cuda or "unknown",
