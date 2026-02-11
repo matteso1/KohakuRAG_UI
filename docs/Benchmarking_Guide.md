@@ -232,6 +232,57 @@ python scripts/run_ensemble.py \
 
 Aggregation strategies: `majority` (default), `first_non_blank`, `confidence`.
 
+### Recommended ensemble: Top-3 majority vote
+
+Based on test_solutions benchmarking (n=282), the recommended production
+ensemble is **Qwen 2.5 72B + Qwen 2.5 32B + Qwen 2.5 14B** using majority
+voting. This combination was selected for complementary strengths:
+
+| Model          | WattBot Score | NA Recall | Unique Wins | Latency | VRAM (4-bit) |
+|----------------|:---:|:---:|:---:|:---:|:---:|
+| Qwen 2.5 72B  | 0.752 | 0.938 | 0 | 15.7s | ~33 GB |
+| Qwen 2.5 32B  | 0.710 | **1.000** | 2 | **8.4s** | ~22 GB |
+| Qwen 2.5 14B  | 0.660 | 0.875 | **4** | 16.0s | ~15 GB |
+
+**Why these three:**
+
+- **72B** is the top scorer overall (highest value accuracy and ref overlap).
+- **32B** has perfect NA recall (1.0) — it never misclassifies an
+  unanswerable question, acting as a safety anchor in the vote.
+- **14B** has the most unique wins (4 questions only it gets right) and
+  the lowest agreement with the other two (~0.82), providing the diversity
+  that makes ensembling worthwhile.
+- All three are Qwen 2.5 family at 4-bit, so inference infrastructure is
+  uniform. Combined VRAM is ~70 GB (fits sequentially on a single 96 GB GPU).
+
+**Why not Qwen3 30B-A3B?** Despite ranking #2 individually (0.724), it is
+9x slower than 32B (76s vs 8.4s per question), uses 2x more energy
+(297 Wh vs 131 Wh), has worse NA recall (0.81), and only 1 unique win.
+Its agreement with 72B (0.91) is the same as 32B's, so it adds no extra
+diversity.
+
+```bash
+# Run the recommended ensemble on test_solutions
+python scripts/run_ensemble.py \
+    --experiments qwen72b-bench qwen32b-bench qwen14b-bench \
+    --name ensemble-top3-majority \
+    --strategy majority \
+    --env PowerEdge \
+    --datafile test_solutions
+
+# Same ensemble on train_QA
+python scripts/run_ensemble.py \
+    --experiments qwen72b-bench qwen32b-bench qwen14b-bench \
+    --name ensemble-top3-majority \
+    --strategy majority \
+    --env PowerEdge \
+    --datafile train_QA
+```
+
+The individual experiments (`qwen72b-bench`, `qwen32b-bench`, `qwen14b-bench`)
+must already exist under `artifacts/experiments/<env>/<datafile>/`. Run them
+first with `run_full_benchmark.py` or `run_experiment.py` if they don't.
+
 ### Audit experiment quality
 
 ```bash
