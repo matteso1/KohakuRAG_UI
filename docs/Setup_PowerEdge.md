@@ -182,5 +182,47 @@ python -m ipykernel install   --user   --name kohaku-poweredge   --display-name 
 Within a couple of minutes, you can open a new notebook with this environment/kernel selected.
 
 
+### 9) Run the Streamlit app
+
+The app is accessed through JupyterLab's built-in proxy
+(`jupyter-server-proxy`). See `docs/Streamlit_App_Guide.md` section 6
+for full details on the proxy architecture.
+
+**Prerequisites:** `jupyter-server-proxy` must be installed in the
+**system** Python (the one running JupyterLab), not just your venv.
+This should already be done by the workspace startup args (see section 6.1
+of the Streamlit guide). If not:
+
+```bash
+deactivate                               # leave the venv
+python -m pip install jupyter-server-proxy
+```
+
+Then restart JupyterLab.
+
+**Launch** (from inside the venv, in the repo root):
+
+```bash
+streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
+  --server.enableCORS=false --server.enableXsrfProtection=false
+```
+
+Do **not** use `--server.baseUrlPath` — the proxy handles it.
+
+**Access** at:
+
+```
+https://deepthought.doit.wisc.edu/doit-ai-eval/<WORKSPACE-NAME>/proxy/8501/
+```
+
+Replace `<WORKSPACE-NAME>` with your actual Run:ai workspace name
+(e.g. `endemann-pytorch22`). Trailing slash matters.
+
+If you get a 503, the workspace name in the URL is wrong.
+If you get a 404, `jupyter-server-proxy` isn't loaded — see troubleshooting
+in `docs/Streamlit_App_Guide.md` section 6.4.
+
+---
+
 ## Phase 2 — Test the local HF pipeline
 See KohakuRAG_UI/docs/Benchmarking_Guide.md.

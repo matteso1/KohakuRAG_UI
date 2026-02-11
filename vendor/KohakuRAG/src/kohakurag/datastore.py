@@ -1,6 +1,7 @@
 """Simple hierarchical vector store implementations."""
 
 import asyncio
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal, Sequence
@@ -208,25 +209,27 @@ class KVaultNodeStore(HierarchicalNodeStore):
             if inferred_metric != metric:
                 metric = inferred_metric  # Use stored metric
 
-        # If dimensions not provided and not in metadata, try to infer from vector table
+        # If dimensions not provided and not in metadata, try to infer from vector table.
+        # We use a raw SQLite query instead of creating a VectorKVault with a dummy
+        # dimension, because that would create the table with the wrong dimension
+        # and poison future runs.
         if dimensions is None and inferred_dimensions is None:
             try:
-                # Try opening existing vector table to get dimensions
-                existing_vectors = VectorKVault(
-                    self._path,
-                    table=f"{table_prefix}_vec",
-                    dimensions=1,  # Dummy, will be overwritten
-                    metric=metric,
-                )
-                info = existing_vectors.info()
-                if info.get("count", 0) > 0:
-                    inferred_dimensions = int(info.get("dimensions", 0))
-                    if inferred_dimensions > 0:
-                        # Update metadata with inferred dimensions
+                vec_table = f"{table_prefix}_vec"
+                conn = sqlite3.connect(self._path)
+                try:
+                    row = conn.execute(
+                        "SELECT vector_column_size FROM vec_info WHERE table_name = ?",
+                        (vec_table,),
+                    ).fetchone()
+                    if row and int(row[0]) > 0:
+                        inferred_dimensions = int(row[0])
                         self._kv[self.META_KEY] = {
                             "dimensions": inferred_dimensions,
                             "metric": metric,
                         }
+                finally:
+                    conn.close()
             except Exception:
                 pass
 

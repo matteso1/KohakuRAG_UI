@@ -1,7 +1,7 @@
 # Streamlit App Guide
 
 How to run the WattBot RAG interactive app, what it does under the hood,
-and ideas for deploying it on the PowerEdge via Run:ai.
+and how to deploy it on the PowerEdge via Run:ai.
 
 ---
 
@@ -179,135 +179,87 @@ If you see a 401 error when selecting a gated model, this is why.
 
 ---
 
-## 6) Future: deploying on PowerEdge with Run:ai
+## 6) Running on PowerEdge via Run:ai + jupyter-server-proxy
 
-Right now the app runs interactively — you SSH in, launch `streamlit run
-app.py`, and it holds GPU(s) for the entire session. This wastes
-resources when nobody is actively asking questions.
+The app runs inside a Run:ai interactive workspace with JupyterLab.
+Traffic from the browser reaches Streamlit through the chain:
 
-Below are notes on how we could deploy this more efficiently using
-Run:ai on the PowerEdge, so that GPU resources are only consumed when
-someone is actually using the app.
-
-### Option A: Persistent interactive workspace (simplest)
-
-Run:ai supports **interactive workspaces** that can be started/stopped
-on demand. This is the lowest-effort approach:
-
-1. Create a Run:ai interactive workspace with GPU allocation
-2. Install deps and clone the repo (or mount a shared PVC)
-3. Run `streamlit run app.py` inside the workspace
-4. Stop the workspace when not in use (frees GPU)
-
-**Pros:** Simple, no Docker needed, matches current workflow.
-**Cons:** Manual start/stop, GPU allocated even when idle within a session.
-
-### Option B: Docker container + Run:ai job (recommended)
-
-Package the app as a Docker container. Submit it as a Run:ai inference
-workload that can be stopped/started or scheduled.
-
-**Dockerfile sketch:**
-
-```dockerfile
-FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
-
-WORKDIR /app
-
-# System deps
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-
-# Python deps
-COPY local_requirements.txt .
-RUN pip install --no-cache-dir -r local_requirements.txt
-
-# App code
-COPY . .
-
-# Pre-build the vector index (or mount from PVC)
-# RUN cd vendor/KohakuRAG && kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+```
+Browser  →  nginx (deepthought)  →  JupyterLab  →  jupyter-server-proxy  →  Streamlit (:8501)
 ```
 
-**Run:ai submission:**
+`jupyter-server-proxy` is a JupyterLab extension that forwards
+`/proxy/<port>/` requests to `localhost:<port>` inside the pod. This
+is what makes Streamlit accessible without a separate ingress or
+nodeport.
+
+### 6.1) Workspace startup args
+
+When creating (or editing) the Run:ai workspace, set the container
+command to install both `jupyterlab` and `jupyter-server-proxy` in the
+**system** Python before starting Jupyter:
+
+```
+-lc "python -m pip install -U jupyterlab jupyter-server-proxy && jupyter lab \
+  --ip=0.0.0.0 --port=8888 --no-browser \
+  --ServerApp.root_dir=/workspace2 \
+  --ServerApp.allow_remote_access=True \
+  --ServerApp.trust_xheaders=True \
+  --ServerApp.default_url=/lab \
+  --ServerApp.base_url=/doit-ai-eval/<WORKSPACE-NAME>/"
+```
+
+Replace `<WORKSPACE-NAME>` with the actual Run:ai workspace name
+(e.g. `endemann-pytorch22`). This must match exactly — a mismatch
+(e.g. using `pytorch21` when the workspace is `pytorch22`) will
+produce a **503** from nginx.
+
+### 6.2) Launch Streamlit
+
+After completing the environment setup (see `docs/Setup_PowerEdge.md`),
+start Streamlit **without** `--server.baseUrlPath`:
 
 ```bash
-# Submit as an interactive workload with 1 GPU
-runai submit wattbot-rag \
-    --image registry.example.com/wattbot-rag:latest \
-    --gpu 1 \
-    --interactive \
-    --service-type nodeport \
-    --port 8501:8501 \
-    --pvc data-pvc:/app/data \
-    --pvc models-pvc:/root/.cache/huggingface
+streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
+  --server.enableCORS=false --server.enableXsrfProtection=false
 ```
 
-Key considerations:
-- **Model cache:** Mount the HuggingFace cache as a PVC
-  (`/root/.cache/huggingface`) so models aren't re-downloaded on every
-  container start. This is the biggest time savings — model downloads
-  are 5–80 GB per model.
-- **Vector DB:** Either bake the index into the image or mount `data/`
-  as a PVC. A PVC is more flexible (can rebuild index without
-  rebuilding the image).
-- **GPU sizing:** For single model (7B 4-bit), 1 GPU with 24+ GB is
-  enough. For ensemble, request more based on the VRAM table above.
+Do **not** pass `--server.baseUrlPath`. The proxy handles path
+rewriting transparently — Streamlit should think it is serving from `/`.
+Adding a base URL path causes a **404** because the proxy and Streamlit
+both try to prepend the path.
 
-**Pros:** Reproducible, version-controlled environment, easy to
-start/stop via Run:ai CLI or dashboard.
-**Cons:** Need to maintain a container image and registry.
+CORS and XSRF protection are disabled because traffic passes through
+multiple reverse proxies (nginx + jupyter-server-proxy) which rewrite
+the `Origin` and `Referer` headers.
 
-### Option C: Scale-to-zero with a proxy (most efficient)
+### 6.3) Access the app
 
-The holy grail: GPU pods spin up only when someone sends a request, and
-spin back down after a timeout. This requires a lightweight proxy that:
+Open:
 
-1. Receives incoming HTTP requests on port 8501
-2. If no GPU pod is running, submits a Run:ai job and waits for it
-3. Forwards the request to the running pod
-4. After N minutes of inactivity, deletes the pod (frees GPU)
+```
+https://deepthought.doit.wisc.edu/doit-ai-eval/<WORKSPACE-NAME>/proxy/8501/
+```
 
-This is essentially a serverless GPU pattern. Some approaches:
+The trailing slash matters.
 
-- **KNative + Run:ai:** KNative Serving supports scale-to-zero. If
-  Run:ai is on a K8s cluster, you could wrap the Streamlit container
-  as a KNative service. Requires KNative to be installed on the cluster.
-- **Custom proxy script:** A simple Python/Go proxy that calls
-  `runai submit` on first request and `runai delete` after idle timeout.
-  Simpler than KNative but more manual.
-- **Run:ai scheduler policies:** Run:ai supports idle GPU reclamation
-  and workload preemption. You can set a policy that reclaims GPU from
-  idle interactive workloads after a configurable timeout.
+### 6.4) Gotchas and troubleshooting
 
-**Pros:** Zero GPU waste when nobody is using the app.
-**Cons:** Cold start latency (model loading takes 5–90s depending on
-model size). Users see a loading screen on first query after idle.
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| **503 Service Temporarily Unavailable** | Workspace name in the URL doesn't match the actual workspace | Fix the URL to use the correct workspace name |
+| **404 Not Found** | `jupyter-server-proxy` not loaded in JupyterLab | Install it in the **system** Python (`deactivate` first, then `python -m pip install jupyter-server-proxy`), then restart JupyterLab |
+| **404 Not Found** | `--server.baseUrlPath` is set on Streamlit | Remove that flag — the proxy handles the path |
+| App loads but WebSocket errors or blank page | CORS/XSRF blocking | Add `--server.enableCORS=false --server.enableXsrfProtection=false` |
+| `jupyter-server-proxy` not in `jupyter server extension list` | Installed in venv but Jupyter runs from system Python | `deactivate && python -m pip install jupyter-server-proxy` and restart Jupyter |
+| `ValueError: Embedding dimension required` | Fresh workspace, no existing DB file | Already fixed — `app.py` now passes `embedding_dim` from config instead of `None` |
 
-### Reducing cold start time
+### 6.5) Why not other approaches?
 
-Regardless of which option you pick, cold start (model loading) is the
-main UX bottleneck. Ways to reduce it:
-
-| Technique | Impact | Effort |
-|-----------|--------|--------|
-| PVC-mounted HF cache | Skips download, load from local disk | Low |
-| Smaller default model (qwen3b) | ~3s load vs ~90s for 72B | None |
-| Pre-warmed standby pod (always 1 running) | Zero cold start | Wastes 1 GPU |
-| Model sharding across NVMe + GPU | Faster initial load | Medium |
-| `safetensors` format (already default) | ~2x faster than .bin | Already done |
-
-### Recommended starting point
-
-Start with **Option B** (Docker + Run:ai job). It gives you:
-- Reproducible environment
-- Easy start/stop from Run:ai dashboard
-- Shared model cache via PVC (fast restarts)
-- Path to Option C later if utilization matters
-
-The Streamlit app already handles all the GPU detection and
-parallel/sequential logic, so no code changes are needed — just package
-and deploy.
+| Approach | Status | Notes |
+|----------|--------|-------|
+| SSH tunnel (`ssh -L 8501:...`) | Works but fragile | Requires SSH access and an open terminal; breaks on disconnect |
+| kubectl port-forward | Works | Same fragility as SSH; fine for quick debugging |
+| Run:ai nodeport / ingress | Requires admin | Needs cluster-level config; not self-service |
+| Docker container + Run:ai job | Possible future option | Reproducible but requires maintaining an image and registry |
+| **jupyter-server-proxy** | **Recommended** | Self-service, works through existing JupyterLab ingress, no admin needed |
