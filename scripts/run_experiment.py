@@ -229,38 +229,49 @@ def normalize_answer_value(raw: str) -> str:
     return s
 
 
-# Strip [ref_id=...] wrapper that models sometimes copy from context markers
-_REF_ID_RE = _re.compile(r"^\[ref_id=(.+)\]$", _re.IGNORECASE)
+# Patterns for ref_id normalization
+_REF_ID_MARKER_RE = _re.compile(r"\[ref_id=([^\]]+)\]", _re.IGNORECASE)
 
 _BLANK_REF_TOKENS = {"", "is_blank", "na", "n/a", "none", "null"}
+
+
+def _extract_refs_from_string(s: str) -> list[str]:
+    """Extract clean ref IDs from a single (possibly messy) string.
+
+    Handles:
+      - "[ref_id=xxx]" markers (one or more, space-separated)
+      - Comma-separated lists "a, b, c"
+      - Plain single ref ID "xxx"
+    """
+    s = s.strip()
+    if not s or s.lower() in _BLANK_REF_TOKENS:
+        return []
+
+    # If string contains [ref_id=...] markers, extract all of them
+    markers = _REF_ID_MARKER_RE.findall(s)
+    if markers:
+        return [m.strip() for m in markers if m.strip()]
+
+    # Comma-separated refs within a single element
+    if "," in s:
+        return [p.strip() for p in s.split(",") if p.strip() and p.strip().lower() not in _BLANK_REF_TOKENS]
+
+    return [s]
 
 
 def normalize_ref_id(raw_ref) -> list | str:
     """Normalize LLM ref_id output to clean list of document IDs.
 
     Handles common model artifacts:
-      - "[ref_id=xxx]" wrapper  →  "xxx"
-      - Comma-separated single string "a, b"  →  ["a", "b"]
-      - ["is_blank"] list  →  "is_blank"  (scalar)
+      - "[ref_id=xxx]" wrapper            →  "xxx"
+      - "[ref_id=a] [ref_id=b]" in one string  →  ["a", "b"]
+      - Comma-separated single string "a, b"   →  ["a", "b"]
+      - ["is_blank"] list                 →  "is_blank"  (scalar)
     """
-    # Already a list from JSON parsing
     if isinstance(raw_ref, list):
         cleaned = []
         for item in raw_ref:
-            s = str(item).strip()
-            # Unwrap [ref_id=xxx]
-            m = _REF_ID_RE.match(s)
-            if m:
-                s = m.group(1).strip()
-            # Split comma-separated refs within a single element
-            if "," in s:
-                parts = [p.strip() for p in s.split(",") if p.strip()]
-                for p in parts:
-                    m2 = _REF_ID_RE.match(p)
-                    cleaned.append(m2.group(1).strip() if m2 else p)
-            elif s.lower() not in _BLANK_REF_TOKENS:
-                cleaned.append(s)
-        # If everything was filtered out, it's blank
+            cleaned.extend(_extract_refs_from_string(str(item)))
         return cleaned if cleaned else "is_blank"
 
     # Scalar string
@@ -268,12 +279,12 @@ def normalize_ref_id(raw_ref) -> list | str:
     if s.lower() in _BLANK_REF_TOKENS:
         return "is_blank"
 
-    # Unwrap [ref_id=xxx]
-    m = _REF_ID_RE.match(s)
-    if m:
-        return m.group(1).strip()
-
-    return s
+    extracted = _extract_refs_from_string(s)
+    if not extracted:
+        return "is_blank"
+    if len(extracted) == 1:
+        return extracted[0]
+    return extracted
 
 
 # =============================================================================
