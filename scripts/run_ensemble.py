@@ -58,7 +58,12 @@ from score import row_bits, is_blank, ref_overlap_score
 # =============================================================================
 
 
-def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) -> dict[str, list[dict]]:
+def load_experiment_results(
+    experiments_dir: Path,
+    experiment_names: list[str],
+    env: str = "",
+    datafile: str = "",
+) -> dict[str, list[dict]]:
     """Load results.json from each experiment.
 
     Supports flat, env-nested, and datafile-nested directory layouts.
@@ -613,36 +618,40 @@ Examples:
             print(f"Error: Only {len(completed_runs)} runs completed, need at least 2")
             sys.exit(1)
 
-        # Load results from completed runs
-        all_results = load_experiment_results(experiments_dir, completed_runs)
-
-        if len(all_results) < 2:
-            print(f"Error: Only {len(all_results)} results loaded, need at least 2")
-            sys.exit(1)
-
-        # Determine datafile stem
+        # Determine datafile stem (needed to scope the load)
         if args.datafile:
             datafile_stem = args.datafile
         else:
             datafile_stem = infer_datafile_stem(experiments_dir, completed_runs)
+
+        # Load results from completed runs
+        all_results = load_experiment_results(
+            experiments_dir, completed_runs, env=args.env, datafile=datafile_stem,
+        )
+
+        if len(all_results) < 2:
+            print(f"Error: Only {len(all_results)} results loaded, need at least 2")
+            sys.exit(1)
 
         ensemble_type = "same-model"
         config_path = args.config
 
     # ---- Cross-model ensemble ----
     else:
-        # Load results from existing experiments
-        all_results = load_experiment_results(experiments_dir, args.experiments)
-
-        if len(all_results) < 2:
-            print("Error: Need at least 2 experiments for ensemble")
-            sys.exit(1)
-
-        # Determine datafile stem
+        # Determine datafile stem (needed to scope the load)
         if args.datafile:
             datafile_stem = args.datafile
         else:
             datafile_stem = infer_datafile_stem(experiments_dir, args.experiments)
+
+        # Load results from existing experiments (scoped to env/datafile)
+        all_results = load_experiment_results(
+            experiments_dir, args.experiments, env=args.env, datafile=datafile_stem,
+        )
+
+        if len(all_results) < 2:
+            print("Error: Need at least 2 experiments for ensemble")
+            sys.exit(1)
 
         ensemble_type = "cross-model"
         config_path = None
