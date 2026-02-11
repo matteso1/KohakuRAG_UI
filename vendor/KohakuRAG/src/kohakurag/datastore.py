@@ -1,8 +1,6 @@
 """Simple hierarchical vector store implementations."""
 
 import asyncio
-import re
-import sqlite3
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -197,13 +195,6 @@ class KVaultNodeStore(HierarchicalNodeStore):
         self._table_prefix = table_prefix
         self._paragraph_search_mode = paragraph_search_mode
 
-        # Before opening any tables, check for a corrupted vec table
-        # (e.g. created with dim=1 by a previous buggy run).
-        # Must run BEFORE KVault/VectorKVault open the DB.
-        vec_table = f"{table_prefix}_vec"
-        if dimensions is not None:
-            self._repair_corrupted_vec_table(vec_table, dimensions)
-
         # Open key-value table for metadata
         self._kv = KVault(self._path, table=f"{table_prefix}_kv")
         self._kv.enable_auto_pack()
@@ -282,77 +273,6 @@ class KVaultNodeStore(HierarchicalNodeStore):
 
         # Single-worker executor for thread-safe async SQLite operations
         self._executor = ThreadPoolExecutor(max_workers=1)
-
-    # ------------------------------------------------------------------
-    # Repair helpers
-    # ------------------------------------------------------------------
-
-    def _repair_corrupted_vec_table(
-        self, vec_table: str, expected_dim: int
-    ) -> None:
-        """Fix a vec table created with the wrong dimension by a previous buggy run.
-
-        The Rust VectorKVault (>= 0.8.1) handles this automatically via
-        ``vec_info``.  For older builds that don't have the fix, we use a
-        pure-Python fallback: parse the dimension from ``sqlite_master``
-        (works without sqlite-vec loaded) and, if the companion ``_values``
-        regular table is empty, rename the DB so a fresh one is created.
-        """
-        try:
-            conn = sqlite3.connect(self._path)
-            try:
-                # Read CREATE statement for the vec virtual table
-                row = conn.execute(
-                    "SELECT sql FROM sqlite_master WHERE name = ?",
-                    (vec_table,),
-                ).fetchone()
-                if not row or not row[0]:
-                    return  # Table doesn't exist yet — nothing to repair
-
-                m = re.search(r"float\[(\d+)\]", row[0])
-                if not m:
-                    return  # Can't parse dimension — skip
-
-                existing_dim = int(m.group(1))
-                if existing_dim == expected_dim:
-                    return  # Dimension matches — no repair needed
-
-                # Check if companion _values table is empty (regular table,
-                # accessible without the vec0 extension).
-                vals_row = conn.execute(
-                    f"SELECT count(*) FROM [{vec_table}_values]"
-                ).fetchone()
-                if vals_row and vals_row[0] > 0:
-                    return  # Has data — don't touch it
-            finally:
-                conn.close()
-
-            # The vec table has the wrong dimension and no data.
-            # We can't DROP a virtual table without the vec0 extension
-            # loaded in Python's sqlite3, so rename the whole DB file
-            # and let VectorKVault create a fresh one.
-            import shutil
-            from pathlib import Path
-
-            db = Path(self._path)
-            bak = db.with_suffix(f".dim{existing_dim}_bak{db.suffix}")
-            print(
-                f"[datastore] Vec table '{vec_table}' has dim={existing_dim} "
-                f"but expected {expected_dim} (empty table). "
-                f"Renaming DB to {bak.name} and starting fresh.",
-                flush=True,
-            )
-            if not bak.exists():
-                shutil.move(str(db), str(bak))
-                # Also move WAL/SHM journal files if present
-                for suffix in ("-wal", "-shm"):
-                    journal = Path(str(db) + suffix)
-                    if journal.exists():
-                        shutil.move(str(journal), str(bak) + suffix)
-        except Exception as exc:
-            print(f"[datastore] Vec table repair failed: {exc}", flush=True)
-
-    # ------------------------------------------------------------------
 
     def __del__(self) -> None:
         """Cleanup executor on deletion."""
