@@ -335,7 +335,7 @@ diversity.
 python scripts/run_ensemble.py \
     --experiments qwen72b-bench qwen32b-bench qwen14b-bench \
     --name ensemble-top3-majority \
-    --strategy majority \
+    --strategy majority --ignore-blank \
     --env PowerEdge \
     --datafile test_solutions
 
@@ -343,10 +343,17 @@ python scripts/run_ensemble.py \
 python scripts/run_ensemble.py \
     --experiments qwen72b-bench qwen32b-bench qwen14b-bench \
     --name ensemble-top3-majority \
-    --strategy majority \
+    --strategy majority --ignore-blank \
     --env PowerEdge \
     --datafile train_QA
 ```
+
+**Always use `--ignore-blank`** with this ensemble. Without it, refusal
+answers from 14B (27% refusal rate) and 32B (21%) can outvote 72B's correct
+answers via majority rule. The flag filters out `is_blank` votes before
+counting, so a real answer always beats a refusal. Refs are also scoped to
+only the models that voted for the winning answer, preventing spurious
+references from inflating the predicted set.
 
 The individual experiments (`qwen72b-bench`, `qwen32b-bench`, `qwen14b-bench`)
 must already exist under `artifacts/experiments/<env>/<datafile>/`. Run them

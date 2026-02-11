@@ -62,22 +62,32 @@ def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) 
     """Load results.json from each experiment.
 
     Supports flat, env-nested, and datafile-nested directory layouts.
+    When env and/or datafile are provided, the search is scoped to
+    experiments_dir/<env>/<datafile>/ so that identically-named experiments
+    under different datafile subfolders don't collide.
     """
     all_results = {}
+
+    # Narrow the search root when env/datafile are known
+    search_root = experiments_dir
+    if env:
+        search_root = search_root / env
+    if datafile:
+        search_root = search_root / datafile
 
     # Build lookup: experiment name -> results.json path
     all_results_paths = {
         p.parent.name: p
-        for p in experiments_dir.glob("**/results.json")
+        for p in search_root.glob("**/results.json")
     }
 
     for name in experiment_names:
-        # Try direct path first (supports <env>/<name> syntax), then name-only lookup
-        results_path = experiments_dir / name / "results.json"
+        # Try scoped path first, then fallback to lookup
+        results_path = search_root / name / "results.json"
         if not results_path.exists():
             results_path = all_results_paths.get(name)
         if results_path is None or not results_path.exists():
-            print(f"Warning: No results found for {name}")
+            print(f"Warning: No results found for {name} under {search_root}")
             continue
 
         with open(results_path) as f:
@@ -86,9 +96,10 @@ def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) 
     return all_results
 
 
-def infer_datafile_stem(experiments_dir: Path, experiment_names: list[str]) -> str:
+def infer_datafile_stem(experiments_dir: Path, experiment_names: list[str], env: str = "") -> str:
     """Infer the datafile subfolder from source experiments' summary.json."""
-    for p in experiments_dir.glob("**/summary.json"):
+    search_root = experiments_dir / env if env else experiments_dir
+    for p in search_root.glob("**/summary.json"):
         if p.parent.name in experiment_names:
             try:
                 with open(p) as f:
@@ -122,6 +133,14 @@ def aggregate_majority(answers: list[str], ignore_blank: bool = False) -> str:
 
     # Filter out empty strings
     valid_answers = [a for a in answers if a and a.strip()]
+
+    # Optionally filter out is_blank / refusal answers so they can't outvote
+    # real answers from stronger models
+    if ignore_blank:
+        non_blank = [a for a in valid_answers if not is_blank(a)]
+        if non_blank:
+            valid_answers = non_blank
+
     if not valid_answers:
         return "is_blank"
 
@@ -215,6 +234,7 @@ def run_ensemble(
     strategy: str = "majority",
     ignore_blank: bool = False,
     model_weights: dict[str, float] | None = None,
+    ignore_blank: bool = False,
 ) -> list[dict]:
     """Combine results from multiple runs/models.
 
@@ -545,6 +565,13 @@ Examples:
         action="store_true",
         default=False,
         help="Disable abstention-aware voting",
+    )
+    parser.add_argument(
+        "--ignore-blank",
+        action="store_true",
+        default=False,
+        help="Filter out is_blank/refusal answers before majority voting. "
+             "Prevents weaker models from outvoting stronger ones via refusals."
     )
 
     args = parser.parse_args()
