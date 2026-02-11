@@ -76,6 +76,15 @@ python scripts/run_experiment.py \
 quantization via `bitsandbytes`). Override with `--precision bf16`, `fp16`, or
 `auto`. Precision is saved to `summary.json` as the `quantization` field.
 
+**Retry & prompt ordering:** Two pipeline config keys control robustness:
+
+| Config key              | Default | Effect |
+|-------------------------|---------|--------|
+| `max_retries`           | `3`     | If the LLM answer is blank, re-run retrieval with increasing `top_k` (iterative deepening: 2x, 3x, ...) |
+| `use_reordered_prompt`  | `False` | When `True`, context is placed **before** the question (C→Q ordering) to combat the "lost in the middle" effect |
+
+Both can be set in any config file (e.g. `hf_qwen7b.py`).
+
 ### Using the test dataset
 
 The competition test set (`test_solutions.csv`) is **not** stored in the repo.
@@ -99,10 +108,22 @@ Results are organized by environment and datafile:
 
 ```
 artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-├── submission.csv   # Kaggle-format predictions
-├── results.json     # Per-question details (latency, scores, raw LLM output)
-└── summary.json     # Aggregate metrics (overall score, timing, dataset info)
+├── results.json     # Per-question details (raw LLM output, latency, scores)
+├── summary.json     # Aggregate metrics (overall score, timing, dataset info)
+└── submission.csv   # Normalised Kaggle-format predictions (created by posthoc.py)
 ```
+
+**Important:** `results.json` stores **raw model output** (un-normalised).
+To produce a normalised `submission.csv` for Kaggle and get the final score,
+run the post-hoc processing step:
+
+```bash
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+```
+
+This applies answer normalisation (comma stripping, range formatting,
+abbreviation expansion, etc.) and re-scores against ground truth.
+See `scripts/posthoc.py` for details.
 
 The `<datafile>` subfolder is derived from the questions CSV filename
 (e.g. `train_QA` from `data/train_QA.csv`, `test_solutions` from
@@ -189,6 +210,19 @@ The benchmark runner:
 
 ## 4) Comparing results across runs
 
+### Post-hoc normalisation and scoring
+
+After an experiment completes, run post-hoc processing to normalise raw
+model output and produce a Kaggle-ready `submission.csv`:
+
+```bash
+# Process a single experiment (auto-finds results.json)
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
+```
+
 ### Score a submission against ground truth
 
 ```bash
@@ -217,7 +251,32 @@ This produces a CSV where each row is a question and columns show each model's
 prediction + correctness, making it easy to spot which questions each model
 gets right or wrong.
 
-### Ensemble voting (combine multiple models)
+### Ensemble voting
+
+The ensemble runner supports two modes:
+
+**Mode 1 — Same-model ensemble** (KohakuRAG competition strategy): Run *m*
+independent inference passes of the **same model** and aggregate via voting.
+This was the only strategy that remained #1 on both public and private
+leaderboard partitions.
+
+```bash
+# 5 independent runs of qwen7b, answer_priority voting (default)
+python scripts/run_ensemble.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --num-runs 5 --name qwen7b-ens5 --env GB10
+
+# 9 runs (closer to competition setup), majority voting
+python scripts/run_ensemble.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --num-runs 9 --strategy majority --name qwen7b-ens9 --env PowerEdge
+```
+
+Each run is executed as a separate subprocess for completely independent model
+state.  LLM sampling temperature introduces per-run diversity.
+
+**Mode 2 — Cross-model ensemble**: Aggregate results from previously completed
+experiments (different models).
 
 ```bash
 python scripts/run_ensemble.py \
@@ -230,7 +289,17 @@ python scripts/run_ensemble.py \
     --name ensemble-test --env PowerEdge --datafile test_solutions
 ```
 
-Aggregation strategies: `majority` (default), `first_non_blank`, `confidence`.
+**Aggregation strategies:**
+
+| Strategy          | Description |
+|-------------------|-------------|
+| `answer_priority` | (Default) Vote on answer first, then collect refs only from matching runs — ensures citation consistency |
+| `majority`        | Most common answer wins; union of all refs |
+| `first_non_blank` | First non-blank answer wins |
+
+**Abstention-aware voting** (`--ignore-blank`): If any run produces a non-blank
+answer, blank ("is_blank") runs are filtered out before voting.  Enabled by
+default for same-model ensembles.
 
 ### Recommended ensemble: Top-3 majority vote
 
@@ -475,9 +544,10 @@ top_k_final = 10
 # Unanswerable detection
 retrieval_threshold = 0.25
 
-# Other settings
-max_retries = 2
-max_concurrent = 2  # lower (1) for large models, higher (3-4) for small ones
+# Robustness settings
+max_retries = 3               # iterative deepening retries on blank answers
+use_reordered_prompt = True   # C→Q prompt ordering (context before question)
+max_concurrent = 2            # lower (1) for large models, higher (3-4) for small ones
 ```
 
 **Key things to change:**
@@ -751,20 +821,37 @@ size, energy (Wh), and power — ready for plotting.
 
 ## 12) Results output for post-processing
 
-Every experiment produces three files for iteration:
+Every experiment produces two files immediately, and a third after post-hoc
+processing:
 
-| File               | Format | What's in it                                      |
-|--------------------|--------|---------------------------------------------------|
-| `submission.csv`   | CSV    | Kaggle-format predictions (id, answer_value, ...) |
-| `results.json`     | JSON   | Per-question: GT, prediction, scores, latency     |
-| `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config |
+| File               | Format | What's in it                                                  |
+|--------------------|--------|---------------------------------------------------------------|
+| `results.json`     | JSON   | Per-question: **raw** model output, GT, latency, retrieval    |
+| `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config snapshot    |
+| `submission.csv`   | CSV    | Normalised Kaggle-format predictions (created by `posthoc.py`)|
 
-To iterate on post-processing:
+`results.json` intentionally stores **raw (un-normalised)** model output so
+you can always re-run normalisation with improved rules without re-running
+expensive LLM inference:
+
+```bash
+# Normalise and re-score (writes submission.csv alongside results.json)
+python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/ --dry-run
+```
+
+All answer normalisation logic (comma stripping, abbreviation expansion,
+range formatting, hedging prefix removal, etc.) lives in **one place**:
+`scripts/posthoc.py`.
+
+To iterate on post-processing in Python:
 
 ```python
 import json, pandas as pd
 
-# Load per-question results
+# Load per-question results (raw model output)
 with open("artifacts/experiments/train_QA/qwen7b-v1/results.json") as f:
     results = json.load(f)
 
@@ -803,11 +890,12 @@ KohakuRAG_UI/
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
 │   ├── run_experiment.py     # Run one experiment (--env for machine label)
+│   ├── posthoc.py            # Post-hoc normalisation & scoring (single source of truth)
+│   ├── score.py              # WattBot scoring metric (used by Kaggle + posthoc)
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
 │   ├── run_ensemble.py       # Combine multiple runs
-│   ├── score.py              # WattBot scoring
 │   ├── generate_results_matrix.py
 │   ├── audit_experiments.py
 │   ├── plot_model_size.py

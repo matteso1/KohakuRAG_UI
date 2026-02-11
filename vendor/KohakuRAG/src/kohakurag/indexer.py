@@ -217,7 +217,10 @@ class DocumentIndexer:
     def _propagate_embeddings(
         self, node: TreeNode, para_full_map: dict[str, np.ndarray] | None = None
     ) -> np.ndarray:
-        """Recursively compute parent embeddings as average of children.
+        """Recursively compute parent embeddings as length-weighted average of children.
+
+        Longer child segments contribute proportionally more to the parent's
+        semantic representation, matching the KohakuRAG competition design.
 
         Args:
             node: Current node to process
@@ -236,8 +239,12 @@ class DocumentIndexer:
         if not child_vectors:
             raise ValueError(f"Node {node.node_id} is missing an embedding.")
 
-        # Compute averaged embedding from children
-        averaged_embedding = average_embeddings(child_vectors)
+        # Use text length of each child as weight so longer, more informative
+        # segments contribute more to the parent's semantic representation.
+        child_weights = [float(max(len(child.text), 1)) for child in node.children]
+
+        # Compute length-weighted embedding from children
+        averaged_embedding = average_embeddings(child_vectors, weights=child_weights)
 
         # Handle paragraph embedding modes
         if node.kind == NodeKind.PARAGRAPH and node.node_id in para_full_map:

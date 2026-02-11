@@ -2,20 +2,47 @@
 """
 Ensemble Experiment Runner
 
-Runs multiple models and combines their outputs using voting/aggregation.
+Supports two modes:
+
+1. **Same-model ensemble** (``--config`` + ``--num-runs``):
+   Runs *m* independent inference passes of the **same model** and aggregates
+   results via voting.  This is the KohakuRAG competition strategy that proved
+   most robust across public and private test partitions.
+
+2. **Cross-model ensemble** (``--experiments``):
+   Aggregates results from previously completed experiments (different models
+   or different runs).
+
+Aggregation strategies (matching vendor wattbot_aggregate.py):
+- majority:        Most common answer wins (ties → first occurrence)
+- answer_priority: Vote answer first, then collect refs only from matching
+                   runs — ensures citation consistency (KohakuRAG default)
+- first_non_blank: First non-blank answer wins (good for NA detection)
+
+Abstention-aware voting (``--ignore-blank``):
+  If any run produces a non-blank answer, blank ("is_blank") runs are filtered
+  out before voting.  Enabled by default for same-model ensembles.
 
 Usage:
-    python scripts/run_ensemble.py --models llama4-scout-v1 haiku-baseline sonnet-v1 --name ensemble-3way
-    python scripts/run_ensemble.py --experiments llama4-scout-v1 haiku-baseline --name ensemble-test
+    # Same-model ensemble: 5 runs of qwen7b, answer_priority voting
+    python scripts/run_ensemble.py \\
+        --config vendor/KohakuRAG/configs/hf_qwen7b.py \\
+        --num-runs 5 --name qwen7b-ensemble-5x --env GB10
 
-Aggregation strategies:
-- majority: Most common answer wins (ties go to first model)
-- confidence: Weighted by model's overall accuracy (requires pre-computed scores)
-- first_non_blank: First non-blank answer wins (good for NA detection)
+    # Cross-model ensemble from existing experiments
+    python scripts/run_ensemble.py \\
+        --experiments qwen7b-v1 llama3-8b-v1 mistral7b-v1 \\
+        --name ensemble-3way --env PowerEdge
+
+    # Cross-model with answer_priority voting
+    python scripts/run_ensemble.py \\
+        --experiments qwen7b-v1 llama3-8b-v1 \\
+        --strategy answer_priority --name ensemble-ap --env GB10
 """
 
 import argparse
 import json
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -26,12 +53,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 from score import row_bits, is_blank, ref_overlap_score
 
 
-def load_experiment_results(
-    experiments_dir: Path,
-    experiment_names: list[str],
-    env: str = "",
-    datafile: str = "",
-) -> dict[str, list[dict]]:
+# =============================================================================
+# Loading helpers
+# =============================================================================
+
+
+def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) -> dict[str, list[dict]]:
     """Load results.json from each experiment.
 
     Supports flat, env-nested, and datafile-nested directory layouts.
@@ -90,8 +117,17 @@ def load_ground_truth(gt_path: Path) -> pd.DataFrame:
     return pd.read_csv(gt_path)
 
 
+# =============================================================================
+# Voting / aggregation
+# =============================================================================
+
+
 def aggregate_majority(answers: list[str], ignore_blank: bool = False) -> str:
-    """Return most common answer. Ties go to first occurrence."""
+    """Return most common answer.  Ties go to first occurrence.
+
+    If *ignore_blank* is True, "is_blank" values are filtered out before voting
+    (only when non-blank answers exist).
+    """
     if not answers:
         return "is_blank"
 
@@ -108,9 +144,21 @@ def aggregate_majority(answers: list[str], ignore_blank: bool = False) -> str:
     if not valid_answers:
         return "is_blank"
 
+    if ignore_blank:
+        non_blank = [a for a in valid_answers if a.lower() != "is_blank"]
+        if non_blank:
+            valid_answers = non_blank
+
     counter = Counter(valid_answers)
-    most_common = counter.most_common(1)[0][0]
-    return most_common
+    max_count = counter.most_common(1)[0][1]
+    tied = [v for v, c in counter.items() if c == max_count]
+    if len(tied) == 1:
+        return tied[0]
+    # First-occurrence tiebreak
+    for v in valid_answers:
+        if v in tied:
+            return v
+    return tied[0]
 
 
 def aggregate_first_non_blank(answers: list[str]) -> str:
@@ -121,32 +169,81 @@ def aggregate_first_non_blank(answers: list[str]) -> str:
     return "is_blank"
 
 
-def aggregate_refs(ref_lists: list[str]) -> str:
-    """Aggregate reference IDs - union of all refs."""
-    all_refs = set()
-    for ref_str in ref_lists:
-        if ref_str and ref_str != "is_blank":
-            try:
-                if ref_str.startswith("["):
-                    refs = json.loads(ref_str.replace("'", '"'))
-                    all_refs.update(refs)
-                else:
-                    all_refs.add(ref_str)
-            except:
-                all_refs.add(ref_str)
+def _parse_ref_ids(ref_str: str) -> set[str]:
+    """Parse a ref_id string/list into a set of document IDs."""
+    if not ref_str or ref_str == "is_blank":
+        return set()
+    try:
+        parsed = json.loads(ref_str.replace("'", '"'))
+        if isinstance(parsed, list):
+            return {str(x).strip() for x in parsed if x}
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return {ref_str.strip()} if ref_str.strip() else set()
 
-    if not all_refs:
+
+def _format_ref_ids(ref_set: set[str]) -> str:
+    """Format ref_id set back to JSON list string."""
+    if not ref_set:
         return "is_blank"
-    return json.dumps(sorted(all_refs))
+    return json.dumps(sorted(ref_set))
+
+
+def aggregate_refs_union(ref_lists: list[str]) -> str:
+    """Aggregate reference IDs — union of all refs."""
+    all_refs: set[str] = set()
+    for ref_str in ref_lists:
+        all_refs.update(_parse_ref_ids(ref_str))
+    return _format_ref_ids(all_refs)
+
+
+def aggregate_answer_priority(
+    answers: list[str],
+    refs: list[str],
+    ignore_blank: bool = False,
+) -> tuple[str, str]:
+    """Vote on answer_value first, then collect refs only from matching runs.
+
+    This is the AnswerPriority strategy from the KohakuRAG competition that
+    ensures citation consistency — refs are only drawn from runs that agree
+    with the winning answer.
+    """
+    best_val = aggregate_majority(answers, ignore_blank=ignore_blank)
+
+    # Collect refs only from runs whose answer matches the winning value
+    matching_refs: list[str] = []
+    for ans, ref in zip(answers, refs):
+        if ans == best_val:
+            matching_refs.append(ref)
+
+    # Union refs from matching runs
+    combined_refs: set[str] = set()
+    for ref_str in matching_refs:
+        combined_refs.update(_parse_ref_ids(ref_str))
+
+    return best_val, _format_ref_ids(combined_refs)
+
+
+# =============================================================================
+# Ensemble core
+# =============================================================================
 
 
 def run_ensemble(
     all_results: dict[str, list[dict]],
     strategy: str = "majority",
+    ignore_blank: bool = False,
     model_weights: dict[str, float] | None = None,
     ignore_blank: bool = False,
 ) -> list[dict]:
-    """Combine results from multiple models."""
+    """Combine results from multiple runs/models.
+
+    Args:
+        all_results: Dict mapping run name -> list of per-question result dicts
+        strategy: "majority", "answer_priority", or "first_non_blank"
+        ignore_blank: If True, filter "is_blank" before voting when non-blank
+                      answers exist (abstention-aware voting)
+    """
     if not all_results:
         return []
 
@@ -163,7 +260,7 @@ def run_ensemble(
     model_names = list(all_results.keys())
 
     for qid in question_ids:
-        # Collect answers from all models for this question
+        # Collect answers from all runs for this question
         answers = []
         refs = []
         explanations = []
@@ -176,21 +273,19 @@ def run_ensemble(
                 explanations.append(r.get("pred_explanation", ""))
 
         # Aggregate based on strategy
-        if strategy == "majority":
-            final_value = aggregate_majority(answers, ignore_blank=ignore_blank)
+        if strategy == "answer_priority":
+            final_value, final_ref = aggregate_answer_priority(
+                answers, refs, ignore_blank=ignore_blank,
+            )
         elif strategy == "first_non_blank":
             final_value = aggregate_first_non_blank(answers)
+            final_ref = aggregate_refs_union(refs)
         else:
+            # majority (default)
             final_value = aggregate_majority(answers, ignore_blank=ignore_blank)
+            final_ref = aggregate_refs_union(refs)
 
-        # Only include refs from models whose answer matched the winner
-        winning_refs = [
-            ref for ans, ref in zip(answers, refs)
-            if ans == final_value
-        ]
-        final_ref = aggregate_refs(winning_refs)
-
-        # Get metadata from first model's result
+        # Get metadata from first run's result
         first_result = results_by_id[first_model].get(qid, {})
 
         ensemble_results.append({
@@ -202,13 +297,18 @@ def run_ensemble(
             "pred_value": final_value,
             "pred_unit": first_result.get("pred_unit", ""),
             "pred_ref": final_ref,
-            "pred_explanation": f"Ensemble of {len(model_names)} models: {', '.join(model_names)}",
+            "pred_explanation": f"Ensemble ({strategy}) of {len(model_names)} runs: {', '.join(model_names)}",
             "raw_response": "",
             "individual_answers": dict(zip(model_names, answers)),
             "individual_refs": dict(zip(model_names, refs)),
         })
 
     return ensemble_results
+
+
+# =============================================================================
+# Scoring
+# =============================================================================
 
 
 def score_ensemble_results(results: list[dict]) -> dict:
@@ -256,13 +356,22 @@ def score_ensemble_results(results: list[dict]) -> dict:
     }
 
 
+# =============================================================================
+# Save helpers
+# =============================================================================
+
+
 def save_ensemble_results(
     results: list[dict],
     scores: dict,
     output_dir: Path,
     model_names: list[str],
     strategy: str,
+    *,
+    ensemble_type: str = "cross-model",
     ignore_blank: bool = False,
+    num_runs: int | None = None,
+    config_path: str | None = None,
 ):
     """Save ensemble results."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -277,6 +386,7 @@ def save_ensemble_results(
     summary = {
         "name": output_dir.name,
         "type": "ensemble",
+        "ensemble_type": ensemble_type,
         "strategy": strategy,
         "ignore_blank": ignore_blank,
         "models": model_names,
@@ -284,6 +394,11 @@ def save_ensemble_results(
         "num_questions": len(results),
         **scores,
     }
+    if num_runs is not None:
+        summary["num_runs"] = num_runs
+    if config_path is not None:
+        summary["config_path"] = config_path
+
     summary_path = output_dir / "summary.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
@@ -310,35 +425,146 @@ def save_ensemble_results(
     print(f"Saved submission: {sub_path}")
 
 
+# =============================================================================
+# Same-model ensemble: run m independent inference passes
+# =============================================================================
+
+
+def run_same_model_inference(
+    config_path: str,
+    num_runs: int,
+    ensemble_name: str,
+    env: str,
+    questions: str | None,
+    precision: str,
+) -> list[str]:
+    """Run *num_runs* independent inference passes using run_experiment.py.
+
+    Each run is executed as a separate subprocess to ensure completely
+    independent model state (fresh random seeds, no shared GPU state).
+
+    Returns a list of experiment names that completed successfully.
+    """
+    run_experiment_script = Path(__file__).parent / "run_experiment.py"
+    completed_names: list[str] = []
+
+    for i in range(num_runs):
+        run_name = f"{ensemble_name}_run{i}"
+        cmd = [
+            sys.executable, str(run_experiment_script),
+            "--config", config_path,
+            "--name", run_name,
+            "--precision", precision,
+        ]
+        if env:
+            cmd.extend(["--env", env])
+        if questions:
+            cmd.extend(["--questions", questions])
+
+        print(f"\n{'='*60}")
+        print(f"ENSEMBLE RUN {i+1}/{num_runs}: {run_name}")
+        print(f"{'='*60}")
+
+        result = subprocess.run(cmd, capture_output=False)
+        if result.returncode == 0:
+            completed_names.append(run_name)
+            print(f"  Run {i+1}/{num_runs} complete: {run_name}")
+        else:
+            print(f"  WARNING: Run {i+1}/{num_runs} failed (exit code {result.returncode})")
+
+    return completed_names
+
+
+# =============================================================================
+# CLI entry point
+# =============================================================================
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Run ensemble from existing experiment results")
+    parser = argparse.ArgumentParser(
+        description="Ensemble: same-model (--config) or cross-model (--experiments)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Same-model ensemble: 5 independent runs, answer_priority voting
+  python scripts/run_ensemble.py \\
+      --config vendor/KohakuRAG/configs/hf_qwen7b.py \\
+      --num-runs 5 --name qwen7b-ens5 --env GB10
+
+  # Cross-model ensemble from existing experiments
+  python scripts/run_ensemble.py \\
+      --experiments qwen7b-v1 llama3-8b-v1 \\
+      --name ensemble-2way --env PowerEdge
+""",
+    )
+
+    # Mode 1: same-model ensemble
+    parser.add_argument(
+        "--config", "-c",
+        default=None,
+        help="Config file for same-model ensemble (runs m independent passes)",
+    )
+    parser.add_argument(
+        "--num-runs", "-m",
+        type=int,
+        default=5,
+        help="Number of independent inference runs for same-model ensemble (default: 5)",
+    )
+    parser.add_argument(
+        "--questions", "-q",
+        default=None,
+        help="Override questions CSV path (same-model mode)",
+    )
+    parser.add_argument(
+        "--precision", "-p",
+        default="4bit",
+        choices=["4bit", "bf16", "fp16", "auto"],
+        help="Model precision (same-model mode, default: 4bit)",
+    )
+
+    # Mode 2: cross-model ensemble
     parser.add_argument(
         "--experiments", "-e",
         nargs="+",
-        required=True,
-        help="Names of experiments to ensemble (e.g., haiku-baseline sonnet-v1)"
+        default=None,
+        help="Names of existing experiments to ensemble",
     )
+
+    # Shared options
     parser.add_argument(
         "--name", "-n",
         required=True,
-        help="Name for the ensemble experiment"
+        help="Name for the ensemble experiment",
     )
     parser.add_argument(
         "--strategy", "-s",
-        choices=["majority", "first_non_blank"],
-        default="majority",
-        help="Aggregation strategy (default: majority)"
+        choices=["majority", "answer_priority", "first_non_blank"],
+        default="answer_priority",
+        help="Aggregation strategy (default: answer_priority)",
     )
     parser.add_argument(
         "--env", "-v",
         default="",
-        help="Run environment label (e.g. 'GB10', 'PowerEdge')"
+        help="Run environment label (e.g. 'GB10', 'PowerEdge')",
     )
     parser.add_argument(
         "--datafile", "-d",
         default=None,
         help="Datafile subfolder (e.g. 'train_QA', 'test_solutions'). "
-             "Auto-detected from source experiments if not specified."
+             "Auto-detected if not specified.",
+    )
+    parser.add_argument(
+        "--ignore-blank",
+        action="store_true",
+        default=None,
+        help="Filter 'is_blank' before voting if non-blank answers exist "
+             "(enabled by default for same-model ensemble)",
+    )
+    parser.add_argument(
+        "--no-ignore-blank",
+        action="store_true",
+        default=False,
+        help="Disable abstention-aware voting",
     )
     parser.add_argument(
         "--ignore-blank",
@@ -350,41 +576,98 @@ def main():
 
     args = parser.parse_args()
 
+    # Validate mode
+    if args.config is None and args.experiments is None:
+        parser.error("Must specify either --config (same-model) or --experiments (cross-model)")
+    if args.config is not None and args.experiments is not None:
+        parser.error("Cannot specify both --config and --experiments")
+
     experiments_dir = Path(__file__).parent.parent / "artifacts" / "experiments"
 
-    # Determine datafile subfolder
-    if args.datafile:
-        datafile_stem = args.datafile
+    # Determine ignore_blank default
+    if args.no_ignore_blank:
+        ignore_blank = False
+    elif args.ignore_blank is not None:
+        ignore_blank = args.ignore_blank
     else:
-        datafile_stem = infer_datafile_stem(experiments_dir, args.experiments, env=args.env)
+        # Default: True for same-model, False for cross-model
+        ignore_blank = args.config is not None
 
-    # Build output path: experiments/<env>/<datafile>/<name>/
+    # ---- Same-model ensemble ----
+    if args.config is not None:
+        print(f"\n{'='*60}")
+        print(f"SAME-MODEL ENSEMBLE: {args.name}")
+        print(f"Config: {args.config}")
+        print(f"Runs: {args.num_runs}")
+        print(f"Strategy: {args.strategy}")
+        print(f"Ignore blank: {ignore_blank}")
+        print(f"{'='*60}\n")
+
+        # Run m independent inference passes
+        completed_runs = run_same_model_inference(
+            config_path=args.config,
+            num_runs=args.num_runs,
+            ensemble_name=args.name,
+            env=args.env,
+            questions=args.questions,
+            precision=args.precision,
+        )
+
+        if len(completed_runs) < 2:
+            print(f"Error: Only {len(completed_runs)} runs completed, need at least 2")
+            sys.exit(1)
+
+        # Load results from completed runs
+        all_results = load_experiment_results(experiments_dir, completed_runs)
+
+        if len(all_results) < 2:
+            print(f"Error: Only {len(all_results)} results loaded, need at least 2")
+            sys.exit(1)
+
+        # Determine datafile stem
+        if args.datafile:
+            datafile_stem = args.datafile
+        else:
+            datafile_stem = infer_datafile_stem(experiments_dir, completed_runs)
+
+        ensemble_type = "same-model"
+        config_path = args.config
+
+    # ---- Cross-model ensemble ----
+    else:
+        # Load results from existing experiments
+        all_results = load_experiment_results(experiments_dir, args.experiments)
+
+        if len(all_results) < 2:
+            print("Error: Need at least 2 experiments for ensemble")
+            sys.exit(1)
+
+        # Determine datafile stem
+        if args.datafile:
+            datafile_stem = args.datafile
+        else:
+            datafile_stem = infer_datafile_stem(experiments_dir, args.experiments)
+
+        ensemble_type = "cross-model"
+        config_path = None
+
+    # Build output path
     if args.env:
         output_dir = experiments_dir / args.env / datafile_stem / args.name
     else:
         output_dir = experiments_dir / datafile_stem / args.name
 
     print(f"\n{'='*60}")
-    print(f"ENSEMBLE: {args.name}")
-    print(f"Models: {', '.join(args.experiments)}")
+    print(f"AGGREGATING {len(all_results)} runs")
     print(f"Strategy: {args.strategy}")
-    print(f"Ignore blank: {args.ignore_blank}")
+    print(f"Ignore blank: {ignore_blank}")
     print(f"{'='*60}\n")
 
-    # Load results from each experiment (scoped to env/datafile)
-    all_results = load_experiment_results(
-        experiments_dir, args.experiments, env=args.env, datafile=datafile_stem,
-    )
-
-    if len(all_results) < 2:
-        print("Error: Need at least 2 experiments for ensemble")
-        sys.exit(1)
-
-    print(f"Loaded results from {len(all_results)} models")
-
-    # Run ensemble
+    # Run ensemble voting
     ensemble_results = run_ensemble(
-        all_results, strategy=args.strategy, ignore_blank=args.ignore_blank,
+        all_results,
+        strategy=args.strategy,
+        ignore_blank=ignore_blank,
     )
 
     # Score ensemble
@@ -397,16 +680,20 @@ def main():
         output_dir,
         list(all_results.keys()),
         args.strategy,
-        ignore_blank=args.ignore_blank,
+        ensemble_type=ensemble_type,
+        ignore_blank=ignore_blank,
+        num_runs=args.num_runs if args.config else None,
+        config_path=config_path,
     )
 
     # Print summary
     print(f"\n{'='*60}")
     print("ENSEMBLE COMPLETE")
     print(f"{'='*60}")
-    print(f"Models       : {', '.join(all_results.keys())}")
+    print(f"Type         : {ensemble_type}")
+    print(f"Runs         : {', '.join(all_results.keys())}")
     print(f"Strategy     : {args.strategy}")
-    print(f"Ignore blank : {args.ignore_blank}")
+    print(f"Ignore blank : {ignore_blank}")
     print(f"Questions    : {len(ensemble_results)}")
     print(f"Correct      : {scores['questions_correct']} ({100*scores['value_accuracy']:.1f}%)")
     print(f"\nComponent Scores:")
