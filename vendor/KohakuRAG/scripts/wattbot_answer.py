@@ -200,6 +200,14 @@ Return STRICT JSON with the following keys, in this order:
 - answer_value         (string with ONLY the numeric or categorical value in the requested unit, or "is_blank")
 - ref_id               (list of document ids from the context used as evidence; or "is_blank")
 
+CRITICAL formatting rules for answer_value:
+- Write full numbers without commas or abbreviations: "2000000000" not "2B" or "2,000,000,000"
+- For numeric ranges, use bracket notation: "[80,90]" not "80-90" or "80 to 90"
+- Do NOT include units in answer_value — units belong in answer_unit only
+- Do NOT include hedging words like "approximately", "more than", "~", etc.
+- Do NOT add parenthetical abbreviations: "Compute Time Calibration Function" not "Compute Time Calibration Function (CTCF)"
+- For percentages, give just the number: "4" not "4%" (the unit field carries "percent")
+
 JSON Answer:
 """.strip()
 
@@ -243,6 +251,12 @@ Return STRICT JSON with these keys in order:
 - answer: Short natural language answer
 - answer_value: The value matching the expected format (or "is_blank")
 - ref_id: List of document IDs from context used as evidence (or "is_blank")
+
+CRITICAL formatting rules for answer_value:
+- Write full numbers without commas or abbreviations: "2000000000" not "2B" or "2,000,000,000"
+- For numeric ranges, use bracket notation: "[80,90]" not "80-90" or "80 to 90"
+- Do NOT include units in answer_value — units belong in answer_unit only
+- Do NOT include hedging words like "approximately", "more than", "~", etc.
 
 JSON Answer:
 """.strip()
@@ -306,99 +320,9 @@ def build_ref_details(
     return ref_url, supporting
 
 
-_MAGNITUDE_MAP = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
-_MAGNITUDE_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*([KkMmBbTt])$")
-_HEDGE_RE = re.compile(
-    r"^(?:(?:more\s+than|less\s+than|greater\s+than|fewer\s+than"
-    r"|approximately|about|around|over|under|nearly|roughly"
-    r"|up\s+to|at\s+least|at\s+most)\s+"
-    r"|[~≈><]\s*)",
-    re.IGNORECASE,
-)
-_TRAILING_PAREN_RE = re.compile(r"\s*\([^()]{1,15}\)\s*$")
-
-
-def _fmt_num(v: float) -> str:
-    return str(int(v)) if v == int(v) else str(v)
-
-
-def _strip_commas(s: str) -> str:
-    """Remove thousand-separator commas from a numeric-looking string."""
-    candidate = s.replace(",", "")
-    try:
-        float(candidate)
-        return candidate
-    except ValueError:
-        return s
-
-
-def normalize_answer_value(raw: str, question: str) -> str:
-    """Apply domain-specific normalization to answer values.
-
-    Transformations applied (in order):
-      1. Strip thousand-separator commas   ("10,000" → "10000")
-      2. True/False questions              → "1" / "0"
-      3. Strip hedging prefixes            ("more than 10000" → "10000")
-      4. Expand magnitude suffixes         ("2B" → "2000000000")
-      5. Numeric range normalization       ("80-90" → "[80,90]")
-      6. Strip trailing parenthetical abbr ("Function (CTCF)" → "Function")
-    """
-    value = (raw or "").strip()
-    if not value or value.lower() == BLANK_TOKEN:
-        return BLANK_TOKEN
-
-    # ── Step 1: Strip thousand-separator commas ──────────────────────────
-    value = _strip_commas(value)
-
-    q_lower = question.strip().lower()
-
-    # ── Step 2: Normalize True/False questions to 1/0 ────────────────────
-    if q_lower.startswith("true or false"):
-        v_lower = value.lower()
-        if v_lower in {"true", "1"}:
-            return "1"
-        if v_lower in {"false", "0"}:
-            return "0"
-        if "true" in v_lower and "false" not in v_lower:
-            return "1"
-        if "false" in v_lower and "true" not in v_lower:
-            return "0"
-
-    # ── Step 3: Strip hedging prefixes ───────────────────────────────────
-    hm = _HEDGE_RE.match(value)
-    if hm:
-        value = value[hm.end():].strip()
-        value = _strip_commas(value)
-
-    # ── Step 4: Expand magnitude suffixes (2B → 2000000000) ─────────────
-    mm = _MAGNITUDE_RE.match(value)
-    if mm:
-        num = float(mm.group(1))
-        multiplier = _MAGNITUDE_MAP[mm.group(2).lower()]
-        return _fmt_num(num * multiplier)
-
-    # ── Step 5: Normalize numeric ranges to [lower,upper] ───────────────
-    nums = re.findall(r"-?\d+(?:\.\d+)?", value)
-    if len(nums) == 2 and any(
-        marker in value for marker in ["-", "–", "—", " to ", "–"]
-    ):
-        try:
-            a = float(nums[0])
-            b = float(nums[1])
-            lo, hi = sorted((a, b))
-            return f"[{_fmt_num(lo)},{_fmt_num(hi)}]"
-        except ValueError:
-            pass
-
-    # ── Step 6: Strip trailing parenthetical abbreviation ────────────────
-    try:
-        float(value)
-    except ValueError:
-        stripped = _TRAILING_PAREN_RE.sub("", value).strip()
-        if stripped and stripped != value:
-            value = stripped
-
-    return value
+# Answer normalisation has been consolidated into scripts/posthoc.py
+# (single source of truth).  The vendor pipeline now returns raw model
+# output; normalisation is applied as a separate post-hoc step.
 
 
 # ============================================================================
@@ -800,8 +724,8 @@ async def _answer_single_row(
         # Populate with structured answer fields
         result["answer"] = structured.answer or BLANK_TOKEN
 
-        normalized_value = normalize_answer_value(structured.answer_value, question)
-        result["answer_value"] = normalized_value or BLANK_TOKEN
+        # Store raw model output — normalisation is handled post-hoc
+        result["answer_value"] = structured.answer_value.strip() or BLANK_TOKEN
 
         # Format ref_id as list: ['doc1','doc2']
         if structured.ref_id:
@@ -932,8 +856,8 @@ async def run_single_question_debug(
         result_row["explanation"] = BLANK_TOKEN
     else:
         result_row["answer"] = structured.answer or BLANK_TOKEN
-        normalized_value = normalize_answer_value(structured.answer_value, question)
-        result_row["answer_value"] = normalized_value or BLANK_TOKEN
+        # Store raw model output — normalisation is handled post-hoc
+        result_row["answer_value"] = structured.answer_value.strip() or BLANK_TOKEN
         if structured.ref_id:
             joined_ids = ",".join(f"'{rid}'" for rid in structured.ref_id)
             result_row["ref_id"] = f"[{joined_ids}]"
