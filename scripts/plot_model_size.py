@@ -10,6 +10,7 @@ Generates publication-quality plots:
   5. Overall Ranking
   6. Cost vs. Performance
   7. Score Component Breakdown
+  8. Total GPU Energy per Experiment
 
 Supports both API models (Bedrock, OpenRouter) and local HF models.
 
@@ -39,7 +40,8 @@ except ImportError:
 #   - Open-source models: published parameter counts
 #   - Proprietary models: community estimates (marked estimated=True)
 #
-# For MoE models, we report ACTIVE parameters.
+# For MoE models, we report TOTAL parameters (matches HF model cards).
+# Active-parameter counts are noted for reference.
 
 MODEL_SIZES = {
     # --- Bedrock / API models ---
@@ -50,8 +52,8 @@ MODEL_SIZES = {
     "nova-pro": ("Nova Pro", 40, True, "Amazon undisclosed; rough est. ~40B"),
     "llama3-3-70b": ("Llama 3.3 70B", 70, False, "Open-source, confirmed"),
     "llama3-1-70b": ("Llama 3.1 70B", 70, False, "Open-source, confirmed"),
-    "llama4-scout-17b": ("Llama 4 Scout", 17, False, "17B active, 109B total MoE"),
-    "llama4-maverick-17b": ("Llama 4 Maverick", 17, False, "17B active, 400B total MoE"),
+    "llama4-scout-17b": ("Llama 4 Scout", 109, False, "109B total MoE (17B active)"),
+    "llama4-maverick-17b": ("Llama 4 Maverick", 400, False, "400B total MoE (17B active)"),
     "mistral-small": ("Mistral Small", 24, False, "Open-source, confirmed 24B"),
     "deepseek": ("DeepSeek R1 (distill)", 70, False, "Llama 70B distill variant"),
 
@@ -69,10 +71,10 @@ MODEL_SIZES = {
     "phi-3.5-mini": ("Phi-3.5 Mini", 3.8, False, "Open-source, confirmed 3.8B"),
     "gemma-2-9b": ("Gemma 2 9B", 9, False, "Open-source, confirmed 9B"),
     "gemma-2-2b": ("Gemma 2 2B", 2, False, "Open-source, confirmed 2B"),
-    "mixtral-8x7b": ("Mixtral 8x7B", 13, False, "13B active, 46.7B total MoE"),
-    "mixtral-8x22b": ("Mixtral 8x22B", 39, False, "39B active, 141B total MoE"),
-    "qwen3-30b-a3b": ("Qwen3 30B-A3B", 3, False, "3B active, 30B total MoE"),
-    "olmoe-1b-7b": ("OLMoE 1B-7B", 1, False, "1B active, 7B total MoE"),
+    "mixtral-8x7b": ("Mixtral 8x7B", 46.7, False, "46.7B total MoE (12.9B active)"),
+    "mixtral-8x22b": ("Mixtral 8x22B", 141, False, "141B total MoE (39B active)"),
+    "qwen3-30b-a3b": ("Qwen3 30B-A3B", 30.5, False, "30.5B total MoE (3.3B active)"),
+    "olmoe-1b-7b": ("OLMoE 1B-7B", 7, False, "7B total MoE (1B active)"),
 }
 
 
@@ -180,6 +182,7 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None,
             "total_cost": data.get("estimated_cost_usd", 0),
             "input_tokens": data.get("input_tokens", 0),
             "output_tokens": data.get("output_tokens", 0),
+            "gpu_energy_wh": data.get("hardware", {}).get("gpu_energy_wh", 0),
         }
 
         if model_id in seen_models:
@@ -535,6 +538,52 @@ def plot_score_breakdown(experiments: list[dict], output_dir: Path):
     print(f"Saved {output_dir / 'score_breakdown.png'}")
 
 
+def plot_energy(experiments: list[dict], output_dir: Path):
+    """Plot 8: Total GPU energy consumed per experiment (horizontal bar chart)."""
+    with_energy = [e for e in experiments if e.get("gpu_energy_wh", 0) > 0]
+    if len(with_energy) < 2:
+        print("Not enough experiments with energy data for energy plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, max(7, len(with_energy) * 0.6)))
+
+    sorted_exp = sorted(with_energy, key=lambda x: x["gpu_energy_wh"])
+    labels = []
+    for e in sorted_exp:
+        suffix = " [local]" if e.get("llm_provider") == "hf_local" else ""
+        labels.append(f"{e['display_name']}{suffix}")
+    energies = [e["gpu_energy_wh"] for e in sorted_exp]
+    colors = [get_color(e["display_name"]) for e in sorted_exp]
+
+    bars = ax.barh(range(len(labels)), energies, color=colors, edgecolor="white",
+                   linewidth=1.2, height=0.65)
+
+    for bar, energy in zip(bars, energies):
+        ax.text(bar.get_width() + max(energies) * 0.01, bar.get_y() + bar.get_height() / 2,
+                f"{energy:.1f} Wh", va="center", fontsize=10, fontweight="bold")
+
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=11)
+    ax.set_xlabel("Total GPU Energy (Wh)", fontsize=11)
+    n_q = sorted_exp[0].get("num_questions", "?") if sorted_exp else "?"
+    ax.set_title(f"Total GPU Energy per Experiment (n={n_q} questions)", fontsize=14, fontweight="bold")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+
+    ax.text(
+        0.98, 0.02,
+        "Energy measured via NVML counter or nvidia-smi power sampling\n"
+        "API models excluded (no local GPU usage)",
+        transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
+        style="italic", color="gray",
+    )
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "energy_per_experiment.png", dpi=300, bbox_inches="tight")
+    print(f"Saved {output_dir / 'energy_per_experiment.png'}")
+
+
 def print_summary_table(experiments: list[dict]):
     """Print formatted summary table."""
     print(f"\n{'='*110}")
@@ -608,8 +657,9 @@ def main():
     plot_overall_ranking(experiments, output_dir)
     plot_cost_vs_performance(experiments, output_dir)
     plot_score_breakdown(experiments, output_dir)
+    plot_energy(experiments, output_dir)
 
-    print(f"\nAll 7 plots saved to {output_dir}/")
+    print(f"\nAll 8 plots saved to {output_dir}/")
 
 
 if __name__ == "__main__":

@@ -276,7 +276,7 @@ All output goes to `artifacts/plots/`.
 Ground truth is auto-detected: `data/test_solutions.csv` if present, otherwise
 `data/train_QA.csv`. Override with `--ground-truth <path>`.
 
-### plot_model_size.py — Size & scaling analysis (7 plots)
+### plot_model_size.py — Size & scaling analysis (8 plots)
 
 1. **Size vs. Scores** — 4-panel (overall, value accuracy, ref overlap, NA)
 2. **Size vs. Latency** — per-question average
@@ -285,6 +285,7 @@ Ground truth is auto-detected: `data/test_solutions.csv` if present, otherwise
 5. **Overall ranking** — horizontal bar chart
 6. **Cost vs. Performance** — trade-off scatter
 7. **Score breakdown** — grouped bar (value/ref/NA per model)
+8. **Energy per experiment** — total GPU energy (Wh) per model (local HF only)
 
 Local HF models show as **squares**, API models as **circles**.
 
