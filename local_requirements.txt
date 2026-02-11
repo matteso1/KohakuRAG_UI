@@ -16,6 +16,7 @@ protobuf
 # App deps (only if not already included elsewhere)
 streamlit
 python-dotenv
+jupyter-server-proxy
 
 # Quantization
 bitsandbytes
