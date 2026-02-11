@@ -17,11 +17,17 @@ Usage:
     python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name "qwen7b-test"
 
 Output:
-    - artifacts/experiments/<datafile>/<name>/submission.csv - Kaggle format submission
-    - artifacts/experiments/<datafile>/<name>/results.json - Detailed per-question results
+    - artifacts/experiments/<datafile>/<name>/results.json - Raw per-question results (un-normalised)
     - artifacts/experiments/<datafile>/<name>/summary.json - Overall metrics and timing
 
     Where <datafile> is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
+
+    results.json stores the raw LLM output.  To produce a normalised submission.csv
+    for Kaggle, run the post-hoc processing step:
+
+        python scripts/posthoc.py artifacts/experiments/<datafile>/<name>/results.json
+
+    See scripts/posthoc.py for the canonical answer normalisation logic.
 """
 
 import argparse

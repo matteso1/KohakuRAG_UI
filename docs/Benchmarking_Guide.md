@@ -99,10 +99,22 @@ Results are organized by environment and datafile:
 
 ```
 artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-├── submission.csv   # Kaggle-format predictions
-├── results.json     # Per-question details (latency, scores, raw LLM output)
-└── summary.json     # Aggregate metrics (overall score, timing, dataset info)
+├── results.json     # Per-question details (raw LLM output, latency, scores)
+├── summary.json     # Aggregate metrics (overall score, timing, dataset info)
+└── submission.csv   # Normalised Kaggle-format predictions (created by posthoc.py)
 ```
+
+**Important:** `results.json` stores **raw model output** (un-normalised).
+To produce a normalised `submission.csv` for Kaggle and get the final score,
+run the post-hoc processing step:
+
+```bash
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+```
+
+This applies answer normalisation (comma stripping, range formatting,
+abbreviation expansion, etc.) and re-scores against ground truth.
+See `scripts/posthoc.py` for details.
 
 The `<datafile>` subfolder is derived from the questions CSV filename
 (e.g. `train_QA` from `data/train_QA.csv`, `test_solutions` from
@@ -188,6 +200,19 @@ The benchmark runner:
 ---
 
 ## 4) Comparing results across runs
+
+### Post-hoc normalisation and scoring
+
+After an experiment completes, run post-hoc processing to normalise raw
+model output and produce a Kaggle-ready `submission.csv`:
+
+```bash
+# Process a single experiment (auto-finds results.json)
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
+```
 
 ### Score a submission against ground truth
 
@@ -693,20 +718,37 @@ size, energy (Wh), and power — ready for plotting.
 
 ## 12) Results output for post-processing
 
-Every experiment produces three files for iteration:
+Every experiment produces two files immediately, and a third after post-hoc
+processing:
 
-| File               | Format | What's in it                                      |
-|--------------------|--------|---------------------------------------------------|
-| `submission.csv`   | CSV    | Kaggle-format predictions (id, answer_value, ...) |
-| `results.json`     | JSON   | Per-question: GT, prediction, scores, latency     |
-| `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config |
+| File               | Format | What's in it                                                  |
+|--------------------|--------|---------------------------------------------------------------|
+| `results.json`     | JSON   | Per-question: **raw** model output, GT, latency, retrieval    |
+| `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config snapshot    |
+| `submission.csv`   | CSV    | Normalised Kaggle-format predictions (created by `posthoc.py`)|
 
-To iterate on post-processing:
+`results.json` intentionally stores **raw (un-normalised)** model output so
+you can always re-run normalisation with improved rules without re-running
+expensive LLM inference:
+
+```bash
+# Normalise and re-score (writes submission.csv alongside results.json)
+python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/ --dry-run
+```
+
+All answer normalisation logic (comma stripping, abbreviation expansion,
+range formatting, hedging prefix removal, etc.) lives in **one place**:
+`scripts/posthoc.py`.
+
+To iterate on post-processing in Python:
 
 ```python
 import json, pandas as pd
 
-# Load per-question results
+# Load per-question results (raw model output)
 with open("artifacts/experiments/train_QA/qwen7b-v1/results.json") as f:
     results = json.load(f)
 
@@ -745,11 +787,12 @@ KohakuRAG_UI/
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
 │   ├── run_experiment.py     # Run one experiment (--env for machine label)
+│   ├── posthoc.py            # Post-hoc normalisation & scoring (single source of truth)
+│   ├── score.py              # WattBot scoring metric (used by Kaggle + posthoc)
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
 │   ├── run_ensemble.py       # Combine multiple runs
-│   ├── score.py              # WattBot scoring
 │   ├── generate_results_matrix.py
 │   ├── audit_experiments.py
 │   ├── plot_model_size.py
