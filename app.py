@@ -9,6 +9,7 @@ Launch:
 """
 
 import asyncio
+import csv
 import gc
 import importlib.util
 import json
@@ -85,6 +86,26 @@ VRAM_4BIT_GB = {
 }
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
+
+# ---------------------------------------------------------------------------
+# Metadata URL lookup  (ref_id → URL from metadata.csv)
+# ---------------------------------------------------------------------------
+_METADATA_CSV = _repo_root / "data" / "metadata.csv"
+
+def _load_metadata_urls() -> dict[str, str]:
+    """Build a ref_id → url mapping from metadata.csv."""
+    mapping: dict[str, str] = {}
+    if not _METADATA_CSV.exists():
+        return mapping
+    with open(_METADATA_CSV, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            doc_id = row.get("id", "").strip()
+            url = row.get("url", "").strip()
+            if doc_id and url:
+                mapping[doc_id] = url
+    return mapping
+
+METADATA_URLS: dict[str, str] = _load_metadata_urls()
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +601,10 @@ def _display_single_result(result, elapsed: float):
     answer = result.answer
     timing = result.timing
 
-    st.markdown(f"**{answer.answer}**")
+    if answer.answer and answer.answer != "is_blank":
+        st.markdown(f"**{answer.answer}**")
+    else:
+        st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if answer.answer_value and answer.answer_value != "is_blank":
         st.markdown(f"Value: `{answer.answer_value}`")
     if answer.explanation and answer.explanation != "is_blank":
@@ -600,8 +624,9 @@ def _display_single_result(result, elapsed: float):
     }
     _render_details(details)
 
+    display_answer = answer.answer if answer.answer and answer.answer != "is_blank" else "Out-of-scope"
     st.session_state.messages.append({
-        "role": "assistant", "content": answer.answer, "details": details,
+        "role": "assistant", "content": display_answer, "details": details,
     })
 
 
@@ -609,7 +634,10 @@ def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
-    st.markdown(f"**{agg['answer']}**")
+    if agg["answer"] and agg["answer"] != "is_blank":
+        st.markdown(f"**{agg['answer']}**")
+    else:
+        st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if agg["answer_value"] and agg["answer_value"] != "is_blank":
         st.markdown(f"Value: `{agg['answer_value']}`")
     if agg["explanation"] and agg["explanation"] != "is_blank":
@@ -629,9 +657,11 @@ def _display_ensemble_result(
         for name, info in agg["individual"].items():
             agreed = info["answer_value"] == agg["answer_value"]
             marker = "+" if agreed else "-"
+            val = info["answer_value"] if info["answer_value"] and info["answer_value"] != "is_blank" else "Out-of-scope"
+            ans = info["answer"] if info["answer"] and info["answer"] != "is_blank" else "Out-of-scope"
             st.markdown(
                 f"**{name}** ({info['time']:.1f}s) [{marker}]  \n"
-                f"Answer: `{info['answer_value']}` — {info['answer']}"
+                f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
                 st.caption(info["explanation"])
@@ -641,14 +671,20 @@ def _display_ensemble_result(
     if agg["ref_id"]:
         with st.expander("References (union)"):
             for rid in agg["ref_id"]:
-                st.markdown(f"- {rid}")
+                url = METADATA_URLS.get(rid)
+                if url:
+                    st.markdown(f"- __[ref_id={rid}]__ [{rid}]({url})")
+                else:
+                    st.markdown(f"- __[ref_id={rid}]__ {rid}")
 
     # First model's retrieval context (shared across models since same embedder+store)
     first_result = next(iter(model_results.values()))["result"]
     snippets = first_result.retrieval.snippets
     if snippets:
-        with st.expander(f"Retrieved context ({len(snippets)} chunks)"):
-            for s in snippets:
+        display_snippets = snippets[:10]
+        label = f"Retrieved context ({len(display_snippets)} of {len(snippets)} chunks)"
+        with st.expander(label):
+            for s in display_snippets:
                 st.markdown(f"**#{s.rank}** _{s.document_title}_ (score: {s.score:.3f})")
                 st.text(s.text[:500] + ("..." if len(s.text) > 500 else ""))
                 st.divider()
@@ -667,8 +703,9 @@ def _display_ensemble_result(
         "answer": agg["answer"],
         "answer_value": agg["answer_value"],
     }
+    display_answer = agg["answer"] if agg["answer"] and agg["answer"] != "is_blank" else "Out-of-scope"
     st.session_state.messages.append({
-        "role": "assistant", "content": agg["answer"], "details": details,
+        "role": "assistant", "content": display_answer, "details": details,
     })
 
 
@@ -695,19 +732,24 @@ def _render_details(details: dict):
     if ref_ids and ref_ids != "is_blank":
         with st.expander("References"):
             for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
-                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+                # Prefer metadata.csv URL; fall back to LLM-provided URL
+                url = METADATA_URLS.get(rid)
+                if not url:
+                    url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
                 if url and url != "is_blank":
-                    st.markdown(f"- [{rid}]({url})")
+                    st.markdown(f"- __[ref_id={rid}]__ [{rid}]({url})")
                 else:
-                    st.markdown(f"- {rid}")
+                    st.markdown(f"- __[ref_id={rid}]__ {rid}")
             sm = details.get("supporting_materials", "")
             if sm and sm != "is_blank":
                 st.caption(f"Supporting: {sm}")
 
     snippets = details.get("snippets", [])
     if snippets:
-        with st.expander(f"Retrieved context ({len(snippets)} chunks)"):
-            for s in snippets:
+        display_snippets = snippets[:10]
+        label = f"Retrieved context ({len(display_snippets)} of {len(snippets)} chunks)"
+        with st.expander(label):
+            for s in display_snippets:
                 st.markdown(f"**#{s['rank']}** _{s['title']}_ (score: {s['score']:.3f})")
                 st.text(s["text"][:500] + ("..." if len(s["text"]) > 500 else ""))
                 st.divider()
