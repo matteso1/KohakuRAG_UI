@@ -229,6 +229,53 @@ def normalize_answer_value(raw: str) -> str:
     return s
 
 
+# Strip [ref_id=...] wrapper that models sometimes copy from context markers
+_REF_ID_RE = _re.compile(r"^\[ref_id=(.+)\]$", _re.IGNORECASE)
+
+_BLANK_REF_TOKENS = {"", "is_blank", "na", "n/a", "none", "null"}
+
+
+def normalize_ref_id(raw_ref) -> list | str:
+    """Normalize LLM ref_id output to clean list of document IDs.
+
+    Handles common model artifacts:
+      - "[ref_id=xxx]" wrapper  →  "xxx"
+      - Comma-separated single string "a, b"  →  ["a", "b"]
+      - ["is_blank"] list  →  "is_blank"  (scalar)
+    """
+    # Already a list from JSON parsing
+    if isinstance(raw_ref, list):
+        cleaned = []
+        for item in raw_ref:
+            s = str(item).strip()
+            # Unwrap [ref_id=xxx]
+            m = _REF_ID_RE.match(s)
+            if m:
+                s = m.group(1).strip()
+            # Split comma-separated refs within a single element
+            if "," in s:
+                parts = [p.strip() for p in s.split(",") if p.strip()]
+                for p in parts:
+                    m2 = _REF_ID_RE.match(p)
+                    cleaned.append(m2.group(1).strip() if m2 else p)
+            elif s.lower() not in _BLANK_REF_TOKENS:
+                cleaned.append(s)
+        # If everything was filtered out, it's blank
+        return cleaned if cleaned else "is_blank"
+
+    # Scalar string
+    s = str(raw_ref).strip()
+    if s.lower() in _BLANK_REF_TOKENS:
+        return "is_blank"
+
+    # Unwrap [ref_id=xxx]
+    m = _REF_ID_RE.match(s)
+    if m:
+        return m.group(1).strip()
+
+    return s
+
+
 # =============================================================================
 # Prompts  (Q→C ordering: question appears before context in the template)
 # =============================================================================
@@ -507,7 +554,7 @@ class ExperimentRunner:
                 )
 
                 pred_value = normalize_answer_value(result.answer.answer_value)
-                pred_ref = result.answer.ref_id
+                pred_ref = normalize_ref_id(result.answer.ref_id)
                 pred_explanation = result.answer.explanation
                 raw_response = getattr(result, "raw_response", "")
                 timing = getattr(result, "timing", {})
