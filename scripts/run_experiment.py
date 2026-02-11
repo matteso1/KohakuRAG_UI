@@ -17,9 +17,11 @@ Usage:
     python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name "qwen7b-test"
 
 Output:
-    - artifacts/experiments/<name>/submission.csv - Kaggle format submission
-    - artifacts/experiments/<name>/results.json - Detailed per-question results
-    - artifacts/experiments/<name>/summary.json - Overall metrics and timing
+    - artifacts/experiments/<datafile>/<name>/submission.csv - Kaggle format submission
+    - artifacts/experiments/<datafile>/<name>/results.json - Detailed per-question results
+    - artifacts/experiments/<datafile>/<name>/summary.json - Overall metrics and timing
+
+    Where <datafile> is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
 """
 
 import argparse
@@ -820,13 +822,6 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         experiment_name = f"{model_short}_{timestamp}"
 
-    # Organize output by env: artifacts/experiments/<env>/<name>/
-    experiments_base = Path(__file__).parent.parent / "artifacts" / "experiments"
-    if run_environment:
-        output_dir = experiments_base / run_environment / experiment_name
-    else:
-        output_dir = experiments_base / experiment_name
-
     # Load questions (CLI --questions overrides config)
     project_root = Path(__file__).parent.parent
     if questions_override:
@@ -836,6 +831,16 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
         q_raw = config.get("questions", "data/train_QA.csv")
         questions_path = project_root / q_raw.removeprefix("../").removeprefix("../")
     config["_questions_file"] = str(questions_path.name)
+
+    # Derive datafile subfolder from questions filename (e.g. "train_QA", "test_solutions")
+    datafile_stem = questions_path.stem
+
+    # Organize output: artifacts/experiments/<env>/<datafile>/<name>/
+    experiments_base = Path(__file__).parent.parent / "artifacts" / "experiments"
+    if run_environment:
+        output_dir = experiments_base / run_environment / datafile_stem / experiment_name
+    else:
+        output_dir = experiments_base / datafile_stem / experiment_name
     questions_df = pd.read_csv(questions_path)
     print(f"Loaded {len(questions_df)} questions from {questions_path}")
 

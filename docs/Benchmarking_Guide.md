@@ -95,16 +95,19 @@ overrides the `questions` path in the config file.
 
 `data/test_solutions.csv` is gitignored so it will never be committed.
 
-When `--env` is set, output is organized by environment:
+Results are organized by environment and datafile:
 
 ```
-artifacts/experiments/PowerEdge/qwen7b-v1/
+artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
 ├── submission.csv   # Kaggle-format predictions
 ├── results.json     # Per-question details (latency, scores, raw LLM output)
 └── summary.json     # Aggregate metrics (overall score, timing, dataset info)
 ```
 
-Without `--env`, results go directly under `artifacts/experiments/<name>/`.
+The `<datafile>` subfolder is derived from the questions CSV filename
+(e.g. `train_QA` from `data/train_QA.csv`, `test_solutions` from
+`data/test_solutions.csv`). Without `--env`, results go under
+`artifacts/experiments/<datafile>/<name>/`.
 
 ### Quick eval (alternative)
 
@@ -189,7 +192,7 @@ The benchmark runner:
 ### Score a submission against ground truth
 
 ```bash
-python scripts/score.py data/train_QA.csv artifacts/experiments/qwen7b-v1/submission.csv
+python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
 ```
 
 ### Generate a side-by-side comparison matrix
@@ -412,7 +415,7 @@ python scripts/run_experiment.py \
     --name newmodel13b-smoke --env GB10
 
 # Check the output
-python -m json.tool artifacts/experiments/newmodel13b-smoke/summary.json
+python -m json.tool artifacts/experiments/train_QA/newmodel13b-smoke/summary.json
 ```
 
 If this passes, the model loads correctly and can answer questions.
@@ -579,35 +582,38 @@ still pass `--env` for Bedrock runs (e.g., `--env Bedrock-us-east-1`).
 ## 10) Running on the test set
 
 By default, benchmarks run against `data/train_QA.csv`. To run on a
-different question set (e.g. the competition test set) without
-overwriting your existing train results, use `--split` and `--questions`:
+different question set (e.g. the competition test set), use `--questions`:
 
 ```bash
-# Full batch on test set — results go to <env>/qwen7b-bench-test/ etc.
+# Full batch on test set — results go to <env>/test_solutions/ subfolder
 python scripts/run_full_benchmark.py \
     --env PowerEdge \
-    --split test \
     --questions data/test_solutions.csv
 
 # Single model on test set
 python scripts/run_experiment.py \
     --config vendor/KohakuRAG/configs/hf_qwen7b.py \
-    --name qwen7b-bench-test \
+    --name qwen7b-bench \
     --env PowerEdge \
     --questions data/test_solutions.csv
 ```
 
-`--split <suffix>` appends `-<suffix>` to every experiment name in the
-batch, so train and test results live side-by-side:
+Results are automatically separated by datafile subfolder, so train and
+test results never collide:
 
 ```
 artifacts/experiments/PowerEdge/
-├── qwen7b-bench/          ← train results
-├── qwen7b-bench-test/     ← test results
+├── train_QA/              ← train results
+│   ├── qwen7b-bench/
+│   └── ...
+├── test_solutions/        ← test results
+│   ├── qwen7b-bench/
+│   └── ...
 ```
 
-The skip-existing check still applies per-split, so you can re-run
-with `--force` if needed.
+The `--split` flag is still supported and appends a suffix to experiment
+names within the datafile subfolder. The skip-existing check uses the
+datafile subfolder, so you can re-run with `--force` if needed.
 
 ---
 
@@ -644,7 +650,7 @@ The script:
 
 Output:
 ```
-artifacts/experiments/<env>/
+artifacts/experiments/<env>/train_QA/
 ├── qwen1.5b-bench/...                  ← standard experiment results
 ├── qwen3b-bench/...
 ├── qwen7b-bench/...
@@ -673,7 +679,7 @@ To iterate on post-processing:
 import json, pandas as pd
 
 # Load per-question results
-with open("artifacts/experiments/qwen7b-v1/results.json") as f:
+with open("artifacts/experiments/train_QA/qwen7b-v1/results.json") as f:
     results = json.load(f)
 
 # Convert to DataFrame for analysis
@@ -681,7 +687,7 @@ df = pd.DataFrame(results)
 print(df[["id", "pred_value", "gt_value", "value_correct", "latency_seconds"]])
 
 # Load summary (includes hardware)
-with open("artifacts/experiments/qwen7b-v1/summary.json") as f:
+with open("artifacts/experiments/train_QA/qwen7b-v1/summary.json") as f:
     summary = json.load(f)
 print(f"VRAM: {summary['hardware']['gpu_vram_allocated_gb']} GB")
 print(f"Energy: {summary['hardware']['gpu_energy_wh']} Wh")
@@ -690,7 +696,7 @@ print(f"Energy: {summary['hardware']['gpu_energy_wh']} Wh")
 For the scaling experiment, use the combined file:
 
 ```python
-scaling = pd.read_csv("artifacts/experiments/PowerEdge/qwen_scaling_comparison.csv")
+scaling = pd.read_csv("artifacts/experiments/PowerEdge/train_QA/qwen_scaling_comparison.csv")
 print(scaling[["model", "params_b", "overall_score", "vram_allocated_gb", "energy_wh"]])
 ```
 
@@ -722,14 +728,18 @@ KohakuRAG_UI/
 │   ├── plot_from_matrix.py
 │   └── plot_score_breakdown.py
 ├── artifacts/                # Experiment outputs (gitignored, machine-specific)
-│   ├── experiments/          # Per-experiment results, organized by --env
+│   ├── experiments/          # Per-experiment results, organized by --env and datafile
 │   │   ├── PowerEdge/       # Results from PowerEdge runs
-│   │   │   ├── qwen7b-v1/
-│   │   │   │   ├── submission.csv
-│   │   │   │   ├── results.json
-│   │   │   │   └── summary.json
-│   │   │   └── ...
+│   │   │   ├── train_QA/   # Results from train_QA.csv questions
+│   │   │   │   ├── qwen7b-v1/
+│   │   │   │   │   ├── submission.csv
+│   │   │   │   │   ├── results.json
+│   │   │   │   │   └── summary.json
+│   │   │   │   └── ...
+│   │   │   └── test_solutions/  # Results from test_solutions.csv
+│   │   │       └── ...
 │   │   └── GB10/            # Results from GB10 runs
+│   │       └── train_QA/
 │   ├── plots/                # Generated charts
 │   └── results_matrix.csv
 ├── notebooks/

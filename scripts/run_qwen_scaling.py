@@ -109,12 +109,14 @@ def get_available_vram_gb() -> float:
     return 0.0
 
 
-def find_existing_summary(bench_name: str, env: str = "") -> dict | None:
+def find_existing_summary(bench_name: str, env: str = "", datafile_stem: str = "train_QA") -> dict | None:
     """Search for an existing summary.json matching this bench name."""
-    # Try env-specific path first, then flat
+    # Try explicit paths in order of preference (new structure first, then legacy)
     candidates = []
     if env:
+        candidates.append(EXPERIMENTS_BASE / env / datafile_stem / bench_name / "summary.json")
         candidates.append(EXPERIMENTS_BASE / env / bench_name / "summary.json")
+    candidates.append(EXPERIMENTS_BASE / datafile_stem / bench_name / "summary.json")
     candidates.append(EXPERIMENTS_BASE / bench_name / "summary.json")
 
     for path in candidates:
@@ -302,6 +304,11 @@ def main():
         choices=["4bit", "bf16", "fp16", "auto"],
         help="Model precision/quantization (default: 4bit)",
     )
+    parser.add_argument(
+        "--datafile", "-d", default="train_QA",
+        help="Datafile subfolder name (default: train_QA). "
+             "Set to match the questions CSV stem (e.g. 'test_solutions').",
+    )
 
     args = parser.parse_args()
 
@@ -320,7 +327,7 @@ def main():
 
     for size_key in sizes:
         model_info = QWEN_MODELS[size_key]
-        summary = find_existing_summary(model_info["bench_name"], args.env)
+        summary = find_existing_summary(model_info["bench_name"], args.env, args.datafile)
         if summary:
             summaries[size_key] = summary
             print(f"  [FOUND] {model_info['bench_name']}: score={summary.get('overall_score', 0):.3f}")
@@ -382,7 +389,10 @@ def main():
         print("\nNo results to compare.")
         return
 
-    output_dir = EXPERIMENTS_BASE / args.env if args.env else EXPERIMENTS_BASE
+    if args.env:
+        output_dir = EXPERIMENTS_BASE / args.env / args.datafile
+    else:
+        output_dir = EXPERIMENTS_BASE / args.datafile
     output_dir.mkdir(parents=True, exist_ok=True)
 
     comparison_csv = output_dir / "qwen_scaling_comparison.csv"

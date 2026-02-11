@@ -29,8 +29,7 @@ from score import row_bits, is_blank, ref_overlap_score
 def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) -> dict[str, list[dict]]:
     """Load results.json from each experiment.
 
-    Supports both flat (experiments/<name>/) and env-nested
-    (experiments/<env>/<name>/) directory layouts.
+    Supports flat, env-nested, and datafile-nested directory layouts.
     """
     all_results = {}
 
@@ -53,6 +52,21 @@ def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) 
             all_results[name] = json.load(f)
 
     return all_results
+
+
+def infer_datafile_stem(experiments_dir: Path, experiment_names: list[str]) -> str:
+    """Infer the datafile subfolder from source experiments' summary.json."""
+    for p in experiments_dir.glob("**/summary.json"):
+        if p.parent.name in experiment_names:
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                qf = data.get("questions_file", "")
+                if qf:
+                    return Path(qf).stem
+            except (json.JSONDecodeError, OSError):
+                continue
+    return "train_QA"
 
 
 def load_ground_truth(gt_path: Path) -> pd.DataFrame:
@@ -283,11 +297,33 @@ def main():
         default="majority",
         help="Aggregation strategy (default: majority)"
     )
+    parser.add_argument(
+        "--env", "-v",
+        default="",
+        help="Run environment label (e.g. 'GB10', 'PowerEdge')"
+    )
+    parser.add_argument(
+        "--datafile", "-d",
+        default=None,
+        help="Datafile subfolder (e.g. 'train_QA', 'test_solutions'). "
+             "Auto-detected from source experiments if not specified."
+    )
 
     args = parser.parse_args()
 
     experiments_dir = Path(__file__).parent.parent / "artifacts" / "experiments"
-    output_dir = experiments_dir / args.name
+
+    # Determine datafile subfolder
+    if args.datafile:
+        datafile_stem = args.datafile
+    else:
+        datafile_stem = infer_datafile_stem(experiments_dir, args.experiments)
+
+    # Build output path: experiments/<env>/<datafile>/<name>/
+    if args.env:
+        output_dir = experiments_dir / args.env / datafile_stem / args.name
+    else:
+        output_dir = experiments_dir / datafile_stem / args.name
 
     print(f"\n{'='*60}")
     print(f"ENSEMBLE: {args.name}")

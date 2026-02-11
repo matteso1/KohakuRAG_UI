@@ -77,16 +77,23 @@ BEDROCK_MODELS = {
 ALL_MODELS = {**HF_LOCAL_MODELS, **BEDROCK_MODELS}
 
 
-def experiment_dir(experiment_name: str, env: str = "") -> Path:
+def datafile_stem_from_questions(questions_path: str | None) -> str:
+    """Derive the datafile subfolder name from the questions CSV path."""
+    if questions_path:
+        return Path(questions_path).stem
+    return "train_QA"  # default questions file used by configs
+
+
+def experiment_dir(experiment_name: str, env: str = "", datafile_stem: str = "train_QA") -> Path:
     """Return the expected output directory for an experiment."""
     if env:
-        return EXPERIMENTS_BASE / env / experiment_name
-    return EXPERIMENTS_BASE / experiment_name
+        return EXPERIMENTS_BASE / env / datafile_stem / experiment_name
+    return EXPERIMENTS_BASE / datafile_stem / experiment_name
 
 
-def check_existing(experiment_name: str, env: str = "") -> str | None:
+def check_existing(experiment_name: str, env: str = "", datafile_stem: str = "train_QA") -> str | None:
     """If summary.json exists for this experiment, return the score line. Else None."""
-    summary_path = experiment_dir(experiment_name, env) / "summary.json"
+    summary_path = experiment_dir(experiment_name, env, datafile_stem) / "summary.json"
     if not summary_path.exists():
         return None
     try:
@@ -281,6 +288,9 @@ def main():
         print("No models available to benchmark. Create config files in vendor/KohakuRAG/configs/")
         return
 
+    # Derive datafile subfolder from --questions arg
+    datafile_stem = datafile_stem_from_questions(args.questions)
+
     mode = "SMOKE TEST" if args.smoke_test else "FULL BENCHMARK"
     print(f"{'='*70}")
     print(f"{mode}: {len(available_models)} models")
@@ -299,7 +309,7 @@ def main():
 
         # Skip if results already exist (unless --force)
         if not args.force:
-            cached = check_existing(exp_name, args.env)
+            cached = check_existing(exp_name, args.env, datafile_stem)
             if cached:
                 print(f"  [SKIP] already exists - {cached}")
                 print()

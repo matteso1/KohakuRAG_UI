@@ -92,6 +92,8 @@ def main():
             "artifacts/experiments/*/*.csv",
             "artifacts/experiments/*/*/submission.csv",
             "artifacts/experiments/*/*/*.csv",
+            "artifacts/experiments/*/*/*/submission.csv",
+            "artifacts/experiments/*/*/*/*.csv",
         ],
         help="List of submission CSV files (supports glob patterns)"
     )
