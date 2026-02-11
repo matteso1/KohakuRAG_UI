@@ -306,19 +306,53 @@ def build_ref_details(
     return ref_url, supporting
 
 
+_MAGNITUDE_MAP = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
+_MAGNITUDE_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*([KkMmBbTt])$")
+_HEDGE_RE = re.compile(
+    r"^(?:(?:more\s+than|less\s+than|greater\s+than|fewer\s+than"
+    r"|approximately|about|around|over|under|nearly|roughly"
+    r"|up\s+to|at\s+least|at\s+most)\s+"
+    r"|[~≈><]\s*)",
+    re.IGNORECASE,
+)
+_TRAILING_PAREN_RE = re.compile(r"\s*\([^()]{1,15}\)\s*$")
+
+
+def _fmt_num(v: float) -> str:
+    return str(int(v)) if v == int(v) else str(v)
+
+
+def _strip_commas(s: str) -> str:
+    """Remove thousand-separator commas from a numeric-looking string."""
+    candidate = s.replace(",", "")
+    try:
+        float(candidate)
+        return candidate
+    except ValueError:
+        return s
+
+
 def normalize_answer_value(raw: str, question: str) -> str:
     """Apply domain-specific normalization to answer values.
 
-    - True/False questions → 1/0
-    - Numeric ranges → [lower,upper] format
+    Transformations applied (in order):
+      1. Strip thousand-separator commas   ("10,000" → "10000")
+      2. True/False questions              → "1" / "0"
+      3. Strip hedging prefixes            ("more than 10000" → "10000")
+      4. Expand magnitude suffixes         ("2B" → "2000000000")
+      5. Numeric range normalization       ("80-90" → "[80,90]")
+      6. Strip trailing parenthetical abbr ("Function (CTCF)" → "Function")
     """
     value = (raw or "").strip()
     if not value or value.lower() == BLANK_TOKEN:
         return BLANK_TOKEN
 
+    # ── Step 1: Strip thousand-separator commas ──────────────────────────
+    value = _strip_commas(value)
+
     q_lower = question.strip().lower()
 
-    # Normalize True/False questions to 1/0.
+    # ── Step 2: Normalize True/False questions to 1/0 ────────────────────
     if q_lower.startswith("true or false"):
         v_lower = value.lower()
         if v_lower in {"true", "1"}:
@@ -330,8 +364,20 @@ def normalize_answer_value(raw: str, question: str) -> str:
         if "false" in v_lower and "true" not in v_lower:
             return "0"
 
-    # Normalize simple numeric ranges to [lower,upper].
-    # Heuristic: if there are exactly two numbers and the text contains a range marker.
+    # ── Step 3: Strip hedging prefixes ───────────────────────────────────
+    hm = _HEDGE_RE.match(value)
+    if hm:
+        value = value[hm.end():].strip()
+        value = _strip_commas(value)
+
+    # ── Step 4: Expand magnitude suffixes (2B → 2000000000) ─────────────
+    mm = _MAGNITUDE_RE.match(value)
+    if mm:
+        num = float(mm.group(1))
+        multiplier = _MAGNITUDE_MAP[mm.group(2).lower()]
+        return _fmt_num(num * multiplier)
+
+    # ── Step 5: Normalize numeric ranges to [lower,upper] ───────────────
     nums = re.findall(r"-?\d+(?:\.\d+)?", value)
     if len(nums) == 2 and any(
         marker in value for marker in ["-", "–", "—", " to ", "–"]
@@ -340,9 +386,17 @@ def normalize_answer_value(raw: str, question: str) -> str:
             a = float(nums[0])
             b = float(nums[1])
             lo, hi = sorted((a, b))
-            return f"[{lo},{hi}]"
+            return f"[{_fmt_num(lo)},{_fmt_num(hi)}]"
         except ValueError:
             pass
+
+    # ── Step 6: Strip trailing parenthetical abbreviation ────────────────
+    try:
+        float(value)
+    except ValueError:
+        stripped = _TRAILING_PAREN_RE.sub("", value).strip()
+        if stripped and stripped != value:
+            value = stripped
 
     return value
 

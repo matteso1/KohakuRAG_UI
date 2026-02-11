@@ -61,6 +61,71 @@ def both_numeric(a: str, b: str) -> bool:
     except ValueError:
         return False
 
+# ───────── lightweight submission-side normalization ──────────
+# Applied inside row_bits so that format-only differences
+# (commas, magnitude suffixes, range strings) don't cause spurious failures.
+
+_MAGNITUDE_MAP = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
+_MAG_RE   = re.compile(r"^(-?\d+(?:\.\d+)?)\s*([KkMmBbTt])$")
+_RANGE_RE = re.compile(
+    r"^(?:from\s+)?(-?[\d.]+)\s*(?:[-–—]|to)\s*(-?[\d.]+)$",
+    re.IGNORECASE,
+)
+_HEDGE_RE = re.compile(
+    r"^(?:(?:more\s+than|less\s+than|greater\s+than|fewer\s+than"
+    r"|approximately|about|around|over|under|nearly|roughly"
+    r"|up\s+to|at\s+least|at\s+most)\s+"
+    r"|[~≈><]\s*)",
+    re.IGNORECASE,
+)
+
+def _normalize_sub_value(raw: str) -> str:
+    """Best-effort normalization of a submission answer_value.
+
+    Handles comma-thousands, magnitude suffixes (2B→2000000000),
+    hedging prefixes, and range strings ("80-90"→"[80,90]").
+    """
+    s = _s(raw).strip()
+    if not s or is_blank(s):
+        return s
+
+    # strip commas
+    no_comma = s.replace(",", "")
+    try:
+        float(no_comma)
+        s = no_comma
+    except ValueError:
+        pass
+
+    # strip hedging
+    hm = _HEDGE_RE.match(s)
+    if hm:
+        s = s[hm.end():].strip()
+        nc = s.replace(",", "")
+        try:
+            float(nc); s = nc
+        except ValueError:
+            pass
+
+    # magnitude suffix
+    mm = _MAG_RE.match(s)
+    if mm:
+        val = float(mm.group(1)) * _MAGNITUDE_MAP[mm.group(2).lower()]
+        return str(int(val)) if val == int(val) else str(val)
+
+    # range string → bracket list
+    rm = _RANGE_RE.match(s)
+    if rm:
+        try:
+            a, b = float(rm.group(1)), float(rm.group(2))
+            lo, hi = (a, b) if a <= b else (b, a)
+            fmt = lambda v: str(int(v)) if v == int(v) else str(v)
+            return f"[{fmt(lo)},{fmt(hi)}]"
+        except ValueError:
+            pass
+
+    return s
+
 def parse_listish(x):
     """Parse list/set-like strings into Python lists.
     - [a, b] : list, can be numeric range or categorical list
@@ -127,8 +192,11 @@ def row_bits(sol, sub, tol: float = 1e-3):
     if is_blank(sol["answer_value"]):
         val_ok = True  # nothing expected
     else:
+        # Normalize submission value to handle commas, abbreviations, range strings
+        sub_val = _normalize_sub_value(sub["answer_value"])
+
         sol_list = parse_listish(sol["answer_value"])
-        sub_list = parse_listish(sub["answer_value"])
+        sub_list = parse_listish(sub_val)
 
         if sol_list is not None:
             if sub_list is not None:
@@ -139,7 +207,7 @@ def row_bits(sol, sub, tol: float = 1e-3):
                 if len(sol_list) == 2 and all(isinstance(v, (int, float)) for v in sol_list):
                     lo, hi = sorted(sol_list)
                     try:
-                        x = float(sub["answer_value"])
+                        x = float(sub_val)
                         val_ok = (lo - tol) <= x <= (hi + tol)
                     except ValueError:
                         val_ok = False
@@ -147,16 +215,16 @@ def row_bits(sol, sub, tol: float = 1e-3):
                     # solution wanted a categorical list; submission didn't provide a list
                     val_ok = False
         else:
-            if both_numeric(sol["answer_value"], sub["answer_value"]):
+            if both_numeric(sol["answer_value"], sub_val):
                 val_ok = math.isclose(
                     float(sol["answer_value"]),
-                    float(sub["answer_value"]),
+                    float(sub_val),
                     rel_tol=tol, abs_tol=tol
                 )
             else:  # named entity or free-text (normalized)
                 val_ok = (
                     _s(sol["answer_value"]).strip().lower()
-                    == _s(sub["answer_value"]).strip().lower()
+                    == _s(sub_val).strip().lower()
                 )
 
     # unit + ref components (case/whitespace insensitive)

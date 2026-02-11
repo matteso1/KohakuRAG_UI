@@ -196,37 +196,100 @@ _RANGE_RE = _re.compile(
     _re.IGNORECASE,
 )
 
+# Magnitude suffix multipliers: 2B → 2_000_000_000, 101M → 101_000_000, etc.
+_MAGNITUDE_MAP = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
+_MAGNITUDE_RE = _re.compile(
+    r"^(-?\d+(?:\.\d+)?)\s*([KkMmBbTt])$"
+)
+
+# Hedging / qualifier prefixes that obscure the numeric answer
+_HEDGING_RE = _re.compile(
+    r"^(?:(?:more\s+than|less\s+than|greater\s+than|fewer\s+than"
+    r"|approximately|about|around|over|under|nearly|roughly"
+    r"|up\s+to|at\s+least|at\s+most)\s+"  # word prefixes need trailing space
+    r"|[~≈><]\s*)",                        # symbol prefixes: space optional
+    _re.IGNORECASE,
+)
+
+# Trailing parenthetical abbreviation, e.g. "Function (CTCF)" → "Function"
+_TRAILING_PAREN_RE = _re.compile(r"\s*\([^()]{1,15}\)\s*$")
+
+
+def _fmt_num(v: float) -> str:
+    """Format a number: drop trailing .0 for integers."""
+    return str(int(v)) if v == int(v) else str(v)
+
+
+def _strip_commas(s: str) -> str:
+    """Remove thousand-separator commas from a numeric-looking string.
+
+    '10,000' → '10000', but 'hello, world' is left unchanged.
+    """
+    candidate = s.replace(",", "")
+    try:
+        float(candidate)
+        return candidate
+    except ValueError:
+        return s
+
 
 def normalize_answer_value(raw: str) -> str:
     """Normalize LLM answer_value to match expected ground-truth formats.
 
-    Transformations applied:
-      - True / False / Yes / No  →  "1" / "0"
-      - Numeric range "80-90" or "80 to 90"  →  "[80,90]" (lo ≤ hi)
+    Transformations applied (in order):
+      1. Strip thousand-separator commas   ("10,000" → "10000")
+      2. True / False / Yes / No           → "1" / "0"
+      3. Strip hedging prefixes             ("more than 10000" → "10000")
+      4. Expand magnitude suffixes          ("2B" → "2000000000")
+      5. Numeric range normalization        ("80-90" → "[80,90]")
+      6. Strip trailing parenthetical abbr  ("Function (CTCF)" → "Function")
     """
     s = str(raw).strip()
     if not s:
         return s
 
+    # ── Step 1: Strip thousand-separator commas ──────────────────────────
+    s = _strip_commas(s)
+
     low = s.lower()
 
-    # Boolean normalization
+    # ── Step 2: Boolean normalization ────────────────────────────────────
     if low in _TRUE_TOKENS:
         return "1"
     if low in _FALSE_TOKENS:
         return "0"
 
-    # Numeric range normalization
+    # ── Step 3: Strip hedging prefixes ───────────────────────────────────
+    m_hedge = _HEDGING_RE.match(s)
+    if m_hedge:
+        s = s[m_hedge.end():].strip()
+        s = _strip_commas(s)  # re-strip after removing prefix
+
+    # ── Step 4: Expand magnitude suffixes (2B → 2000000000) ─────────────
+    m_mag = _MAGNITUDE_RE.match(s)
+    if m_mag:
+        num = float(m_mag.group(1))
+        multiplier = _MAGNITUDE_MAP[m_mag.group(2).lower()]
+        return _fmt_num(num * multiplier)
+
+    # ── Step 5: Numeric range normalization ──────────────────────────────
     m = _RANGE_RE.match(s)
     if m:
         try:
             a, b = float(m.group(1)), float(m.group(2))
             lo, hi = (a, b) if a <= b else (b, a)
-            # Format: drop trailing .0 for integers
-            fmt = lambda v: str(int(v)) if v == int(v) else str(v)
-            return f"[{fmt(lo)},{fmt(hi)}]"
+            return f"[{_fmt_num(lo)},{_fmt_num(hi)}]"
         except ValueError:
             pass
+
+    # ── Step 6: Strip trailing parenthetical abbreviation ────────────────
+    # Only for categorical (non-numeric) answers to avoid breaking numbers.
+    try:
+        float(s)
+    except ValueError:
+        stripped = _TRAILING_PAREN_RE.sub("", s).strip()
+        if stripped and stripped != s:
+            s = stripped
 
     return s
 
