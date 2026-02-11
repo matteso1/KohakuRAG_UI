@@ -174,16 +174,11 @@ full precision (roughly 4× more VRAM).
 Bedrock configs (from the `bedrock` branch) also work if you have
 `llm_bedrock.py` and AWS credentials set up.
 
----
-
 ## 3) Running all models (full benchmark)
 
 **Always pass `--env`** so every sub-experiment is tagged with the machine name.
 
 ```bash
-# Smoke test first (1 question per model, catches config/loading errors fast)
-python scripts/run_full_benchmark.py --smoke-test --provider hf_local --env GB10
-
 # Full benchmark — all local HF models on the PowerEdge
 python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
 
