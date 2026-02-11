@@ -1,6 +1,7 @@
 """Simple hierarchical vector store implementations."""
 
 import asyncio
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal, Sequence
@@ -208,27 +209,41 @@ class KVaultNodeStore(HierarchicalNodeStore):
             if inferred_metric != metric:
                 metric = inferred_metric  # Use stored metric
 
-        # If dimensions not provided and not in metadata, try to infer from vector table
-        if dimensions is None and inferred_dimensions is None:
+        # Read the true dimension from sqlite-vec's own metadata.
+        # This is the authoritative source — it reflects the actual virtual table
+        # definition, which cannot be changed after creation.
+        vec_table_dim: int | None = None
+        try:
+            vec_table = f"{table_prefix}_vec"
+            conn = sqlite3.connect(self._path)
             try:
-                # Try opening existing vector table to get dimensions
-                existing_vectors = VectorKVault(
-                    self._path,
-                    table=f"{table_prefix}_vec",
-                    dimensions=1,  # Dummy, will be overwritten
-                    metric=metric,
-                )
-                info = existing_vectors.info()
-                if info.get("count", 0) > 0:
-                    inferred_dimensions = int(info.get("dimensions", 0))
-                    if inferred_dimensions > 0:
-                        # Update metadata with inferred dimensions
-                        self._kv[self.META_KEY] = {
-                            "dimensions": inferred_dimensions,
-                            "metric": metric,
-                        }
-            except Exception:
-                pass
+                row = conn.execute(
+                    "SELECT vector_column_size FROM vec_info WHERE table_name = ?",
+                    (vec_table,),
+                ).fetchone()
+                if row and int(row[0]) > 0:
+                    vec_table_dim = int(row[0])
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+        # Prefer vec_table_dim (ground truth) over metadata, which may have been
+        # written incorrectly by a previous buggy run.
+        if vec_table_dim is not None:
+            if inferred_dimensions is not None and inferred_dimensions != vec_table_dim:
+                # Metadata disagrees with the actual table — trust the table.
+                inferred_dimensions = vec_table_dim
+                self._kv[self.META_KEY] = {
+                    "dimensions": vec_table_dim,
+                    "metric": metric,
+                }
+            elif inferred_dimensions is None:
+                inferred_dimensions = vec_table_dim
+                self._kv[self.META_KEY] = {
+                    "dimensions": vec_table_dim,
+                    "metric": metric,
+                }
 
         # Determine final dimensions
         if dimensions is not None:

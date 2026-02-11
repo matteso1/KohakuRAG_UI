@@ -34,23 +34,21 @@ echo "Starting WattBot RAG on 0.0.0.0:$PORT"
 echo ""
 echo "Access the app:"
 echo "  - Inside the pod:   http://localhost:$PORT"
-echo "  - From your laptop: use one of these methods —"
 echo ""
-echo "    Method 1 — kubectl port-forward (easiest):"
-echo "      kubectl port-forward <pod-name> $PORT:$PORT"
-echo "      then open http://localhost:$PORT in your browser"
+echo "  - Via jupyter-server-proxy (recommended):"
+echo "    https://deepthought.doit.wisc.edu/doit-ai-eval/<WORKSPACE-NAME>/proxy/$PORT/"
+echo "    Replace <WORKSPACE-NAME> with your Run:ai workspace name."
+echo "    Requires jupyter-server-proxy in the system Python (see docs/Streamlit_App_Guide.md)."
 echo ""
-echo "    Method 2 — Run:ai with nodeport:"
-echo "      (if submitted with --service-type nodeport --port $PORT:$PORT)"
-echo "      open http://<poweredge-ip>:<node-port> in your browser"
-echo ""
-echo "    Method 3 — SSH tunnel to the K8s node:"
-echo "      ssh -L $PORT:localhost:$PORT <your-user>@<poweredge-ip>"
-echo "      then open http://localhost:$PORT in your browser"
+echo "  - Via kubectl port-forward:"
+echo "    kubectl port-forward <pod-name> $PORT:$PORT"
+echo "    then open http://localhost:$PORT"
 echo ""
 
 exec streamlit run app.py \
     --server.port="$PORT" \
     --server.address="0.0.0.0" \
     --server.headless=true \
+    --server.enableCORS=false \
+    --server.enableXsrfProtection=false \
     --browser.gatherUsageStats=false

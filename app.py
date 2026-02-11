@@ -183,7 +183,7 @@ def _load_shared_resources(config: dict) -> tuple[JinaV4EmbeddingModel, KVaultNo
     store = KVaultNodeStore(
         db_path,
         table_prefix=config.get("table_prefix", "wattbot_jv4"),
-        dimensions=config.get("embedding_dim", 1024),
+        dimensions=None,
         paragraph_search_mode="averaged",
     )
     return embedder, store
