@@ -169,15 +169,8 @@ for full details on the proxy architecture.
 
 **Prerequisites:** `jupyter-server-proxy` must be installed in the
 **system** Python (the one running JupyterLab), not just your venv.
-This should already be done by the workspace startup args (see section 6.1
-of the Streamlit guide). If not:
+This should already be done in the runAI workspace configuration.
 
-```bash
-deactivate                               # leave the venv
-python -m pip install jupyter-server-proxy
-```
-
-Then restart JupyterLab.
 
 **Launch** (from inside the venv, in the repo root):
 
@@ -185,8 +178,6 @@ Then restart JupyterLab.
 streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
   --server.enableCORS=false --server.enableXsrfProtection=false
 ```
-
-Do **not** use `--server.baseUrlPath` — the proxy handles it.
 
 **Access** at:
 
