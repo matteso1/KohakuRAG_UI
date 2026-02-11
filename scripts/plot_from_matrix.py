@@ -310,8 +310,8 @@ def main():
                 if t in type_ci[model]:
                     ci_low, ci_high = type_ci[model][t]
                     score = type_scores[model].get(t, 0)
-                    yerr_lower.append(score - ci_low)
-                    yerr_upper.append(ci_high - score)
+                    yerr_lower.append(max(0, score - ci_low))
+                    yerr_upper.append(max(0, ci_high - score))
                 else:
                     yerr_lower.append(0)
                     yerr_upper.append(0)
