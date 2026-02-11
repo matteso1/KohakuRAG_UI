@@ -41,4 +41,4 @@ retrieval_threshold = 0.25
 
 # Other settings
 max_retries = 2
-max_concurrent = 4  # Small model can handle more concurrency
+max_concurrent = 1

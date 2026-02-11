@@ -40,4 +40,4 @@ retrieval_threshold = 0.25
 
 # Other settings
 max_retries = 2
-max_concurrent = 2
+max_concurrent = 1
