@@ -1,4 +1,4 @@
-"""Chat model integrations (e.g., OpenAI, OpenRouter)."""
+"""Chat model integrations (e.g., OpenAI, OpenRouter, HuggingFace local)."""
 
 import asyncio
 import base64
@@ -15,6 +15,14 @@ try:
     OPENROUTER_AVAILABLE = True
 except ImportError:
     OPENROUTER_AVAILABLE = False
+
+try:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    HF_LOCAL_AVAILABLE = True
+except ImportError:
+    HF_LOCAL_AVAILABLE = False
 
 from .pipeline import ChatModel
 
@@ -438,3 +446,137 @@ class OpenRouterChatModel(ChatModel):
             else:
                 # Fallback for unexpected response format
                 return str(response)
+
+
+class HuggingFaceLocalChatModel(ChatModel):
+    """Chat backend powered by a local Hugging Face Transformers model.
+
+    Intended for fully local inference (no network). Uses device_map="auto"
+    to distribute the model across available GPUs/CPU.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str = "Qwen/Qwen2.5-7B-Instruct",
+        system_prompt: str | None = None,
+        dtype: str = "bf16",
+        max_concurrent: int = 2,
+        max_new_tokens: int = 512,
+        temperature: float = 0.2,
+    ) -> None:
+        """Initialize local HuggingFace chat model.
+
+        Args:
+            model: HuggingFace model identifier or local path
+            system_prompt: Default system message for all completions
+            dtype: Torch dtype - "bf16", "fp16", "4bit", or "auto"
+            max_concurrent: Maximum concurrent inference requests
+            max_new_tokens: Maximum tokens to generate per request
+            temperature: Sampling temperature (0 = greedy)
+        """
+        if not HF_LOCAL_AVAILABLE:
+            raise ImportError(
+                "transformers and torch are required for HuggingFaceLocalChatModel. "
+                "Install with: pip install torch transformers accelerate"
+            )
+
+        self._model_id = model
+        self._system_prompt = system_prompt or "You are a helpful assistant."
+        self._max_new_tokens = max_new_tokens
+        self._temperature = temperature
+
+        self._semaphore: asyncio.Semaphore | None = (
+            asyncio.Semaphore(max_concurrent) if max_concurrent > 0 else None
+        )
+
+        # Load tokenizer
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self._model_id, use_fast=True
+        )
+
+        # Resolve dtype and quantization
+        load_kwargs = {"device_map": "auto"}
+
+        if dtype == "4bit":
+            try:
+                from transformers import BitsAndBytesConfig
+            except ImportError:
+                raise ImportError(
+                    "4-bit quantization requires bitsandbytes. "
+                    "Install with: pip install bitsandbytes"
+                )
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+            )
+        else:
+            if dtype == "bf16":
+                load_kwargs["dtype"] = torch.bfloat16
+            elif dtype == "fp16":
+                load_kwargs["dtype"] = torch.float16
+
+        # Load model with automatic device placement
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self._model_id,
+            **load_kwargs,
+        )
+
+    async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
+        """Generate a chat completion using local HF model.
+
+        Args:
+            prompt: User message
+            system_prompt: Optional system message override
+
+        Returns:
+            Model's text response
+        """
+        system = system_prompt or self._system_prompt
+
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+
+        async def _run() -> str:
+            return await asyncio.to_thread(self._generate_sync, messages)
+
+        if self._semaphore is not None:
+            async with self._semaphore:
+                return await _run()
+        return await _run()
+
+    def _generate_sync(self, messages: list[dict]) -> str:
+        """Run synchronous generation (offloaded to thread)."""
+        # Use chat template if the tokenizer supports it
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            text = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            lines = []
+            for m in messages:
+                lines.append(f"{m['role'].upper()}: {m['content']}")
+            lines.append("ASSISTANT:")
+            text = "\n".join(lines)
+
+        inputs = self._tokenizer(text, return_tensors="pt")
+        input_len = inputs["input_ids"].shape[-1]
+        # For device_map="auto" models, get device from first parameter
+        target_device = next(self._model.parameters()).device
+        inputs = {k: v.to(target_device) for k, v in inputs.items()}
+
+        do_sample = self._temperature > 0
+        with torch.no_grad():
+            out = self._model.generate(
+                **inputs,
+                max_new_tokens=self._max_new_tokens,
+                do_sample=do_sample,
+                temperature=self._temperature if do_sample else None,
+            )
+
+        # Only decode the newly generated tokens (skip the input)
+        new_tokens = out[0][input_len:]
+        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()

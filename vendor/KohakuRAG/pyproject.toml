@@ -32,6 +32,10 @@ dependencies = [
 urls = { "Homepage" = "https://github.com/KohakuBlueleaf/KohakuRAG" }
 
 [project.optional-dependencies]
+local = [
+    "sentence-transformers",
+    "accelerate",
+]
 dev = [
     "pytest",
     "pytest-asyncio",

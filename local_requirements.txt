@@ -1,0 +1,30 @@
+ipykernel
+jupyterlab
+
+# Local HF inference (core)
+torch
+transformers>=4.42,<5  # Jina V4 model code incompatible with transformers 5.x
+accelerate
+huggingface_hub
+safetensors
+sentence-transformers # local embedding
+
+# Tokenizers / model-specific utilities (common)
+sentencepiece
+protobuf
+
+# App deps (only if not already included elsewhere)
+streamlit
+python-dotenv
+jupyter-server-proxy
+
+# Quantization
+bitsandbytes
+
+# PDF download and parsing (for auto-fetching corpus from metadata URLs)
+httpx
+pymupdf
+
+# KohakuEngine (config runner for indexing scripts)
+kohaku-engine==0.0.2
+

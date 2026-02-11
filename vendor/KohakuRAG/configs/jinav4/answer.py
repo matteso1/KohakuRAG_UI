@@ -14,12 +14,17 @@ output = "artifacts/jinav4_answers.csv"
 metadata = "data/metadata.csv"
 
 # LLM settings (using OpenRouter)
-llm_provider = "openrouter"  # Options: "openai", "openrouter"
+llm_provider = "openrouter"  # Options: "openai", "openrouter", "hf_local"
 model = "openai/gpt-5-nano"
 planner_model = None  # Falls back to model
 openrouter_api_key = None  # From env: OPENROUTER_API_KEY
 site_url = "https://github.com/KohakuBlueleaf/KohakuRAG"
 app_name = "KohakuRAG"
+
+# HuggingFace local settings (used when llm_provider = "hf_local")
+hf_model_id = "Qwen/Qwen2.5-7B-Instruct"
+hf_max_new_tokens = 512
+hf_temperature = 0.2
 
 # Retrieval settings
 top_k = 16
@@ -29,9 +34,10 @@ rerank_strategy = "frequency"  # Options: None, "frequency", "score", "combined"
 top_k_final = 24  # Truncate to top-24 after dedup+rerank (None = no truncation)
 
 # JinaV4 embedding settings (must match index)
-embedding_model = "jinav4"  # Options: "jina" (v3), "jinav4"
+embedding_model = "jinav4"  # Options: "jina" (v3), "jinav4", "hf_local"
 embedding_dim = 1024  # Must match index.py. Matryoshka: 128, 256, 512, 1024, 2048
 embedding_task = "retrieval"  # Options: "retrieval", "text-matching", "code"
+embedding_model_id = "BAAI/bge-base-en-v1.5"  # For hf_local: sentence-transformers model
 
 # Paragraph search mode (runtime toggle, requires "both" mode during indexing)
 # Options:

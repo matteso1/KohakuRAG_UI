@@ -7,9 +7,9 @@ Usage:
 from kohakuengine import Config
 
 # Document and database settings
-metadata = "data/metadata.csv"
-docs_dir = "artifacts/docs_with_images"
-db = "artifacts/wattbot_with_images.db"
+metadata = "../../data/metadata.csv"
+docs_dir = "../../data/corpus"
+db = "../../data/embeddings/wattbot_with_images.db"
 table_prefix = "wattbot_img"
 use_citations = False
 

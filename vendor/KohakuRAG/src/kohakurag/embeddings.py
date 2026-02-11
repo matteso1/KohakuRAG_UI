@@ -10,6 +10,13 @@ import torch
 from PIL import Image
 from transformers import AutoModel
 
+try:
+    from sentence_transformers import SentenceTransformer
+
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+
 
 class EmbeddingModel(Protocol):
     """Protocol for embedding providers."""
@@ -29,13 +36,33 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
     return vectors / norms
 
 
-def average_embeddings(child_vectors: Sequence[np.ndarray]) -> np.ndarray:
-    """Compute the normalized mean vector for parent nodes."""
+def average_embeddings(
+    child_vectors: Sequence[np.ndarray],
+    weights: Sequence[float] | None = None,
+) -> np.ndarray:
+    """Compute the normalized weighted-mean vector for parent nodes.
+
+    When *weights* is provided (typically text lengths), longer child segments
+    contribute more to the parent's semantic representation.  When *weights* is
+    ``None`` the behaviour falls back to a simple unweighted mean.
+    """
     if not child_vectors:
         raise ValueError("average_embeddings requires at least one child vector.")
 
     stacked = np.vstack(child_vectors)
-    return _normalize(np.mean(stacked, axis=0, keepdims=True))[0]
+
+    if weights is not None:
+        w = np.asarray(weights, dtype=np.float64)
+        total = w.sum()
+        if total > 0:
+            w = w / total
+        else:
+            w = np.ones(len(child_vectors), dtype=np.float64) / len(child_vectors)
+        mean = np.average(stacked, axis=0, weights=w).reshape(1, -1)
+    else:
+        mean = np.mean(stacked, axis=0, keepdims=True)
+
+    return _normalize(mean.astype(np.float32))[0]
 
 
 def _detect_device() -> Any:
@@ -355,3 +382,76 @@ class JinaV4EmbeddingModel:
         return await loop.run_in_executor(
             self._executor, self._sync_encode_images, images
         )
+
+
+class LocalHFEmbeddingModel:
+    """Local embedding model using sentence-transformers.
+
+    Runs entirely on-device with no network calls. Suitable for
+    fully local RAG pipelines.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-base-en-v1.5",
+        *,
+        device: Any | None = None,
+    ) -> None:
+        """Initialize local embedding model.
+
+        Args:
+            model_name: HuggingFace model identifier for sentence-transformers
+                       Recommended: "BAAI/bge-base-en-v1.5" (768-dim)
+                                    "intfloat/e5-base-v2" (768-dim)
+            device: Target device (auto-detected if None)
+        """
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "sentence-transformers is required for LocalHFEmbeddingModel. "
+                "Install with: pip install sentence-transformers"
+            )
+
+        resolved_device = _detect_device() if device is None else torch.device(device)
+        device_str = str(resolved_device)
+
+        self._model_name = model_name
+        self._st_model = SentenceTransformer(model_name, device=device_str)
+        self._dimension = self._st_model.get_sentence_embedding_dimension()
+
+        # Single-worker executor for thread-safe async embedding
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def __del__(self) -> None:
+        """Cleanup executor on deletion."""
+        if hasattr(self, "_executor"):
+            self._executor.shutdown(wait=False)
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    def _sync_encode(self, texts: Sequence[str]) -> np.ndarray:
+        """Synchronous encoding (called via executor).
+
+        Returns:
+            Array of shape (len(texts), dimension) with float32 dtype
+        """
+        if not texts:
+            return np.zeros((0, self._dimension), dtype=np.float32)
+
+        str_texts = [str(t) for t in texts]
+        vecs = self._st_model.encode(
+            str_texts,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return np.asarray(vecs, dtype=np.float32)
+
+    async def embed(self, texts: Sequence[str]) -> np.ndarray:
+        """Encode texts into embedding vectors (async).
+
+        Returns:
+            Array of shape (len(texts), dimension) with float32 dtype
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self._executor, self._sync_encode, texts)
