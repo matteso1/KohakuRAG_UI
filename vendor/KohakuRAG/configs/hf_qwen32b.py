@@ -30,10 +30,11 @@ embedding_task = "retrieval"
 
 # Retrieval settings
 top_k = 8
-planner_max_queries = 3
+planner_max_queries = 4
 deduplicate_retrieval = True
 rerank_strategy = "combined"
 top_k_final = 10
+use_reordered_prompt = True  # C→Q: place context before question
 
 # Unanswerable detection
 retrieval_threshold = 0.25
