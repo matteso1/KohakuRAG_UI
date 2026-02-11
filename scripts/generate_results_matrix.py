@@ -149,7 +149,7 @@ def main():
             except Exception as e:
                 print(f"Warning: Could not load {gt_path}: {e}")
 
-    # Check if CSV GT covers the submission IDs
+    # Check if CSV GT covers the submission IDs and pick best GT source
     if csv_gt_df is not None:
         sample_sub = load_submission(unique_files[0])
         if sample_sub is not None:
@@ -164,10 +164,9 @@ def main():
             if overlap >= sub_count * 0.9:
                 gt_df = csv_gt_df
             else:
-                # Fall back to results.json for full coverage, but merge CSV explanations
+                # Try results.json for better ID coverage, merge CSV explanations
                 json_gt = build_gt_from_results_json(unique_files)
                 if json_gt is not None:
-                    # Merge explanation column from CSV GT into results.json GT
                     if "explanation" in csv_gt_df.columns:
                         common = json_gt.index.intersection(csv_gt_df.index)
                         if len(common) > 0:
@@ -175,8 +174,10 @@ def main():
                             print(f"Merged explanations for {len(common)} questions from CSV ground truth.")
                     gt_df = json_gt
                     print(f"Using results.json ground truth ({len(json_gt)} questions).")
-                elif overlap > 0:
+                else:
+                    # CSV GT is still better than nothing
                     gt_df = csv_gt_df
+                    print(f"Using CSV ground truth despite low overlap ({overlap}/{sub_count}).")
         else:
             gt_df = csv_gt_df
 
