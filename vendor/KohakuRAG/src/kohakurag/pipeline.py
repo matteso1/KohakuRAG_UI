@@ -269,6 +269,56 @@ class SimpleQueryPlanner:
         return [question]
 
 
+_QUERY_PLANNER_PROMPT = """\
+You are a search query planner for a technical document retrieval system.
+Given a user question, generate {n} diverse search queries that together
+cover different terminologies, synonyms, and sub-questions that would help
+retrieve all relevant passages from a corpus of research papers.
+
+Rules:
+- Each query should target a different angle or terminology for the same information need.
+- Include the original question (possibly lightly rephrased) as the first query.
+- Use varied technical vocabulary (e.g., "energy consumption" vs "power usage" vs "electricity demand").
+- If the question has sub-parts, dedicate a query to each sub-part.
+- Return ONLY a JSON array of strings, no explanation.
+
+Question: {question}
+
+JSON array of {n} queries:"""
+
+
+class LLMQueryPlanner:
+    """Query planner that uses an LLM to expand a single question into diverse retrieval queries."""
+
+    def __init__(
+        self,
+        chat_model: "ChatModel",
+        max_queries: int = 3,
+    ) -> None:
+        self._chat = chat_model
+        self._max_queries = max_queries
+
+    async def plan(self, question: str) -> Sequence[str]:
+        """Expand *question* into up to *max_queries* diverse retrieval queries."""
+        prompt = _QUERY_PLANNER_PROMPT.format(n=self._max_queries, question=question)
+        try:
+            raw = await self._chat.complete(
+                prompt, system_prompt="You are a helpful search query planner."
+            )
+            # Parse JSON array from response
+            start = raw.index("[")
+            end = raw.rindex("]") + 1
+            queries = json.loads(raw[start:end])
+            if isinstance(queries, list) and queries:
+                # Ensure strings and limit to max_queries
+                queries = [str(q).strip() for q in queries if str(q).strip()]
+                return queries[: self._max_queries] if queries else [question]
+        except Exception:
+            pass
+        # Fallback: return original question
+        return [question]
+
+
 class MockChatModel:
     """Dummy LLM for testing (returns truncated context)."""
 

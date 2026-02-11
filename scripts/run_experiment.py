@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import pandas as pd
 
-from kohakurag import RAGPipeline
+from kohakurag import RAGPipeline, LLMQueryPlanner
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel, LocalHFEmbeddingModel
 from kohakurag.llm import HuggingFaceLocalChatModel, OpenAIChatModel, OpenRouterChatModel
@@ -177,7 +177,107 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 
 
 # =============================================================================
-# Prompts
+# Answer Value Normalization
+# =============================================================================
+
+import re as _re
+
+_TRUE_TOKENS = {"true", "yes"}
+_FALSE_TOKENS = {"false", "no"}
+
+# Patterns for numeric ranges: "80-90", "80 - 90", "80 to 90", "from 80 to 90"
+_RANGE_RE = _re.compile(
+    r"^(?:from\s+)?"          # optional leading "from "
+    r"(-?[\d.]+)"             # first number (lo)
+    r"\s*(?:[-–—]|to)\s*"     # separator: dash variants or "to"
+    r"(-?[\d.]+)$",           # second number (hi)
+    _re.IGNORECASE,
+)
+
+
+def normalize_answer_value(raw: str) -> str:
+    """Normalize LLM answer_value to match expected ground-truth formats.
+
+    Transformations applied:
+      - True / False / Yes / No  →  "1" / "0"
+      - Numeric range "80-90" or "80 to 90"  →  "[80,90]" (lo ≤ hi)
+    """
+    s = str(raw).strip()
+    if not s:
+        return s
+
+    low = s.lower()
+
+    # Boolean normalization
+    if low in _TRUE_TOKENS:
+        return "1"
+    if low in _FALSE_TOKENS:
+        return "0"
+
+    # Numeric range normalization
+    m = _RANGE_RE.match(s)
+    if m:
+        try:
+            a, b = float(m.group(1)), float(m.group(2))
+            lo, hi = (a, b) if a <= b else (b, a)
+            # Format: drop trailing .0 for integers
+            fmt = lambda v: str(int(v)) if v == int(v) else str(v)
+            return f"[{fmt(lo)},{fmt(hi)}]"
+        except ValueError:
+            pass
+
+    return s
+
+
+# Strip [ref_id=...] wrapper that models sometimes copy from context markers
+_REF_ID_RE = _re.compile(r"^\[ref_id=(.+)\]$", _re.IGNORECASE)
+
+_BLANK_REF_TOKENS = {"", "is_blank", "na", "n/a", "none", "null"}
+
+
+def normalize_ref_id(raw_ref) -> list | str:
+    """Normalize LLM ref_id output to clean list of document IDs.
+
+    Handles common model artifacts:
+      - "[ref_id=xxx]" wrapper  →  "xxx"
+      - Comma-separated single string "a, b"  →  ["a", "b"]
+      - ["is_blank"] list  →  "is_blank"  (scalar)
+    """
+    # Already a list from JSON parsing
+    if isinstance(raw_ref, list):
+        cleaned = []
+        for item in raw_ref:
+            s = str(item).strip()
+            # Unwrap [ref_id=xxx]
+            m = _REF_ID_RE.match(s)
+            if m:
+                s = m.group(1).strip()
+            # Split comma-separated refs within a single element
+            if "," in s:
+                parts = [p.strip() for p in s.split(",") if p.strip()]
+                for p in parts:
+                    m2 = _REF_ID_RE.match(p)
+                    cleaned.append(m2.group(1).strip() if m2 else p)
+            elif s.lower() not in _BLANK_REF_TOKENS:
+                cleaned.append(s)
+        # If everything was filtered out, it's blank
+        return cleaned if cleaned else "is_blank"
+
+    # Scalar string
+    s = str(raw_ref).strip()
+    if s.lower() in _BLANK_REF_TOKENS:
+        return "is_blank"
+
+    # Unwrap [ref_id=xxx]
+    m = _REF_ID_RE.match(s)
+    if m:
+        return m.group(1).strip()
+
+    return s
+
+
+# =============================================================================
+# Prompts  (Q→C ordering: question appears before context in the template)
 # =============================================================================
 
 SYSTEM_PROMPT = """
@@ -406,12 +506,21 @@ class ExperimentRunner:
             paragraph_search_mode="averaged",
         )
 
+        # Query planning: expand each question into multiple diverse retrieval
+        # queries (default 3) to capture different terminologies / sub-questions.
+        max_queries = self.config.get("planner_max_queries", 3)
+        planner = LLMQueryPlanner(self.chat_model, max_queries=max_queries)
+        print(f"[init] Query planner: LLMQueryPlanner (max_queries={max_queries})")
+
         print("[init] Building RAG pipeline...")
         self.pipeline = RAGPipeline(
             store=store,
             embedder=embedder,
             chat_model=self.chat_model,
-            planner=None,
+            planner=planner,
+            deduplicate_retrieval=self.config.get("deduplicate_retrieval", True),
+            rerank_strategy=self.config.get("rerank_strategy", "combined"),
+            top_k_final=self.config.get("top_k_final", None),
         )
 
         max_concurrent = self.config.get("max_concurrent", 5)
@@ -444,8 +553,8 @@ class ExperimentRunner:
                     additional_info=additional_info,
                 )
 
-                pred_value = result.answer.answer_value
-                pred_ref = result.answer.ref_id
+                pred_value = normalize_answer_value(result.answer.answer_value)
+                pred_ref = normalize_ref_id(result.answer.ref_id)
                 pred_explanation = result.answer.explanation
                 raw_response = getattr(result, "raw_response", "")
                 timing = getattr(result, "timing", {})

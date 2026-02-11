@@ -185,7 +185,9 @@ def main():
         if gt_df is None:
             print("Error: No ground truth found (neither CSV nor results.json).")
             sys.exit(1)
-        print(f"Reconstructed ground truth for {len(gt_df)} questions from results.json files.")
+    else:
+        print("Error: No ground truth found (neither results.json nor CSV).")
+        sys.exit(1)
 
     # Initialize Master DataFrame with GT
     # Select relevant GT columns

@@ -21,6 +21,7 @@ from .parsers import (
     text_to_payload,
 )
 from .pipeline import (
+    LLMQueryPlanner,
     MockChatModel,
     PromptTemplate,
     QueryPlanner,
@@ -50,6 +51,7 @@ __all__ = [
     "InMemoryNodeStore",
     "KVaultNodeStore",
     "JinaEmbeddingModel",
+    "LLMQueryPlanner",
     "LocalHFEmbeddingModel",
     "MockChatModel",
     "NodeKind",
