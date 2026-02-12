@@ -115,7 +115,7 @@ VRAM_4BIT_GB = {
     "hf_qwen32b": 20, "hf_qwen72b": 40, "hf_llama3_8b": 6, "hf_gemma2_9b": 7,
     "hf_gemma2_27b": 17, "hf_mixtral_8x7b": 26, "hf_mixtral_8x22b": 80,
     "hf_mistral7b": 6, "hf_phi3_mini": 3, "hf_qwen3_30b_a3b": 18,
-    "hf_olmoe_1b7b": 4,
+    "hf_qwen3_next_80b_a3b": 40, "hf_olmoe_1b7b": 4,
 }
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
