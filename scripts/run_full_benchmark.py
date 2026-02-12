@@ -156,7 +156,7 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         elapsed_sum = 0.0
         start_time = time.time()
 
-        for line in proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
             line = line.rstrip("\n")
             all_lines.append(line)
 
