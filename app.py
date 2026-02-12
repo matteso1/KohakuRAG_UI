@@ -654,18 +654,33 @@ def _display_single_result(result, elapsed: float):
     timing = result.timing
     confidence = _extract_confidence(result.raw_response)
 
-    if answer.answer and answer.answer != "is_blank":
+    if answer.explanation and answer.explanation != "is_blank":
         if confidence == "low":
-            st.markdown(f"**{answer.answer}**")
+            st.markdown(f"**{answer.explanation}**")
             st.warning("Best guess — the retrieved context only partially supports this answer.")
         else:
-            st.markdown(f"**{answer.answer}**")
+            st.markdown(f"**{answer.explanation}**")
+    elif answer.answer and answer.answer != "is_blank":
+        st.markdown(f"**{answer.answer}**")
     else:
         st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if answer.answer_value and answer.answer_value != "is_blank":
         st.markdown(f"Value: `{answer.answer_value}`")
-    if answer.explanation and answer.explanation != "is_blank":
-        st.markdown(answer.explanation)
+
+    # Clickable reference links (shown directly, not inside an expander)
+    ref_ids = answer.ref_id
+    ref_urls = answer.ref_url
+    if ref_ids and ref_ids != "is_blank":
+        links = []
+        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+            url = METADATA_URLS.get(rid)
+            if not url:
+                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            if url and url != "is_blank":
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
 
     details = {
         "timing": timing,
@@ -681,7 +696,12 @@ def _display_single_result(result, elapsed: float):
     }
     _render_details(details)
 
-    display_answer = answer.answer if answer.answer and answer.answer != "is_blank" else "Out-of-scope"
+    if answer.explanation and answer.explanation != "is_blank":
+        display_answer = answer.explanation
+    elif answer.answer and answer.answer != "is_blank":
+        display_answer = answer.answer
+    else:
+        display_answer = "Out-of-scope"
     st.session_state.messages.append({
         "role": "assistant", "content": display_answer, "details": details,
     })
@@ -691,14 +711,14 @@ def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
-    if agg["answer"] and agg["answer"] != "is_blank":
+    if agg["explanation"] and agg["explanation"] != "is_blank":
+        st.markdown(f"**{agg['explanation']}**")
+    elif agg["answer"] and agg["answer"] != "is_blank":
         st.markdown(f"**{agg['answer']}**")
     else:
         st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if agg["answer_value"] and agg["answer_value"] != "is_blank":
         st.markdown(f"Value: `{agg['answer_value']}`")
-    if agg["explanation"] and agg["explanation"] != "is_blank":
-        st.markdown(agg["explanation"])
 
     n_models = len(model_results)
     model_times = [e["time"] for e in model_results.values()]
@@ -724,15 +744,16 @@ def _display_ensemble_result(
                 st.caption(info["explanation"])
             st.divider()
 
-    # References (aggregated)
+    # Clickable reference links
     if agg["ref_id"]:
-        with st.expander("References (union)"):
-            for rid in agg["ref_id"]:
-                url = METADATA_URLS.get(rid)
-                if url:
-                    st.markdown(f"- __[ref_id={rid}]__ [{rid}]({url})")
-                else:
-                    st.markdown(f"- __[ref_id={rid}]__ {rid}")
+        links = []
+        for rid in agg["ref_id"]:
+            url = METADATA_URLS.get(rid)
+            if url:
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
 
     # First model's retrieval context (shared across models since same embedder+store)
     first_result = next(iter(model_results.values()))["result"]
@@ -760,7 +781,12 @@ def _display_ensemble_result(
         "answer": agg["answer"],
         "answer_value": agg["answer_value"],
     }
-    display_answer = agg["answer"] if agg["answer"] and agg["answer"] != "is_blank" else "Out-of-scope"
+    if agg["explanation"] and agg["explanation"] != "is_blank":
+        display_answer = agg["explanation"]
+    elif agg["answer"] and agg["answer"] != "is_blank":
+        display_answer = agg["answer"]
+    else:
+        display_answer = "Out-of-scope"
     st.session_state.messages.append({
         "role": "assistant", "content": display_answer, "details": details,
     })
@@ -787,19 +813,19 @@ def _render_details(details: dict):
     ref_ids = details.get("ref_id", [])
     ref_urls = details.get("ref_url", [])
     if ref_ids and ref_ids != "is_blank":
-        with st.expander("References"):
-            for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
-                # Prefer metadata.csv URL; fall back to LLM-provided URL
-                url = METADATA_URLS.get(rid)
-                if not url:
-                    url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
-                if url and url != "is_blank":
-                    st.markdown(f"- __[ref_id={rid}]__ [{rid}]({url})")
-                else:
-                    st.markdown(f"- __[ref_id={rid}]__ {rid}")
-            sm = details.get("supporting_materials", "")
-            if sm and sm != "is_blank":
-                st.caption(f"Supporting: {sm}")
+        links = []
+        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+            url = METADATA_URLS.get(rid)
+            if not url:
+                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            if url and url != "is_blank":
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
+        sm = details.get("supporting_materials", "")
+        if sm and sm != "is_blank":
+            st.caption(f"Supporting: {sm}")
 
     snippets = details.get("snippets", [])
     if snippets:
