@@ -60,6 +60,34 @@ def load_results(experiment_dir: Path) -> list[dict]:
     )
 
 
+def load_partial_progress(experiment_dir: Path) -> tuple[list[dict], int]:
+    """Load any already-completed results from a previous (possibly crashed) run.
+
+    Returns ``(results, next_chunk_idx)`` where *results* is the list of
+    question dicts loaded from existing chunk files and *next_chunk_idx* is
+    the chunk index the runner should start writing at.
+
+    If no progress exists, returns ``([], 0)``.
+    """
+    experiment_dir = Path(experiment_dir)
+
+    chunk_files = sorted(
+        (p for p in experiment_dir.glob(_CHUNK_GLOB) if _CHUNK_RE.match(p.name)),
+        key=lambda p: int(_CHUNK_RE.match(p.name).group(1)),
+    )
+
+    if not chunk_files:
+        return [], 0
+
+    results: list[dict] = []
+    for cf in chunk_files:
+        with open(cf) as f:
+            results.extend(json.load(f))
+
+    next_idx = int(_CHUNK_RE.match(chunk_files[-1].name).group(1)) + 1
+    return results, next_idx
+
+
 # ── saving ───────────────────────────────────────────────────────────────
 
 def save_results_chunked(
