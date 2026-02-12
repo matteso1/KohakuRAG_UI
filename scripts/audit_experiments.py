@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from score import row_bits
+from results_io import load_results
 
 
 def audit():
@@ -65,7 +66,6 @@ def audit():
 
     for exp_dir in exp_dirs:
         summary_path = exp_dir / "summary.json"
-        results_path = exp_dir / "results.json"
 
         with open(summary_path) as f:
             s = json.load(f)
@@ -117,11 +117,13 @@ def audit():
         if not model_id or model_id == "?":
             flags.append("NO_MODEL")
 
-        # Check 7: Verify score from results.json
-        if results_path.exists() and gt is not None:
+        # Check 7: Verify score from results.json / chunk files
+        try:
+            results = load_results(exp_dir)
+        except FileNotFoundError:
+            results = None
+        if results is not None and gt is not None:
             try:
-                with open(results_path) as f:
-                    results = json.load(f)
                 # Recalculate score
                 recalc_val = sum(1 for r in results if r.get("value_correct")) / len(results) if results else 0
                 if abs(recalc_val - val_acc) > 0.01:

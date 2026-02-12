@@ -9,6 +9,7 @@ Launch:
 """
 
 import asyncio
+import csv
 import gc
 import importlib.util
 import json
@@ -45,6 +46,14 @@ If the context does not clearly support an answer, you must output the literal s
 For True/False questions, you MUST output "1" for True and "0" for False in answer_value. Do NOT output the words "True" or "False".
 """.strip()
 
+SYSTEM_PROMPT_BEST_GUESS = """
+You must answer based on the provided context snippets.
+If the context strongly supports an answer, answer normally.
+If the context only partially or weakly supports an answer, still provide your best guess but set confidence to "low".
+Set confidence to "high" when the context clearly and directly answers the question.
+For True/False questions, you MUST output "1" for True and "0" for False in answer_value. Do NOT output the words "True" or "False".
+""".strip()
+
 USER_TEMPLATE = """
 You will be given a question and context snippets taken from documents.
 You must follow these rules:
@@ -59,9 +68,34 @@ Context:
 {context}
 
 Return STRICT JSON with the following keys, in this order:
-- explanation          (1-3 sentences explaining how the context supports the answer; or "is_blank")
+- explanation          (1-3 sentences that directly answer the question. Cite sources by ref_id, e.g. "According to [wu2021a], ...". Do NOT use vague phrases like "the context states" or "the passage mentions".)
 - answer               (short natural-language response, e.g. "1438 lbs", "Water consumption", "TRUE")
 - answer_value         (ONLY the numeric or categorical value, e.g. "1438", "Water consumption", "1"; or "is_blank")
+- ref_id               (list of document ids from the context used as evidence; or "is_blank")
+- ref_url              (list of URLs for the cited documents; or "is_blank")
+- supporting_materials (verbatim quote, table reference, or figure reference from the cited document; or "is_blank")
+
+JSON Answer:
+""".strip()
+
+USER_TEMPLATE_BEST_GUESS = """
+You will be given a question and context snippets taken from documents.
+You must follow these rules:
+- Use the provided context as your primary source.
+- If the context clearly answers the question, answer normally with confidence "high".
+- If the context only partially relates, provide your best-effort answer with confidence "low".
+- For True/False questions: answer_value must be "1" for True or "0" for False (not the words "True" or "False").
+
+Question: {question}
+
+Context:
+{context}
+
+Return STRICT JSON with the following keys, in this order:
+- explanation          (1-3 sentences that directly answer the question. Cite sources by ref_id, e.g. "According to [wu2021a], ...". Do NOT use vague phrases like "the context states" or "the passage mentions".)
+- answer               (short natural-language response, e.g. "1438 lbs", "Water consumption", "TRUE")
+- answer_value         (ONLY the numeric or categorical value, e.g. "1438", "Water consumption", "1"; or "is_blank")
+- confidence           ("high" if the context clearly supports the answer, "low" if this is a best guess)
 - ref_id               (list of document ids from the context used as evidence; or "is_blank")
 - ref_url              (list of URLs for the cited documents; or "is_blank")
 - supporting_materials (verbatim quote, table reference, or figure reference from the cited document; or "is_blank")
@@ -85,6 +119,26 @@ VRAM_4BIT_GB = {
 }
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
+
+# ---------------------------------------------------------------------------
+# Metadata URL lookup  (ref_id → URL from metadata.csv)
+# ---------------------------------------------------------------------------
+_METADATA_CSV = _repo_root / "data" / "metadata.csv"
+
+def _load_metadata_urls() -> dict[str, str]:
+    """Build a ref_id → url mapping from metadata.csv."""
+    mapping: dict[str, str] = {}
+    if not _METADATA_CSV.exists():
+        return mapping
+    with open(_METADATA_CSV, newline="", encoding="utf-8", errors="replace") as f:
+        for row in csv.DictReader(f):
+            doc_id = row.get("id", "").strip()
+            url = row.get("url", "").strip()
+            if doc_id and url:
+                mapping[doc_id] = url
+    return mapping
+
+METADATA_URLS: dict[str, str] = _load_metadata_urls()
 
 
 # ---------------------------------------------------------------------------
@@ -278,15 +332,17 @@ def init_shared_only() -> tuple[JinaV4EmbeddingModel, KVaultNodeStore]:
 # ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
-def _run_qa_sync(pipeline: RAGPipeline, question: str, top_k: int):
+def _run_qa_sync(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
     """Run pipeline.run_qa synchronously."""
+    sys_prompt = SYSTEM_PROMPT_BEST_GUESS if best_guess else SYSTEM_PROMPT
+    usr_template = USER_TEMPLATE_BEST_GUESS if best_guess else USER_TEMPLATE
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(
             pipeline.run_qa(
                 question,
-                system_prompt=SYSTEM_PROMPT,
-                user_template=USER_TEMPLATE,
+                system_prompt=sys_prompt,
+                user_template=usr_template,
                 top_k=top_k,
             )
         )
@@ -294,19 +350,20 @@ def _run_qa_sync(pipeline: RAGPipeline, question: str, top_k: int):
         loop.close()
 
 
-def run_single_query(pipeline: RAGPipeline, question: str, top_k: int):
+def run_single_query(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
     """Run a single model query."""
-    return _run_qa_sync(pipeline, question, top_k)
+    return _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
 
 
 def run_ensemble_parallel_query(
     pipelines: dict[str, RAGPipeline], question: str, top_k: int,
+    best_guess: bool = False,
 ) -> dict[str, object]:
     """Query all pre-loaded models concurrently."""
     results = {}
     for name, pipeline in pipelines.items():
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k)
+        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
         results[name] = {"result": result, "time": time.time() - t0}
     return results
 
@@ -317,6 +374,7 @@ def run_ensemble_sequential_query(
     question: str,
     top_k: int,
     progress_callback=None,
+    best_guess: bool = False,
 ) -> dict[str, object]:
     """Load each model one at a time, query, unload. Saves VRAM."""
     embedder, store = init_shared_only()
@@ -333,7 +391,7 @@ def run_ensemble_sequential_query(
         )
 
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k)
+        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
         elapsed = time.time() - t0
         results[name] = {"result": result, "time": elapsed}
 
@@ -436,6 +494,8 @@ def main():
         mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
         precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
         top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
+        best_guess = st.toggle("Allow best-guess answers", value=False,
+                               help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
 
         st.divider()
         config_list = list(configs.keys())
@@ -530,7 +590,7 @@ def main():
             if mode == "Single model":
                 with st.spinner("Retrieving and generating..."):
                     try:
-                        result = run_single_query(pipeline, question, top_k)
+                        result = run_single_query(pipeline, question, top_k, best_guess=best_guess)
                     except Exception as e:
                         st.error(f"Pipeline error: {e}")
                         tb = traceback.format_exc()
@@ -549,6 +609,7 @@ def main():
                         ):
                             model_results = run_ensemble_parallel_query(
                                 ensemble_pipelines, question, top_k,
+                                best_guess=best_guess,
                             )
                     else:
                         status = st.status(
@@ -560,6 +621,7 @@ def main():
                         model_results = run_ensemble_sequential_query(
                             selected_configs, precision, question, top_k,
                             progress_callback=_progress,
+                            best_guess=best_guess,
                         )
                         status.update(label="Aggregating results...", state="complete")
                 except Exception as e:
@@ -575,16 +637,50 @@ def main():
                 _display_ensemble_result(agg, model_results, elapsed, ensemble_strategy)
 
 
+def _extract_confidence(raw_response: str) -> str:
+    """Extract confidence field from raw JSON response."""
+    try:
+        start = raw_response.index("{")
+        end = raw_response.rindex("}") + 1
+        data = json.loads(raw_response[start:end])
+        return str(data.get("confidence", "")).strip().lower()
+    except Exception:
+        return ""
+
+
 def _display_single_result(result, elapsed: float):
     """Display a single-model answer."""
     answer = result.answer
     timing = result.timing
+    confidence = _extract_confidence(result.raw_response)
 
-    st.markdown(f"**{answer.answer}**")
+    if answer.explanation and answer.explanation != "is_blank":
+        if confidence == "low":
+            st.markdown(f"**{answer.explanation}**")
+            st.warning("Best guess — the retrieved context only partially supports this answer.")
+        else:
+            st.markdown(f"**{answer.explanation}**")
+    elif answer.answer and answer.answer != "is_blank":
+        st.markdown(f"**{answer.answer}**")
+    else:
+        st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if answer.answer_value and answer.answer_value != "is_blank":
         st.markdown(f"Value: `{answer.answer_value}`")
-    if answer.explanation and answer.explanation != "is_blank":
-        st.markdown(answer.explanation)
+
+    # Clickable reference links (shown directly, not inside an expander)
+    ref_ids = answer.ref_id
+    ref_urls = answer.ref_url
+    if ref_ids and ref_ids != "is_blank":
+        links = []
+        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+            url = METADATA_URLS.get(rid)
+            if not url:
+                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            if url and url != "is_blank":
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
 
     details = {
         "timing": timing,
@@ -600,8 +696,14 @@ def _display_single_result(result, elapsed: float):
     }
     _render_details(details)
 
+    if answer.explanation and answer.explanation != "is_blank":
+        display_answer = answer.explanation
+    elif answer.answer and answer.answer != "is_blank":
+        display_answer = answer.answer
+    else:
+        display_answer = "Out-of-scope"
     st.session_state.messages.append({
-        "role": "assistant", "content": answer.answer, "details": details,
+        "role": "assistant", "content": display_answer, "details": details,
     })
 
 
@@ -609,11 +711,14 @@ def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
-    st.markdown(f"**{agg['answer']}**")
+    if agg["explanation"] and agg["explanation"] != "is_blank":
+        st.markdown(f"**{agg['explanation']}**")
+    elif agg["answer"] and agg["answer"] != "is_blank":
+        st.markdown(f"**{agg['answer']}**")
+    else:
+        st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if agg["answer_value"] and agg["answer_value"] != "is_blank":
         st.markdown(f"Value: `{agg['answer_value']}`")
-    if agg["explanation"] and agg["explanation"] != "is_blank":
-        st.markdown(agg["explanation"])
 
     n_models = len(model_results)
     model_times = [e["time"] for e in model_results.values()]
@@ -629,26 +734,35 @@ def _display_ensemble_result(
         for name, info in agg["individual"].items():
             agreed = info["answer_value"] == agg["answer_value"]
             marker = "+" if agreed else "-"
+            val = info["answer_value"] if info["answer_value"] and info["answer_value"] != "is_blank" else "Out-of-scope"
+            ans = info["answer"] if info["answer"] and info["answer"] != "is_blank" else "Out-of-scope"
             st.markdown(
                 f"**{name}** ({info['time']:.1f}s) [{marker}]  \n"
-                f"Answer: `{info['answer_value']}` — {info['answer']}"
+                f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
                 st.caption(info["explanation"])
             st.divider()
 
-    # References (aggregated)
+    # Clickable reference links
     if agg["ref_id"]:
-        with st.expander("References (union)"):
-            for rid in agg["ref_id"]:
-                st.markdown(f"- {rid}")
+        links = []
+        for rid in agg["ref_id"]:
+            url = METADATA_URLS.get(rid)
+            if url:
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
 
     # First model's retrieval context (shared across models since same embedder+store)
     first_result = next(iter(model_results.values()))["result"]
     snippets = first_result.retrieval.snippets
     if snippets:
-        with st.expander(f"Retrieved context ({len(snippets)} chunks)"):
-            for s in snippets:
+        display_snippets = snippets[:10]
+        label = f"Retrieved context ({len(display_snippets)} of {len(snippets)} chunks)"
+        with st.expander(label):
+            for s in display_snippets:
                 st.markdown(f"**#{s.rank}** _{s.document_title}_ (score: {s.score:.3f})")
                 st.text(s.text[:500] + ("..." if len(s.text) > 500 else ""))
                 st.divider()
@@ -667,8 +781,14 @@ def _display_ensemble_result(
         "answer": agg["answer"],
         "answer_value": agg["answer_value"],
     }
+    if agg["explanation"] and agg["explanation"] != "is_blank":
+        display_answer = agg["explanation"]
+    elif agg["answer"] and agg["answer"] != "is_blank":
+        display_answer = agg["answer"]
+    else:
+        display_answer = "Out-of-scope"
     st.session_state.messages.append({
-        "role": "assistant", "content": agg["answer"], "details": details,
+        "role": "assistant", "content": display_answer, "details": details,
     })
 
 
@@ -693,21 +813,26 @@ def _render_details(details: dict):
     ref_ids = details.get("ref_id", [])
     ref_urls = details.get("ref_url", [])
     if ref_ids and ref_ids != "is_blank":
-        with st.expander("References"):
-            for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+        links = []
+        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+            url = METADATA_URLS.get(rid)
+            if not url:
                 url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
-                if url and url != "is_blank":
-                    st.markdown(f"- [{rid}]({url})")
-                else:
-                    st.markdown(f"- {rid}")
-            sm = details.get("supporting_materials", "")
-            if sm and sm != "is_blank":
-                st.caption(f"Supporting: {sm}")
+            if url and url != "is_blank":
+                links.append(f"[{rid}]({url})")
+            else:
+                links.append(rid)
+        st.markdown("Sources: " + " · ".join(links))
+        sm = details.get("supporting_materials", "")
+        if sm and sm != "is_blank":
+            st.caption(f"Supporting: {sm}")
 
     snippets = details.get("snippets", [])
     if snippets:
-        with st.expander(f"Retrieved context ({len(snippets)} chunks)"):
-            for s in snippets:
+        display_snippets = snippets[:10]
+        label = f"Retrieved context ({len(display_snippets)} of {len(snippets)} chunks)"
+        with st.expander(label):
+            for s in display_snippets:
                 st.markdown(f"**#{s['rank']}** _{s['title']}_ (score: {s['score']:.3f})")
                 st.text(s["text"][:500] + ("..." if len(s["text"]) > 500 else ""))
                 st.divider()

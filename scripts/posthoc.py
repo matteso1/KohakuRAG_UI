@@ -24,6 +24,10 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+# Allow sibling imports (results_io lives in scripts/)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from results_io import load_results  # noqa: E402
+
 # ============================================================================
 # BLANK / NA helpers
 # ============================================================================
@@ -239,16 +243,16 @@ def apply_posthoc(results_path: Path, *, dry_run: bool = False) -> None:
       4. Prints component scores and the overall WattBot Score.
     """
     results_path = Path(results_path)
-    if results_path.is_dir():
-        results_path = results_path / "results.json"
-    if not results_path.exists():
-        raise FileNotFoundError(results_path)
+    # Resolve to the experiment directory
+    if results_path.is_file():
+        experiment_dir = results_path.parent
+    else:
+        experiment_dir = results_path
 
-    with open(results_path) as f:
-        results = json.load(f)
+    results = load_results(experiment_dir)
 
     # Lazy-import score helpers (avoids hard pandas dep at import time)
-    sys.path.insert(0, str(results_path.parent.parent.parent.parent / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from score import row_bits, is_blank as score_is_blank  # noqa: E402
 
     total = len(results)
@@ -319,7 +323,7 @@ def apply_posthoc(results_path: Path, *, dry_run: bool = False) -> None:
         return
 
     # Write normalised submission.csv
-    out_dir = results_path.parent
+    out_dir = experiment_dir
     sub_path = out_dir / "submission.csv"
     with open(sub_path, "w", newline="") as f:
         writer = csv.DictWriter(

@@ -18,6 +18,9 @@ import sys
 from pathlib import Path
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from results_io import load_results  # noqa: E402
+
 # Add project root for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -57,11 +60,10 @@ def build_gt_from_results_json(submission_files: list) -> pd.DataFrame:
     """
     rows = {}
     for sub_path in submission_files:
-        results_path = sub_path.parent / "results.json"
-        if not results_path.exists():
+        try:
+            results = load_results(sub_path.parent)
+        except FileNotFoundError:
             continue
-        with open(results_path) as f:
-            results = json.load(f)
         for entry in results:
             qid = str(entry.get("id", ""))
             if not qid or qid in rows:
