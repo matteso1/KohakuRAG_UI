@@ -14,6 +14,7 @@ import gc
 import importlib.util
 import json
 import logging
+import re
 import sys
 import time
 import traceback
@@ -457,12 +458,20 @@ def build_ensemble_answer(
 
     agg_fn = aggregate_majority if strategy == "majority" else aggregate_first_non_blank
 
+    best_answer = agg_fn(answers)
+    best_value = agg_fn(values)
+    best_explanation = agg_fn(explanations)
+
+    # Scope refs to runs that agree with the winning answer
+    winning_refs = [r for a, r in zip(answers, ref_lists) if a == best_answer]
+    winning_ref_urls = [r for a, r in zip(answers, ref_url_lists) if a == best_answer]
+
     return {
-        "answer": agg_fn(answers),
-        "answer_value": agg_fn(values),
-        "explanation": agg_fn(explanations),
-        "ref_id": aggregate_refs(ref_lists),
-        "ref_url": aggregate_refs(ref_url_lists),
+        "answer": best_answer,
+        "answer_value": best_value,
+        "explanation": best_explanation,
+        "ref_id": aggregate_refs(winning_refs),
+        "ref_url": aggregate_refs(winning_ref_urls),
         "individual": {
             name: {
                 "answer": entry["result"].answer.answer,
@@ -639,14 +648,20 @@ def main():
 
 
 def _extract_confidence(raw_response: str) -> str:
-    """Extract confidence field from raw JSON response."""
+    """Extract confidence field from raw JSON or bullet-list response."""
+    # Try JSON first
     try:
         start = raw_response.index("{")
         end = raw_response.rindex("}") + 1
         data = json.loads(raw_response[start:end])
         return str(data.get("confidence", "")).strip().lower()
     except Exception:
-        return ""
+        pass
+    # Fallback: bullet-list format (- confidence   high/low)
+    m = re.search(r"-\s*confidence\s{2,}(\S+)", raw_response)
+    if m:
+        return m.group(1).strip().strip('"').lower()
+    return ""
 
 
 def _display_single_result(result, elapsed: float):

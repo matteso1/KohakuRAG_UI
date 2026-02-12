@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time as _time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Mapping, Protocol, Sequence
@@ -966,17 +967,54 @@ class RAGPipeline:
             f"Question: {question}\n\nContext:\n{context_text}\n\nAnswer:"
         )
 
+    @staticmethod
+    def _parse_bullet_format(raw: str) -> dict | None:
+        """Fallback parser for ``- key   value`` format.
+
+        Some LLMs mimic the prompt's key-description layout instead of
+        producing JSON.  This handles lines like::
+
+            - explanation          According to [wu2021], ...
+            - answer_value         1
+            - ref_id               ["wu2021"]
+        """
+        data: dict[str, object] = {}
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line.startswith("- "):
+                continue
+            line = line[2:]
+            # Split on first run of 2+ whitespace chars (key  value)
+            parts = re.split(r"\s{2,}", line, maxsplit=1)
+            if len(parts) != 2:
+                continue
+            key, value = parts[0].strip(), parts[1].strip()
+            # Try to interpret value as JSON (handles lists, numbers, etc.)
+            try:
+                value = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            data[key] = value
+        return data if data else None
+
     def _parse_structured_response(self, raw: str) -> StructuredAnswer:
         """Extract JSON from LLM response and validate fields."""
+        data = None
         try:
             # Find JSON block in response
             start = raw.index("{")
             end = raw.rindex("}") + 1
             snippet = raw[start:end]
             data = json.loads(snippet)
-
         except Exception:
-            # Return empty structure if parsing fails
+            pass
+
+        # Fallback: try bullet-list format (- key   value)
+        if data is None:
+            data = self._parse_bullet_format(raw)
+
+        if data is None:
+            # Return empty structure if all parsing fails
             return StructuredAnswer(
                 answer="",
                 answer_value="",
