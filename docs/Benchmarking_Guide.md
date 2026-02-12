@@ -85,7 +85,7 @@ quantization via `bitsandbytes`). Override with `--precision bf16`, `fp16`, or
 | `use_reordered_prompt`  | `True`  | Context is placed **before** the question (C→Q ordering) to combat the "lost in the middle" effect (~80% relative improvement) |
 | `planner_max_queries`   | `4`     | Number of diverse retrieval queries generated per question by the LLM query planner |
 
-All are set in every `hf_*.py` config file (e.g. `hf_qwen7b.py`).
+All are set in every config file (`hf_*.py` and `bedrock_*.py`).
 
 ### Using the test dataset
 
@@ -171,29 +171,42 @@ full precision (roughly 4× more VRAM).
 | `hf_mistral7b.py`       | Mistral 7B Instruct v0.3    | 7B     | ~6 GB        | hf_local  |
 | `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)         | 3.8B   | ~3 GB        | hf_local  |
 
-Bedrock configs (from the `bedrock` branch) also work if you have
-`llm_bedrock.py` and AWS credentials set up.
+### AWS Bedrock models (API — no GPU required)
+
+Requires `boto3` and AWS credentials. See [Setup_Bedrock.md](Setup_Bedrock.md) for
+full setup instructions.
+
+| Config file                 | Model                   | Cost (per 1M tok) | Provider |
+|-----------------------------|-------------------------|--------------------|----------|
+| `bedrock_claude_haiku.py`   | Claude 3 Haiku          | $0.25 in / $1.25 out | bedrock |
+| `bedrock_claude_sonnet.py`  | Claude 3.5 Sonnet v2    | $3.00 in / $15.00 out | bedrock |
+| `bedrock_nova_pro.py`       | Amazon Nova Pro         | $0.80 in / $3.20 out | bedrock |
+| `bedrock_llama4_scout.py`   | Meta Llama 4 Scout 17B  | $0.17 in / $0.17 out | bedrock |
+
+All configs (local and bedrock) use **identical retrieval settings** (top_k, planner_max_queries,
+rerank_strategy, etc.) so results are directly comparable.
 
 ## 3) Running all models (full benchmark)
 
 **Always pass `--env`** so every sub-experiment is tagged with the machine name.
 
 ```bash
-# Full benchmark with train dataset (local HF models on the PowerEdge)
+# --- Local HF models ---
 python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
     --questions data/train_QA.csv
-    
-# Full benchmark with test dataset (local HF models on the PowerEdge)
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
-    --questions data/test_solutions.csv
+
+# --- AWS Bedrock models ---
+python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
+    --questions data/train_QA.csv
+
+# --- Both providers together ---
+python scripts/run_full_benchmark.py --env PowerEdge
 
 # Single model only
 python scripts/run_full_benchmark.py --model qwen7b --env GB10
+python scripts/run_full_benchmark.py --model claude_haiku --env Bedrock
 
-# All providers (local + bedrock, if bedrock configs exist)
-python scripts/run_full_benchmark.py --env PowerEdge
-
-# Run all models in bf16 instead of default 4-bit
+# Run local models in bf16 instead of default 4-bit
 python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env PowerEdge
 ```
 
@@ -472,6 +485,82 @@ python scripts/audit_experiments.py --datafile train_QA
 
 Checks for: missing token counts, high latency, high error rates, score
 inconsistencies, duplicate model runs.
+
+---
+
+## 4b) Bedrock vs Local comparison workflow
+
+The pipeline is designed so that both providers use identical retrieval settings,
+prompts, and scoring — only the LLM call differs. This makes results directly
+comparable for evaluating model quality, latency, and cost trade-offs.
+
+### Step 1: Run both providers
+
+```bash
+# Local HF models on your GPU machine
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
+
+# AWS Bedrock models (from any machine with credentials)
+python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+```
+
+Or run specific models from each provider:
+
+```bash
+# Bedrock: Claude 3 Haiku
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
+    --name claude-haiku-bench --env Bedrock
+
+# Local: Qwen 7B (comparable size/speed tier)
+python scripts/run_experiment.py \
+    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
+    --name qwen7b-bench --env PowerEdge
+```
+
+### Step 2: Normalise and score both
+
+```bash
+python scripts/posthoc.py artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-bench/
+```
+
+### Step 3: Compare
+
+```bash
+# Generate cross-provider comparison matrix
+python scripts/generate_results_matrix.py
+
+# Or compare specific submissions
+python scripts/score.py data/train_QA.csv \
+    artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/submission.csv
+python scripts/score.py data/train_QA.csv \
+    artifacts/experiments/PowerEdge/train_QA/qwen7b-bench/submission.csv
+```
+
+### Step 4: Cross-provider ensemble (optional)
+
+You can also mix bedrock and local models in a cross-model ensemble:
+
+```bash
+python scripts/run_ensemble.py \
+    --experiments claude-sonnet-bench qwen72b-bench qwen32b-bench \
+    --name ensemble-hybrid \
+    --strategy majority --ignore-blank \
+    --env Hybrid \
+    --datafile train_QA
+```
+
+### What to compare
+
+| Metric | Where to find it | Notes |
+|--------|-----------------|-------|
+| Accuracy (WattBot score) | `summary.json → overall_score` | Primary quality metric |
+| Latency per question | `summary.json → avg_latency_seconds` | Bedrock ~2-5s; local varies by model |
+| Cost per run | `summary.json → estimated_cost_usd` | $0 for local; tracked for API providers |
+| NA recall | `summary.json → na_accuracy` | How well the model detects unanswerable Qs |
+| Ref overlap | `summary.json → ref_overlap` | Citation accuracy |
+| Energy consumption | `summary.json → hardware` | GPU wattage for local (not applicable to bedrock) |
 
 ---
 

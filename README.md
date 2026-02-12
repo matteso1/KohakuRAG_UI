@@ -176,9 +176,10 @@ Each model gets a config file in `vendor/KohakuRAG/configs/`. All configs share 
 - [Pipeline Architecture](docs/Pipeline_Architecture.md) — How the 4-level hierarchical RAG works
 - [Benchmarking Guide](docs/Benchmarking_Guide.md) — Running experiments and comparing models
 - [Streamlit App Guide](docs/Streamlit_App_Guide.md) — App deployment and PowerEdge integration
-- [Bedrock Integration Proposal](docs/bedrock-integration-proposal.md) — AWS design document
+- [Setup: Bedrock](docs/Setup_Bedrock.md) — AWS credentials, model access, and testing
 - [Setup: GB10](docs/Setup_GB10.md) — Dell GB10 ARM workstation setup
 - [Setup: PowerEdge](docs/Setup_PowerEdge.md) — PowerEdge cluster setup
+- [Bedrock Integration Proposal](docs/bedrock-integration-proposal.md) — Original AWS design document
 - [Dependency Fixes: GB10](docs/Dep_fixes_GB10.md) — ARM-specific patches
 
 ## Team
