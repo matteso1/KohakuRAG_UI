@@ -25,7 +25,9 @@ except ImportError:
     sys.exit(1)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from scripts.score import row_bits, is_blank
+from results_io import load_results
 
 
 def wilson_ci(successes, n, confidence=0.95):
@@ -76,14 +78,14 @@ def _compute_ci(val_scores, ref_scores, na_gt_scores, val_acc, ref_acc, na_recal
 
 
 def _score_from_results_json(results_path: Path):
-    """Compute component scores from per-question results.json.
+    """Compute component scores from per-question results (chunked or monolithic).
 
     This is the preferred source because it contains data from the full
     experiment run (same ground truth the summary was computed against),
     avoiding mismatches when a smaller GT CSV is used for plotting.
     """
-    with open(results_path) as f:
-        items = json.load(f)
+    experiment_dir = results_path.parent if results_path.is_file() else results_path
+    items = load_results(experiment_dir)
 
     val_scores = []
     ref_scores = []
@@ -201,10 +203,11 @@ def load_and_score(gt_path: Path, experiments_dir: Path, datafile: str | None = 
             if (exp_dir.parent / v2_name).exists():
                 continue
 
-        results_path = exp_dir / "results.json"
-        if results_path.exists():
-            scored = _score_from_results_json(results_path)
-        else:
+        try:
+            scored = _score_from_results_json(exp_dir)
+        except FileNotFoundError:
+            scored = None
+        if scored is None:
             # Lazy-load GT only when needed
             if gt_df is None:
                 gt_df = pd.read_csv(gt_path)
