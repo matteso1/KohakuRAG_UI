@@ -14,6 +14,7 @@ import gc
 import importlib.util
 import json
 import logging
+import re
 import sys
 import time
 import traceback
@@ -638,14 +639,20 @@ def main():
 
 
 def _extract_confidence(raw_response: str) -> str:
-    """Extract confidence field from raw JSON response."""
+    """Extract confidence field from raw JSON or bullet-list response."""
+    # Try JSON first
     try:
         start = raw_response.index("{")
         end = raw_response.rindex("}") + 1
         data = json.loads(raw_response[start:end])
         return str(data.get("confidence", "")).strip().lower()
     except Exception:
-        return ""
+        pass
+    # Fallback: bullet-list format (- confidence   high/low)
+    m = re.search(r"-\s*confidence\s{2,}(\S+)", raw_response)
+    if m:
+        return m.group(1).strip().strip('"').lower()
+    return ""
 
 
 def _display_single_result(result, elapsed: float):
