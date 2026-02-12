@@ -193,6 +193,7 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 # results.json, and posthoc.py normalises + scores in a separate step.
 
 from posthoc import normalize_answer_value, normalize_ref_id  # noqa: F401
+from results_io import CHUNK_SIZE
 
 
 # =============================================================================
@@ -719,13 +720,31 @@ class ExperimentRunner:
         self.cpu_monitor = CPURSSMonitor(interval=0.5)
         self.cpu_monitor.start()
 
-        # Process all questions
-        tasks = []
-        for idx, row in questions_df.iterrows():
-            task = self.process_question(row, len(tasks) + 1, total)
-            tasks.append(task)
+        # Process questions in batches of CHUNK_SIZE, flushing each batch to
+        # disk immediately so individual files stay small (git-friendly) and
+        # completed work survives crashes.
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.results = []
+        rows = list(questions_df.iterrows())
 
-        self.results = await asyncio.gather(*tasks)
+        for batch_start in range(0, total, CHUNK_SIZE):
+            batch_rows = rows[batch_start : batch_start + CHUNK_SIZE]
+
+            tasks = []
+            for i, (_idx, row) in enumerate(batch_rows):
+                q_num = batch_start + i + 1
+                tasks.append(self.process_question(row, q_num, total))
+
+            batch_results = await asyncio.gather(*tasks)
+            self.results.extend(batch_results)
+
+            # Flush this batch to its own chunk file
+            chunk_idx = batch_start // CHUNK_SIZE
+            chunk_data = [asdict(r) for r in batch_results]
+            chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
+            with open(chunk_path, "w") as f:
+                json.dump(chunk_data, f, indent=2)
+            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}")
         total_time = time.time() - start_time
 
         # Stop all monitors
@@ -805,7 +824,12 @@ class ExperimentRunner:
         )
 
     def save_results(self, summary: ExperimentSummary) -> None:
-        """Save all experiment outputs."""
+        """Save submission CSV and summary JSON.
+
+        Results chunk files (results_chunk_NNN.json) are already written
+        incrementally during :meth:`run`, so this only handles the final
+        artefacts that depend on the complete result set.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save Kaggle-format submission CSV
@@ -827,13 +851,6 @@ class ExperimentRunner:
         sub_path = self.output_dir / "submission.csv"
         sub_df.to_csv(sub_path, index=False, quoting=csv.QUOTE_ALL)
         print(f"\nSaved submission: {sub_path}")
-
-        # Save detailed results JSON
-        results_path = self.output_dir / "results.json"
-        results_data = [asdict(r) for r in self.results]
-        with open(results_path, "w") as f:
-            json.dump(results_data, f, indent=2)
-        print(f"Saved results: {results_path}")
 
         # Save summary JSON
         summary_path = self.output_dir / "summary.json"
