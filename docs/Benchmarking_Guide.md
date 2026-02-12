@@ -313,8 +313,8 @@ python scripts/run_ensemble.py \
 | Strategy          | Description |
 |-------------------|-------------|
 | `answer_priority` | (Default) Vote on answer first, then collect refs only from matching runs — ensures citation consistency |
-| `majority`        | Most common answer wins; union of all refs |
-| `first_non_blank` | First non-blank answer wins |
+| `majority`        | Most common answer wins; refs scoped to winning-answer runs only (functionally equivalent to `answer_priority`) |
+| `first_non_blank` | First non-blank answer wins; union of all refs (including from disagreeing runs) |
 
 **Abstention-aware voting** (`--ignore-blank`): If any run produces a non-blank
 answer, blank ("is_blank") runs are filtered out before voting.  Enabled by
@@ -415,6 +415,14 @@ python scripts/run_ensemble.py \
     --strategy majority --ignore-blank \
     --env PowerEdge \
     --datafile test_solutions
+
+python scripts/run_ensemble.py \
+    --experiments qwen72b-bench qwen32b-bench qwen14b-bench qwen7b-bench \
+    --name ensemble-top5-majority \
+    --strategy majority --ignore-blank \
+    --env PowerEdge \
+    --datafile test_solutions
+
 
 # Same ensemble on train_QA
 python scripts/run_ensemble.py \

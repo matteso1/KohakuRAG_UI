@@ -592,6 +592,7 @@ class HuggingFaceLocalChatModel(ChatModel):
         return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
+
 class BedrockChatModel(ChatModel):
     """Chat backend powered by AWS Bedrock's Converse API.
 

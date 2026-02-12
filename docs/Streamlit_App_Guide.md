@@ -101,7 +101,7 @@ execution mode was selected.
 | `majority`         | Most common answer wins (ties go to first model in list) |
 | `first_non_blank`  | First model that returns a non-`is_blank` answer wins |
 
-References are aggregated as the union across all models.
+References are scoped to runs that agree with the winning answer, then unioned.
 
 ---
 

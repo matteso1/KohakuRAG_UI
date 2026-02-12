@@ -133,8 +133,8 @@ pre-existing experiments.
 | Strategy          | Algorithm |
 |-------------------|-----------|
 | `answer_priority` | Vote on `answer_value` first, then collect refs **only from matching runs** — ensures citation consistency (default) |
-| `majority`        | Most common answer wins; refs are unioned across all runs |
-| `first_non_blank` | First non-blank answer wins |
+| `majority`        | Most common answer wins; refs scoped to winning-answer runs only (functionally equivalent to `answer_priority`) |
+| `first_non_blank` | First non-blank answer wins; union of all refs (including from disagreeing runs) |
 
 ### Abstention-aware voting
 
