@@ -575,7 +575,7 @@ class ExperimentRunner:
                         err_msg = str(retry_err).lower()
                         if "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
                             reduced_k = max(current_top_k - 2, 1)
-                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}")
+                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}", flush=True)
                             result = await self.pipeline.run_qa(
                                 question=row["question"],
                                 top_k=reduced_k,
@@ -594,7 +594,7 @@ class ExperimentRunner:
                     if not answer_is_blank:
                         break  # Got a valid answer
                     if attempt < self.max_retries:
-                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...")
+                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...", flush=True)
 
                 # Store raw model output — normalisation is applied post-hoc
                 # by scripts/posthoc.py (single source of truth).
@@ -660,7 +660,7 @@ class ExperimentRunner:
 
             status = "OK" if bits["val"] else "WRONG"
             preview = str(pred_value)[:40]
-            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)")
+            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)", flush=True)
 
             return QuestionResult(
                 id=row["id"],
@@ -755,12 +755,69 @@ class ExperimentRunner:
         for batch_start in range(0, len(remaining_rows), CHUNK_SIZE):
             batch_rows = remaining_rows[batch_start : batch_start + CHUNK_SIZE]
 
+            PER_QUESTION_TIMEOUT = 600  # 10 minutes per question
+
             tasks = []
             for i, (_idx, row) in enumerate(batch_rows):
                 done_so_far = len(completed_ids) + batch_start + i + 1
-                tasks.append(self.process_question(row, done_so_far, total))
+                tasks.append(
+                    asyncio.wait_for(
+                        self.process_question(row, done_so_far, total),
+                        timeout=PER_QUESTION_TIMEOUT,
+                    )
+                )
 
-            batch_results = await asyncio.gather(*tasks)
+            batch_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Convert timeouts to error QuestionResult objects
+            batch_results = []
+            for j, result in enumerate(batch_results_raw):
+                if isinstance(result, asyncio.TimeoutError):
+                    _idx, row = batch_rows[j]
+                    done_so_far = len(completed_ids) + batch_start + j + 1
+                    print(f"[{done_so_far}/{total}] {row['id']}: TIMEOUT (>{PER_QUESTION_TIMEOUT}s)", flush=True)
+                    batch_results.append(QuestionResult(
+                        id=row["id"],
+                        question=row["question"],
+                        gt_value=str(row.get("answer_value", "is_blank")),
+                        gt_unit=str(row.get("answer_unit", "")),
+                        gt_ref=str(row.get("ref_id", "is_blank")),
+                        pred_value="is_blank",
+                        pred_unit=str(row.get("answer_unit", "")),
+                        pred_ref="is_blank",
+                        pred_explanation=f"Error: Timeout after {PER_QUESTION_TIMEOUT}s",
+                        raw_response="",
+                        value_correct=False,
+                        ref_score=0.0,
+                        na_correct=False,
+                        weighted_score=0.0,
+                        latency_seconds=float(PER_QUESTION_TIMEOUT),
+                        error=f"Timeout after {PER_QUESTION_TIMEOUT}s",
+                    ))
+                elif isinstance(result, Exception):
+                    _idx, row = batch_rows[j]
+                    done_so_far = len(completed_ids) + batch_start + j + 1
+                    print(f"[{done_so_far}/{total}] {row['id']}: ERROR - {str(result)[:80]}", flush=True)
+                    batch_results.append(QuestionResult(
+                        id=row["id"],
+                        question=row["question"],
+                        gt_value=str(row.get("answer_value", "is_blank")),
+                        gt_unit=str(row.get("answer_unit", "")),
+                        gt_ref=str(row.get("ref_id", "is_blank")),
+                        pred_value="is_blank",
+                        pred_unit=str(row.get("answer_unit", "")),
+                        pred_ref="is_blank",
+                        pred_explanation=f"Error: {result!s}",
+                        raw_response="",
+                        value_correct=False,
+                        ref_score=0.0,
+                        na_correct=False,
+                        weighted_score=0.0,
+                        latency_seconds=0.0,
+                        error=str(result),
+                    ))
+                else:
+                    batch_results.append(result)
             self.results.extend(batch_results)
 
             # Flush this batch to its own chunk file
@@ -768,7 +825,7 @@ class ExperimentRunner:
             chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
             with open(chunk_path, "w") as f:
                 json.dump(chunk_data, f, indent=2)
-            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}")
+            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}", flush=True)
             chunk_idx += 1
         total_time = time.time() - start_time
 
