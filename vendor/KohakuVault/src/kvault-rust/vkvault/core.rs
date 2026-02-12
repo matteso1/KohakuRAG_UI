@@ -81,9 +81,54 @@ impl VectorKVault {
         Ok(vkv)
     }
 
-    /// Create tables if they don't exist
+    /// Create tables if they don't exist.
+    /// If an existing vec table has a different dimension and is empty
+    /// (e.g. created by a previous buggy run with dimensions=1), drop and
+    /// recreate it with the correct dimension.
     fn create_tables(&self) -> PyResult<()> {
         let conn = self.conn.lock();
+
+        // Check if the vec table already exists with a different dimension.
+        let existing_dim: Option<usize> = conn
+            .query_row(
+                "SELECT vector_column_size FROM vec_info WHERE table_name = ?1",
+                rusqlite::params![&self.table],
+                |row| row.get::<_, i64>(0).map(|v| v as usize),
+            )
+            .ok();
+
+        if let Some(existing) = existing_dim {
+            if existing != self.dimensions {
+                // Dimension mismatch — check if table is empty.
+                let count: i64 = conn
+                    .query_row(
+                        &format!("SELECT COUNT(*) FROM [{}]", &self.table),
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+
+                if count == 0 {
+                    // Empty table with wrong dimension — drop and recreate.
+                    conn.execute_batch(&format!(
+                        "DROP TABLE IF EXISTS [{}]; DROP TABLE IF EXISTS [{}_values];",
+                        &self.table, &self.table
+                    ))
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Failed to drop corrupted vec table: {}", e
+                        ))
+                    })?;
+                } else {
+                    return Err(PyValueError::new_err(format!(
+                        "Vec table '{}' has dimension {} with {} vectors, \
+                         but dimension {} was requested. Cannot change dimension \
+                         of a non-empty table.",
+                        &self.table, existing, count, self.dimensions
+                    )));
+                }
+            }
+        }
 
         // Determine vector type string for SQL
         let vector_sql_type = match self.vector_type {

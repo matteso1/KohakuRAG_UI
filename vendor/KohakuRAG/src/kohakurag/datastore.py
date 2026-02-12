@@ -1,6 +1,7 @@
 """Simple hierarchical vector store implementations."""
 
 import asyncio
+
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal, Sequence
@@ -208,33 +209,10 @@ class KVaultNodeStore(HierarchicalNodeStore):
             if inferred_metric != metric:
                 metric = inferred_metric  # Use stored metric
 
-        # If dimensions not provided and not in metadata, try to infer from vector table
-        if dimensions is None and inferred_dimensions is None:
-            try:
-                # Try opening existing vector table to get dimensions
-                existing_vectors = VectorKVault(
-                    self._path,
-                    table=f"{table_prefix}_vec",
-                    dimensions=1,  # Dummy, will be overwritten
-                    metric=metric,
-                )
-                info = existing_vectors.info()
-                if info.get("count", 0) > 0:
-                    inferred_dimensions = int(info.get("dimensions", 0))
-                    if inferred_dimensions > 0:
-                        # Update metadata with inferred dimensions
-                        self._kv[self.META_KEY] = {
-                            "dimensions": inferred_dimensions,
-                            "metric": metric,
-                        }
-            except Exception:
-                pass
-
-        # Determine final dimensions
-        if dimensions is not None:
-            final_dimensions = dimensions
-        elif inferred_dimensions is not None:
+        if inferred_dimensions is not None:
             final_dimensions = inferred_dimensions
+        elif dimensions is not None:
+            final_dimensions = dimensions
         else:
             raise ValueError(
                 "Embedding dimension required for new store. Pass dimensions=... "
@@ -242,17 +220,6 @@ class KVaultNodeStore(HierarchicalNodeStore):
             )
 
         self._dimensions = int(final_dimensions)
-
-        # Check dimension consistency if both provided and stored
-        if (
-            dimensions is not None
-            and inferred_dimensions is not None
-            and dimensions != inferred_dimensions
-        ):
-            raise ValueError(
-                f"Existing store was built with dimension {inferred_dimensions}, "
-                f"but {dimensions} was requested."
-            )
 
         # Store/update metadata
         self._kv[self.META_KEY] = {"dimensions": self._dimensions, "metric": metric}

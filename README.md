@@ -47,7 +47,7 @@ flowchart TB
 │   ├── bedrock-integration-proposal.md   # AWS Bedrock design document
 │   └── meeting-notes.md                  # Team meeting notes
 ├── src/                                  # Application source code
-├── configs/                              # Pipeline configuration
+├── vendor/KohakuRAG/configs/              # Pipeline & experiment configs
 ├── .env.example                          # Environment template
 └── README.md
 ```

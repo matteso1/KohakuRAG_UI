@@ -23,7 +23,6 @@ app_name = "KohakuRAG"
 
 # HuggingFace local settings (used when llm_provider = "hf_local")
 hf_model_id = "Qwen/Qwen2.5-7B-Instruct"
-hf_dtype = "bf16"
 hf_max_new_tokens = 512
 hf_temperature = 0.2
 

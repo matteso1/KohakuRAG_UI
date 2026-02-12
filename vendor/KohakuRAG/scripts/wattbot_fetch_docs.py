@@ -24,9 +24,9 @@ from kohakurag.pdf_utils import pdf_to_document_payload
 # These defaults can be overridden by KohakuEngine config injection or CLI args
 # ============================================================================
 
-metadata = "data/metadata.csv"
-pdf_dir = "artifacts/raw_pdfs"
-output_dir = "artifacts/docs"
+metadata = "../../data/metadata.csv"
+pdf_dir = "../../data/pdfs"
+output_dir = "../../data/corpus"
 force_download = False
 limit = 0
 

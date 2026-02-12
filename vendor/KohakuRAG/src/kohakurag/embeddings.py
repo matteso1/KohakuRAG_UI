@@ -36,13 +36,33 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
     return vectors / norms
 
 
-def average_embeddings(child_vectors: Sequence[np.ndarray]) -> np.ndarray:
-    """Compute the normalized mean vector for parent nodes."""
+def average_embeddings(
+    child_vectors: Sequence[np.ndarray],
+    weights: Sequence[float] | None = None,
+) -> np.ndarray:
+    """Compute the normalized weighted-mean vector for parent nodes.
+
+    When *weights* is provided (typically text lengths), longer child segments
+    contribute more to the parent's semantic representation.  When *weights* is
+    ``None`` the behaviour falls back to a simple unweighted mean.
+    """
     if not child_vectors:
         raise ValueError("average_embeddings requires at least one child vector.")
 
     stacked = np.vstack(child_vectors)
-    return _normalize(np.mean(stacked, axis=0, keepdims=True))[0]
+
+    if weights is not None:
+        w = np.asarray(weights, dtype=np.float64)
+        total = w.sum()
+        if total > 0:
+            w = w / total
+        else:
+            w = np.ones(len(child_vectors), dtype=np.float64) / len(child_vectors)
+        mean = np.average(stacked, axis=0, weights=w).reshape(1, -1)
+    else:
+        mean = np.mean(stacked, axis=0, keepdims=True)
+
+    return _normalize(mean.astype(np.float32))[0]
 
 
 def _detect_device() -> Any:

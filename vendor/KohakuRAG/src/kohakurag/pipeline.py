@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass
+import time as _time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Mapping, Protocol, Sequence
 
 from .datastore import HierarchicalNodeStore, InMemoryNodeStore, matches_to_snippets
@@ -70,6 +71,8 @@ class StructuredAnswer:
     answer_value: str
     ref_id: list[str]
     explanation: str
+    ref_url: list[str] = field(default_factory=list)
+    supporting_materials: str = ""
 
 
 @dataclass
@@ -80,6 +83,8 @@ class StructuredAnswerResult:
     retrieval: RetrievalResult
     raw_response: str
     prompt: str
+    timing: dict[str, float] = field(default_factory=dict)
+    # timing keys (seconds): retrieval_s, generation_s, total_s
 
 
 @dataclass
@@ -261,6 +266,56 @@ class SimpleQueryPlanner:
 
     async def plan(self, question: str) -> Sequence[str]:
         """Return single-element list containing the original question."""
+        return [question]
+
+
+_QUERY_PLANNER_PROMPT = """\
+You are a search query planner for a technical document retrieval system.
+Given a user question, generate {n} diverse search queries that together
+cover different terminologies, synonyms, and sub-questions that would help
+retrieve all relevant passages from a corpus of research papers.
+
+Rules:
+- Each query should target a different angle or terminology for the same information need.
+- Include the original question (possibly lightly rephrased) as the first query.
+- Use varied technical vocabulary (e.g., "energy consumption" vs "power usage" vs "electricity demand").
+- If the question has sub-parts, dedicate a query to each sub-part.
+- Return ONLY a JSON array of strings, no explanation.
+
+Question: {question}
+
+JSON array of {n} queries:"""
+
+
+class LLMQueryPlanner:
+    """Query planner that uses an LLM to expand a single question into diverse retrieval queries."""
+
+    def __init__(
+        self,
+        chat_model: "ChatModel",
+        max_queries: int = 3,
+    ) -> None:
+        self._chat = chat_model
+        self._max_queries = max_queries
+
+    async def plan(self, question: str) -> Sequence[str]:
+        """Expand *question* into up to *max_queries* diverse retrieval queries."""
+        prompt = _QUERY_PLANNER_PROMPT.format(n=self._max_queries, question=question)
+        try:
+            raw = await self._chat.complete(
+                prompt, system_prompt="You are a helpful search query planner."
+            )
+            # Parse JSON array from response
+            start = raw.index("[")
+            end = raw.rindex("]") + 1
+            queries = json.loads(raw[start:end])
+            if isinstance(queries, list) and queries:
+                # Ensure strings and limit to max_queries
+                queries = [str(q).strip() for q in queries if str(q).strip()]
+                return queries[: self._max_queries] if queries else [question]
+        except Exception:
+            pass
+        # Fallback: return original question
         return [question]
 
 
@@ -780,6 +835,8 @@ class RAGPipeline:
         if top_k_final is not None:
             self._top_k_final = top_k_final
 
+        # --- Retrieval phase (embedding + vector search) ---
+        t0 = _time.time()
         try:
             # Use image-aware retrieval if requested
             if with_images:
@@ -796,6 +853,7 @@ class RAGPipeline:
         finally:
             # Restore original top_k_final
             self._top_k_final = original_top_k_final
+        t_retrieval = _time.time() - t0
 
         # Render user prompt with context (and images if present as captions)
         rendered_prompt = prompt.render(
@@ -814,10 +872,12 @@ class RAGPipeline:
         else:
             prompt_content = rendered_prompt
 
-        # Get LLM response
+        # --- Generation phase (LLM inference) ---
+        t1 = _time.time()
         raw = await self._chat.complete(
             prompt_content, system_prompt=prompt.system_prompt
         )
+        t_generation = _time.time() - t1
 
         # Parse JSON structure
         parsed = self._parse_structured_response(raw)
@@ -827,6 +887,11 @@ class RAGPipeline:
             retrieval=retrieval,
             raw_response=raw,
             prompt=rendered_prompt,
+            timing={
+                "retrieval_s": t_retrieval,
+                "generation_s": t_generation,
+                "total_s": t_retrieval + t_generation,
+            },
         )
 
     async def run_qa(
@@ -941,9 +1006,27 @@ class RAGPipeline:
                         text = text[7:].strip()  # Remove "ref_id=" prefix
                     ref_ids.append(text)
 
+        # Parse ref_url (can be string or list)
+        ref_url_raw = data.get("ref_url", [])
+        ref_urls: list[str] = []
+        if isinstance(ref_url_raw, str):
+            if ref_url_raw.strip() and ref_url_raw.strip() != "is_blank":
+                ref_urls = [ref_url_raw.strip()]
+        elif isinstance(ref_url_raw, Sequence):
+            for item in ref_url_raw:
+                text = str(item).strip()
+                if text and text != "is_blank":
+                    ref_urls.append(text)
+
+        supporting_materials = str(data.get("supporting_materials", "")).strip()
+        if supporting_materials == "is_blank":
+            supporting_materials = ""
+
         return StructuredAnswer(
             answer=answer,
             answer_value=answer_value,
             ref_id=ref_ids,
             explanation=explanation,
+            ref_url=ref_urls,
+            supporting_materials=supporting_materials,
         )
