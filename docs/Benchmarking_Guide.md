@@ -233,7 +233,7 @@ python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-
 
 ```bash
 # Auto-discovers all experiments (both train_QA and test_solutions)
-python scripts/generate_results_matrix.py
+python scripts/generate_results_matrix.py --datafile test_solutions
 
 # Only train_QA experiments
 python scripts/generate_results_matrix.py --datafile train_QA
