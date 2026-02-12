@@ -57,6 +57,7 @@ HF_LOCAL_MODELS = {
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
     "hf_mixtral_8x22b": "mixtral-8x22b-bench",
     "hf_qwen3_30b_a3b": "qwen3-30b-a3b-bench",
+    "hf_qwen3_next_80b_a3b": "qwen3-next-80b-a3b-bench",
     "hf_olmoe_1b7b": "olmoe-1b7b-bench",
 }
 
