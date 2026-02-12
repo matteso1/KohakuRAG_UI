@@ -541,7 +541,10 @@ class HuggingFaceLocalChatModel(ChatModel):
         ]
 
         async def _run() -> str:
-            return await asyncio.to_thread(self._generate_sync, messages)
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._generate_sync, messages),
+                timeout=300,  # 5 min per generation call
+            )
 
         if self._semaphore is not None:
             async with self._semaphore:
