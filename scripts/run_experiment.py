@@ -592,9 +592,13 @@ class ExperimentRunner:
                         or not result.answer.ref_id
                     )
                     if not answer_is_blank:
+                        retry_count = attempt
                         break  # Got a valid answer
                     if attempt < self.max_retries:
                         print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...", flush=True)
+                else:
+                    # All retries exhausted — record the full count
+                    retry_count = self.max_retries
 
                 # Store raw model output — normalisation is applied post-hoc
                 # by scripts/posthoc.py (single source of truth).
