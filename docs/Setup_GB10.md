@@ -131,6 +131,19 @@ python -c "import kohakuvault, kohakurag; print('Imports OK')"
 ```
 
 
+### 8) Build the index
+
+```bash
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
+
+# Verify the database was created
+ls -lh data/embeddings/wattbot_jinav4.db
+```
+
+
+
 ### 8) Jupyter Lab (headless, remote)
 
 Jupyter is used for:
