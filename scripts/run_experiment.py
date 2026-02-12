@@ -104,6 +104,7 @@ class QuestionResult:
     rendered_prompt: str = ""  # The complete prompt sent to the LLM
     retrieved_snippets: list = field(default_factory=list)  # [{node_id, doc_title, text, score, rank}]
     num_snippets: int = 0
+    retry_count: int = 0  # Number of iterative-deepening retries used (0 = answered on first attempt)
 
 
 @dataclass
@@ -136,6 +137,10 @@ class ExperimentSummary:
     config_snapshot: dict = field(default_factory=dict)
     # Run environment (machine label for cross-machine comparison)
     run_environment: str = ""  # e.g. "GB10", "PowerEdge", "Bedrock-us-east-1"
+    # Retry stats
+    total_retries: int = 0  # Sum of retry_count across all questions
+    questions_retried: int = 0  # Number of questions that needed at least 1 retry
+    avg_retries: float = 0.0  # Average retry_count per question
     # Dataset info
     questions_file: str = ""  # path to the questions CSV used for this run
 
@@ -551,6 +556,7 @@ class ExperimentRunner:
                 base_top_k_final = self.config.get("top_k_final", None)
                 result = None
                 answer_is_blank = True
+                retry_count = 0
 
                 # Retry loop: increase retrieval depth on blank answers
                 for attempt in range(self.max_retries + 1):
@@ -592,9 +598,13 @@ class ExperimentRunner:
                         or not result.answer.ref_id
                     )
                     if not answer_is_blank:
+                        retry_count = attempt
                         break  # Got a valid answer
                     if attempt < self.max_retries:
                         print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...")
+                else:
+                    # All retries exhausted — record the full count
+                    retry_count = self.max_retries
 
                 # Store raw model output — normalisation is applied post-hoc
                 # by scripts/posthoc.py (single source of truth).
@@ -686,6 +696,7 @@ class ExperimentRunner:
                 rendered_prompt=rendered_prompt,
                 retrieved_snippets=snippets_data,
                 num_snippets=len(snippets_data),
+                retry_count=retry_count,
             )
 
     async def run(self, questions_df: pd.DataFrame) -> ExperimentSummary:
@@ -791,6 +802,9 @@ class ExperimentRunner:
         avg_retrieval = sum(r.retrieval_seconds for r in self.results) / total
         avg_generation = sum(r.generation_seconds for r in self.results) / total
         error_count = sum(1 for r in self.results if r.error)
+        total_retries = sum(r.retry_count for r in self.results)
+        questions_retried = sum(1 for r in self.results if r.retry_count > 0)
+        avg_retries = total_retries / total if total else 0.0
 
         # Get token usage from chat model (if supported)
         input_tokens = 0
@@ -844,6 +858,9 @@ class ExperimentRunner:
             estimated_cost_usd=estimated_cost,
             hardware=hw_dict,
             config_snapshot=self.config,
+            total_retries=total_retries,
+            questions_retried=questions_retried,
+            avg_retries=avg_retries,
             run_environment=self.config.get("_run_environment", ""),
             questions_file=self.config.get("_questions_file", ""),
         )
