@@ -60,7 +60,7 @@ Context:
 {context}
 
 Return STRICT JSON with the following keys, in this order:
-- explanation          (1-3 sentences explaining how the context supports the answer; or "is_blank")
+- explanation          (1-3 sentences that directly answer the question in a natural, synthesized way — do NOT use phrases like "the context states", "according to the passage", or "the document mentions"; instead write as if you are an expert explaining the answer; or "is_blank")
 - answer               (short natural-language response, e.g. "1438 lbs", "Water consumption", "TRUE")
 - answer_value         (ONLY the numeric or categorical value, e.g. "1438", "Water consumption", "1"; or "is_blank")
 - ref_id               (list of document ids from the context used as evidence; or "is_blank")
