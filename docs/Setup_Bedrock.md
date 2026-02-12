@@ -1,42 +1,204 @@
 # AWS Bedrock Setup Guide
 
-End-to-end instructions for running the WattBot RAG pipeline with AWS Bedrock as the LLM backend.
+End-to-end instructions for running the WattBot RAG pipeline with
+**AWS Bedrock** as the LLM backend.  Works on **Windows**, **macOS**, and
+**Linux**.
+
+Repo: https://github.com/qualiaMachine/KohakuRAG_UI
 
 ---
 
 ## Prerequisites
 
 - An AWS account with Bedrock access (provided by Chris / UW-Madison)
-- Python 3.10+
+- Python 3.10+ ([python.org](https://www.python.org/downloads/) or your
+  system package manager)
+- Git ([git-scm.com](https://git-scm.com/downloads))
 - The KohakuRAG_UI repository cloned locally
 
 ---
 
-## 1. Install boto3
+## Phase 1 — Environment setup
+
+### 1) Clone the repo
+
+Open a terminal (**PowerShell** on Windows, **Terminal** on macOS/Linux).
 
 ```bash
-pip install boto3
+# Navigate to where you keep git repos (adjust to your preference)
+# Windows example:
+cd ~/GitHub
+# macOS / Linux example:
+cd ~/GitHub
+
+git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
+cd KohakuRAG_UI
 ```
 
-This is the only additional dependency needed for Bedrock. The rest of the pipeline (embeddings, vector store, scoring) uses the same packages as the local pipeline.
+### 2) Install uv (fast Python package manager)
+
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+Close and reopen PowerShell, then verify:
+
+```powershell
+uv --version
+```
+
+</details>
+
+<details>
+<summary><b>macOS / Linux</b></summary>
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc   # or ~/.zshrc on macOS
+uv --version
+```
+
+</details>
+
+### 3) Create and activate the virtual environment
+
+From the repo root (`KohakuRAG_UI/`):
+
+```bash
+uv venv --python 3.11
+```
+
+Activate the venv:
+
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If you get an "execution policy" error:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\.venv\Scripts\Activate.ps1
+```
+
+</details>
+
+<details>
+<summary><b>Windows (cmd.exe)</b></summary>
+
+```cmd
+.\.venv\Scripts\activate.bat
+```
+
+</details>
+
+<details>
+<summary><b>macOS / Linux</b></summary>
+
+```bash
+source .venv/bin/activate
+```
+
+</details>
+
+Verify:
+
+```bash
+python --version   # should show 3.11.x
+```
+
+> **Tip:** Always make sure the venv is active (you should see `(.venv)` in
+> your prompt) before running any `pip install` or `python` commands.
+
+### 4) Install vendored dependencies
+
+The core RAG engine and vector store are vendored in the repo. Install them
+editable so imports resolve locally:
+
+```bash
+uv pip install -e vendor/KohakuVault
+uv pip install -e vendor/KohakuRAG
+```
+
+### 5) Install Bedrock and app dependencies
+
+```bash
+uv pip install boto3 streamlit python-dotenv
+```
+
+> `boto3` is the only extra dependency needed for Bedrock. The rest of the
+> pipeline (embeddings, vector store, scoring) uses the same packages as the
+> local pipeline.
+
+### 6) Smoke test
+
+```bash
+python -c "import kohakuvault, kohakurag; print('Imports OK')"
+python -c "import boto3; print(f'boto3 {boto3.__version__} OK')"
+```
+
+Both should print without errors.
 
 ---
 
-## 2. Configure AWS Credentials
+## Phase 2 — AWS credentials
 
-### Option A: AWS SSO (Recommended for team members)
+### 7) Install the AWS CLI
 
-This is the recommended approach for the UW-Madison team.
+<details>
+<summary><b>Windows</b></summary>
+
+Download and run the official MSI installer:
+
+https://awscli.amazonaws.com/AWSCLIV2.msi
+
+Or, if you have `winget`:
+
+```powershell
+winget install Amazon.AWSCLI
+```
+
+Close and reopen your terminal after installation.
+
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
 
 ```bash
-# Install AWS CLI if not already installed
-# macOS:
 brew install awscli
-# Linux:
+```
+
+Or use the official pkg installer:
+https://awscli.amazonaws.com/AWSCLIV2.pkg
+
+</details>
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip && sudo ./aws/install
+```
 
-# Configure SSO
+</details>
+
+Verify:
+
+```bash
+aws --version
+```
+
+### 8) Configure AWS SSO (recommended for team members)
+
+```bash
 aws configure sso
 ```
 
@@ -49,7 +211,8 @@ You will be prompted for:
 | SSO region | `us-east-2` |
 | SSO registration scopes | `sso:account:access` |
 
-After browser-based login, select the account and role, then:
+A browser window will open for login. After authenticating, select the
+account and role, then finish the CLI prompts:
 
 | Prompt | Value |
 |--------|-------|
@@ -57,21 +220,41 @@ After browser-based login, select the account and role, then:
 | CLI default output format | `json` |
 | CLI profile name | `bedrock` (or whatever you prefer) |
 
-**Set the profile in your `.env`:**
+### 9) Create your `.env` file
+
+Copy the template and fill in your profile:
+
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
+
+```powershell
+Copy-Item .env.example .env
+```
+
+</details>
+
+<details>
+<summary><b>macOS / Linux</b></summary>
 
 ```bash
-# In .env
+cp .env.example .env
+```
+
+</details>
+
+Edit `.env` and set:
+
+```bash
 AWS_PROFILE=bedrock
 AWS_REGION=us-east-2
 ```
 
-**Refresh SSO session** (tokens expire after ~8-12 hours):
+> **Never commit `.env`** — it is already in `.gitignore`.
 
-```bash
-aws sso login --profile bedrock
-```
+### Alternative credential methods
 
-### Option B: Direct Credentials (for CI/CD or non-SSO environments)
+<details>
+<summary><b>Option B: Direct credentials (CI/CD or non-SSO)</b></summary>
 
 ```bash
 # In .env (DO NOT commit this file)
@@ -80,20 +263,37 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-2
 ```
 
-### Option C: IAM Instance Role (EC2/Lambda)
+</details>
 
-If running on an AWS EC2 instance or Lambda with an attached IAM role that has `bedrock:InvokeModel` permissions, no credentials need to be configured. The SDK will use the instance role automatically.
+<details>
+<summary><b>Option C: IAM instance role (EC2/Lambda)</b></summary>
+
+If running on an AWS EC2 instance or Lambda with an attached IAM role that
+has `bedrock:InvokeModel` permissions, no credentials need to be configured.
+The SDK will use the instance role automatically.
+
+</details>
 
 ---
 
-## 3. Verify Bedrock Access
+## Phase 3 — Verify Bedrock access
 
-### Quick test script
+### 10) Refresh SSO session
+
+SSO tokens expire after ~8–12 hours. Refresh before running experiments:
+
+```bash
+aws sso login --profile bedrock
+```
+
+### 11) Quick test script
+
+Save this as `test_bedrock.py` (or just paste into a Python REPL):
 
 ```python
 import boto3
 
-session = boto3.Session(profile_name="bedrock")  # or omit for env vars/instance role
+session = boto3.Session(profile_name="bedrock")  # omit for env vars / instance role
 client = session.client("bedrock-runtime", region_name="us-east-2")
 
 response = client.converse(
@@ -108,84 +308,91 @@ print(f"Bedrock says: {text}")
 print(f"Tokens: {response['usage']}")
 ```
 
-Save as `test_bedrock.py` and run:
+Run it:
 
 ```bash
 python test_bedrock.py
 ```
 
-**Expected output:**
+Expected output:
 
 ```
 Bedrock says: Hello!
 Tokens: {'inputTokens': 18, 'outputTokens': 4, 'totalTokens': 22}
 ```
 
-### Troubleshooting access errors
+### Troubleshooting
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `ExpiredTokenException` | SSO session expired | Run `aws sso login --profile bedrock` |
+| `ExpiredTokenException` | SSO session expired | `aws sso login --profile bedrock` |
 | `AccessDeniedException` | Model not enabled | See "Enable Models" below |
-| `ValidationException: model not found` | Wrong model ID or region | Check model ID spelling and try `us-east-1` |
+| `ValidationException: model not found` | Wrong model ID or region | Check model ID and try `us-east-1` |
 | `UnrecognizedClientException` | Bad credentials | Re-run `aws configure sso` |
 | `ResourceNotFoundException` | Model not available in region | Try `us-east-1` or `us-west-2` |
 
-### Enable models in Bedrock Console
+### Enable models in the Bedrock Console
 
 If you get `AccessDeniedException` for a specific model:
 
-1. Go to [AWS Bedrock Console](https://console.aws.amazon.com/bedrock/)
-2. Select region `us-east-2` in the top-right
+1. Go to the [AWS Bedrock Console](https://console.aws.amazon.com/bedrock/)
+2. Select region **us-east-2** in the top-right
 3. Navigate to **Model access** in the left sidebar
 4. Click **Manage model access**
 5. Check the models you need (Claude, Llama, Nova, etc.)
 6. Click **Save changes**
 
-Most models are available immediately. Some (like Claude 3 Opus) may require a brief approval process.
+Most models are available immediately. Some (like Claude 3 Opus) may require
+a brief approval process.
 
 ---
 
-## 4. Available Bedrock Models
+## Phase 4 — Build the index and run experiments
 
-These are the pre-configured models in `vendor/KohakuRAG/configs/`:
+### 12) Build the document index
 
-| Config file | Model | Cost (per 1M tokens) | Notes |
-|-------------|-------|----------------------|-------|
-| `bedrock_claude_haiku.py` | Claude 3 Haiku | $0.25 in / $1.25 out | Fast, cheap — good for prototyping |
-| `bedrock_claude_sonnet.py` | Claude 3.5 Sonnet v2 | $3.00 in / $15.00 out | Best quality for technical QA |
-| `bedrock_nova_pro.py` | Amazon Nova Pro | $0.80 in / $3.20 out | Amazon's native model |
-| `bedrock_llama4_scout.py` | Llama 4 Scout 17B | $0.17 in / $0.17 out | Cheapest option |
+The index only needs to be built once (or when the corpus changes):
 
-### Cost estimation per experiment
+```bash
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
+```
 
-A typical WattBot experiment with 40 questions uses roughly:
-- **~2,000 input tokens per question** (context + prompt)
-- **~200 output tokens per question** (structured JSON answer)
-- **Total per run: ~80K input + ~8K output tokens**
+Verify the database was created:
 
-| Model | Est. cost per 40-question run |
-|-------|-------------------------------|
-| Claude 3 Haiku | ~$0.03 |
-| Claude 3.5 Sonnet | ~$0.36 |
-| Amazon Nova Pro | ~$0.09 |
-| Llama 4 Scout | ~$0.02 |
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
 
-**Cost monitoring**: Check [AWS Cost Explorer](https://console.aws.amazon.com/cost-management/home) after 24 hours (there can be a lag before costs appear).
+```powershell
+Get-Item data\embeddings\wattbot_jinav4.db | Select-Object Length
+```
 
----
+</details>
 
-## 5. Run Experiments
+<details>
+<summary><b>macOS / Linux</b></summary>
 
-### Single model
+```bash
+ls -lh data/embeddings/wattbot_jinav4.db
+```
+
+</details>
+
+### 13) Run a single experiment
 
 ```bash
 # Claude 3 Haiku (fast, cheap — good first test)
-python scripts/run_experiment.py \
-  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
-  --name claude-haiku-bench \
+python scripts/run_experiment.py ^
+  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py ^
+  --name claude-haiku-bench ^
   --env Bedrock
+```
 
+> **Note:** On Windows cmd.exe, use `^` for line continuation. In
+> PowerShell, use `` ` `` (backtick). On macOS/Linux, use `\`.
+
+```bash
 # Claude 3.5 Sonnet (higher quality)
 python scripts/run_experiment.py \
   --config vendor/KohakuRAG/configs/bedrock_claude_sonnet.py \
@@ -193,28 +400,28 @@ python scripts/run_experiment.py \
   --env Bedrock
 ```
 
-### Full bedrock benchmark
+### 14) Full Bedrock benchmark
 
 ```bash
 python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
 ```
 
-### Post-hoc normalization and scoring
+### 15) Post-hoc normalization and scoring
 
 ```bash
 python scripts/posthoc.py artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/results.json
 ```
 
-### Compare bedrock vs local results
+### 16) Compare Bedrock vs local results
 
-After running both:
+After running both providers:
 
 ```bash
-# Run local models
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
-
 # Run bedrock models
 python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+
+# Run local models (on a GPU machine)
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
 
 # Generate comparison plots
 python scripts/plot_from_matrix.py
@@ -239,21 +446,54 @@ artifacts/experiments/
 
 ---
 
-## 6. Streamlit App with Bedrock
+## Phase 5 — Streamlit app
 
-The Streamlit app automatically discovers `bedrock_*.py` configs alongside `hf_*.py` configs.
+### 17) Launch the app
 
 ```bash
 streamlit run app.py
 ```
 
-In the sidebar, you'll see both bedrock and local model configs. Bedrock models don't require a GPU — when only bedrock models are selected, the app skips VRAM estimation and shows "API mode".
+In the sidebar you'll see both `bedrock_*` and `hf_*` model configs.
+Bedrock models don't require a GPU — when only bedrock models are selected,
+the app skips VRAM estimation and shows "API mode".
 
-You can also create ensembles mixing bedrock and local models (e.g., `bedrock_claude_sonnet` + `hf_qwen7b`).
+You can create ensembles mixing bedrock and local models (e.g.,
+`bedrock_claude_sonnet` + `hf_qwen7b`).
 
 ---
 
-## 7. Adding New Bedrock Models
+## Available Bedrock Models
+
+Pre-configured models in `vendor/KohakuRAG/configs/`:
+
+| Config file | Model | Cost (per 1M tokens) | Notes |
+|-------------|-------|----------------------|-------|
+| `bedrock_claude_haiku.py` | Claude 3 Haiku | $0.25 in / $1.25 out | Fast, cheap — good for prototyping |
+| `bedrock_claude_sonnet.py` | Claude 3.5 Sonnet v2 | $3.00 in / $15.00 out | Best quality for technical QA |
+| `bedrock_nova_pro.py` | Amazon Nova Pro | $0.80 in / $3.20 out | Amazon's native model |
+| `bedrock_llama4_scout.py` | Llama 4 Scout 17B | $0.17 in / $0.17 out | Cheapest option |
+
+### Cost estimation per experiment
+
+A typical WattBot experiment with 40 questions uses roughly:
+- **~2,000 input tokens per question** (context + prompt)
+- **~200 output tokens per question** (structured JSON answer)
+- **Total per run: ~80K input + ~8K output tokens**
+
+| Model | Est. cost per 40-question run |
+|-------|-------------------------------|
+| Claude 3 Haiku | ~$0.03 |
+| Claude 3.5 Sonnet | ~$0.36 |
+| Amazon Nova Pro | ~$0.09 |
+| Llama 4 Scout | ~$0.02 |
+
+**Cost monitoring**: Check [AWS Cost Explorer](https://console.aws.amazon.com/cost-management/home)
+after 24 hours (there can be a lag before costs appear).
+
+---
+
+## Adding New Bedrock Models
 
 Create a new config file in `vendor/KohakuRAG/configs/`:
 
@@ -304,7 +544,8 @@ max_concurrent = 5
 ### Finding Bedrock model IDs
 
 ```bash
-aws bedrock list-foundation-models --region us-east-2 --query "modelSummaries[].modelId" --output table
+aws bedrock list-foundation-models --region us-east-2 \
+    --query "modelSummaries[].modelId" --output table
 ```
 
 Or check the [Bedrock model catalog](https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html).
@@ -326,7 +567,7 @@ mistral.mistral-small-2402-v1:0
 
 ---
 
-## 8. Architecture: What's Shared vs. Provider-Specific
+## Architecture: What's Shared vs. Provider-Specific
 
 Both bedrock and local pipelines use the **exact same**:
 - Jina V4 embeddings (1024-dim)
@@ -342,4 +583,5 @@ The **only** difference is the LLM call:
 - `BedrockChatModel` → AWS Bedrock Converse API (boto3)
 - `HuggingFaceLocalChatModel` → Local GPU inference (transformers)
 
-This means results are directly comparable for evaluating model quality, latency, and cost.
+This means results are directly comparable for evaluating model quality,
+latency, and cost.
