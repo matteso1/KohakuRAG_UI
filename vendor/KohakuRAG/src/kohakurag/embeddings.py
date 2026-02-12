@@ -218,6 +218,7 @@ class JinaV4EmbeddingModel:
         *,
         task: str = "retrieval",
         truncate_dim: int = 1024,
+        batch_size: int = 64,
         device: Any | None = None,
     ) -> None:
         """Initialize Jina V4 embedding model with lazy loading.
@@ -226,6 +227,7 @@ class JinaV4EmbeddingModel:
             model_name: HuggingFace model identifier
             task: Task mode - "retrieval", "text-matching", or "code"
             truncate_dim: Matryoshka dimension (128, 256, 512, 1024, 2048)
+            batch_size: Max texts per encode_text call (avoids GPU OOM on large batches)
             device: Target device (auto-detected if None)
         """
         # Validate truncate_dim
@@ -240,6 +242,7 @@ class JinaV4EmbeddingModel:
         self._model_name = model_name
         self._task = task
         self._truncate_dim = truncate_dim
+        self._batch_size = batch_size
         self._device = resolved_device
 
         # Use FP16 on GPU for faster inference
@@ -280,6 +283,9 @@ class JinaV4EmbeddingModel:
     def _sync_encode_text(self, texts: Sequence[str]) -> np.ndarray:
         """Synchronous text encoding (called via executor).
 
+        Chunks inputs into ``batch_size`` pieces to keep GPU memory bounded
+        while still saturating the device.
+
         Returns:
             Array of shape (len(texts), truncate_dim) with float32 dtype
         """
@@ -289,28 +295,28 @@ class JinaV4EmbeddingModel:
         if not texts:
             return np.zeros((0, self._truncate_dim), dtype=np.float32)
 
-        # Ensure all inputs are strings
         str_texts = [str(t) for t in texts]
 
-        # Run inference with JinaV4's encode_text method
-        with torch.no_grad():
-            embeddings = self._model.encode_text(
-                texts=str_texts,
-                task=self._task,
-                prompt_name="query",  # Use "document" for documents
-                truncate_dim=self._truncate_dim,
-                max_length=8192,
-            )
+        chunks: list[np.ndarray] = []
+        for start in range(0, len(str_texts), self._batch_size):
+            batch = str_texts[start : start + self._batch_size]
+            with torch.no_grad():
+                embeddings = self._model.encode_text(
+                    texts=batch,
+                    task=self._task,
+                    prompt_name="query",
+                    truncate_dim=self._truncate_dim,
+                    max_length=8192,
+                )
+            if isinstance(embeddings, torch.Tensor):
+                arr = embeddings.detach().float().cpu().numpy()
+            elif isinstance(embeddings, list):
+                arr = torch.stack(embeddings).detach().float().cpu().numpy()
+            else:
+                arr = np.asarray(embeddings)
+            chunks.append(arr.astype(np.float32, copy=False))
 
-        # Convert to numpy
-        if isinstance(embeddings, torch.Tensor):
-            arr = embeddings.detach().float().cpu().numpy()
-        elif isinstance(embeddings, list):
-            arr = torch.stack(embeddings).detach().float().cpu().numpy()
-        else:
-            arr = np.asarray(embeddings)
-
-        return arr.astype(np.float32, copy=False)
+        return np.vstack(chunks) if len(chunks) > 1 else chunks[0]
 
     def _sync_encode_images(self, image_bytes_list: Sequence[bytes]) -> np.ndarray:
         """Synchronous image encoding (called via executor).
