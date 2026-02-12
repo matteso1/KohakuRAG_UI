@@ -318,32 +318,57 @@ async def main() -> None:
     store: KVaultNodeStore | None = None  # Lazy init after first document
     total_nodes = 0
 
-    # Index each document and upsert nodes
-    for idx, payload in enumerate(documents, start=1):
-        print(f"[{idx}/{total_docs}] indexing {payload.document_id}...", flush=True)
+    # Batch documents for cross-document embedding (keeps GPU saturated)
+    DOC_BATCH_SIZE = 8
+    pending_write: asyncio.Task | None = None
 
-        # Build hierarchical tree and compute embeddings
-        nodes = await indexer.index(payload)
-        if not nodes:
-            print(f"  -> no nodes generated, skipping.", flush=True)
+    for batch_start in range(0, total_docs, DOC_BATCH_SIZE):
+        batch = documents[batch_start : batch_start + DOC_BATCH_SIZE]
+        batch_end = min(batch_start + DOC_BATCH_SIZE, total_docs)
+        print(
+            f"[{batch_start + 1}-{batch_end}/{total_docs}] "
+            f"embedding {len(batch)} documents...",
+            flush=True,
+        )
+
+        # Build trees & embed across the whole batch in one GPU call
+        results = await indexer.index_batch(batch)
+
+        # Wait for the previous DB write to finish before starting the next
+        if pending_write is not None:
+            await pending_write
+
+        # Collect nodes for this batch
+        batch_nodes = []
+        for doc, nodes in results:
+            if not nodes:
+                print(f"  -> {doc.document_id}: no nodes, skipping.", flush=True)
+                continue
+            batch_nodes.extend(nodes)
+            total_nodes += len(nodes)
+            print(f"  -> {doc.document_id}: {len(nodes)} nodes", flush=True)
+
+        if not batch_nodes:
             continue
 
-        # Initialize store on first document (infer dimensions)
+        # Initialize store on first batch (infer dimensions)
         if store is None:
             store = KVaultNodeStore(
                 db_path,
                 table_prefix=table_prefix,
-                dimensions=nodes[0].embedding.shape[0],
+                dimensions=batch_nodes[0].embedding.shape[0],
             )
 
-        # Persist nodes to SQLite + sqlite-vec
-        await store.upsert_nodes(nodes)
-        total_nodes += len(nodes)
-        print(
-            f"  -> added {len(nodes)} nodes (running total {total_nodes})", flush=True
-        )
+        # Pipeline: start DB write while the next batch embeds
+        pending_write = asyncio.create_task(store.upsert_nodes(batch_nodes))
 
-    print(f"Indexed {len(documents)} documents with {total_nodes} nodes into {db_path}")
+    # Flush final write
+    if pending_write is not None:
+        await pending_write
+
+    print(
+        f"Indexed {len(documents)} documents with {total_nodes} nodes into {db_path}"
+    )
 
 
 if __name__ == "__main__":

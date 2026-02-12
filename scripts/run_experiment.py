@@ -192,6 +192,7 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 # results.json, and posthoc.py normalises + scores in a separate step.
 
 from posthoc import normalize_answer_value, normalize_ref_id  # noqa: F401
+from results_io import CHUNK_SIZE, load_partial_progress
 
 
 # =============================================================================
@@ -719,13 +720,56 @@ class ExperimentRunner:
         self.cpu_monitor = CPURSSMonitor(interval=0.5)
         self.cpu_monitor.start()
 
-        # Process all questions
-        tasks = []
-        for idx, row in questions_df.iterrows():
-            task = self.process_question(row, len(tasks) + 1, total)
-            tasks.append(task)
+        # ── Resume from partial progress ────────────────────────────────
+        # If a previous run crashed, chunk files already on disk are loaded
+        # and those question IDs are skipped.
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        prior_dicts, next_chunk_idx = load_partial_progress(self.output_dir)
+        completed_ids: set[str] = set()
 
-        self.results = await asyncio.gather(*tasks)
+        self.results = []
+        if prior_dicts:
+            completed_ids = {r["id"] for r in prior_dicts}
+            # Reconstruct QuestionResult objects so aggregate scoring works
+            for d in prior_dicts:
+                self.results.append(QuestionResult(**{
+                    k: v for k, v in d.items()
+                    if k in QuestionResult.__dataclass_fields__
+                }))
+            print(f"[resume] Loaded {len(prior_dicts)} completed questions "
+                  f"from {next_chunk_idx} chunk(s) — skipping those")
+
+        # Filter to only questions that still need answering
+        remaining_rows = [
+            (_idx, row) for _idx, row in questions_df.iterrows()
+            if row["id"] not in completed_ids
+        ]
+
+        if not remaining_rows:
+            print("[resume] All questions already completed!")
+        else:
+            print(f"[run] {len(remaining_rows)} questions to process")
+
+        # ── Process remaining questions in batches ────────────────────
+        chunk_idx = next_chunk_idx
+        for batch_start in range(0, len(remaining_rows), CHUNK_SIZE):
+            batch_rows = remaining_rows[batch_start : batch_start + CHUNK_SIZE]
+
+            tasks = []
+            for i, (_idx, row) in enumerate(batch_rows):
+                done_so_far = len(completed_ids) + batch_start + i + 1
+                tasks.append(self.process_question(row, done_so_far, total))
+
+            batch_results = await asyncio.gather(*tasks)
+            self.results.extend(batch_results)
+
+            # Flush this batch to its own chunk file
+            chunk_data = [asdict(r) for r in batch_results]
+            chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
+            with open(chunk_path, "w") as f:
+                json.dump(chunk_data, f, indent=2)
+            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}")
+            chunk_idx += 1
         total_time = time.time() - start_time
 
         # Stop all monitors
@@ -805,7 +849,12 @@ class ExperimentRunner:
         )
 
     def save_results(self, summary: ExperimentSummary) -> None:
-        """Save all experiment outputs."""
+        """Save submission CSV and summary JSON.
+
+        Results chunk files (results_chunk_NNN.json) are already written
+        incrementally during :meth:`run`, so this only handles the final
+        artefacts that depend on the complete result set.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save Kaggle-format submission CSV
@@ -827,13 +876,6 @@ class ExperimentRunner:
         sub_path = self.output_dir / "submission.csv"
         sub_df.to_csv(sub_path, index=False, quoting=csv.QUOTE_ALL)
         print(f"\nSaved submission: {sub_path}")
-
-        # Save detailed results JSON
-        results_path = self.output_dir / "results.json"
-        results_data = [asdict(r) for r in self.results]
-        with open(results_path, "w") as f:
-            json.dump(results_data, f, indent=2)
-        print(f"Saved results: {results_path}")
 
         # Save summary JSON
         summary_path = self.output_dir / "summary.json"

@@ -51,6 +51,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from score import row_bits, is_blank, ref_overlap_score
+from results_io import load_results, save_results_chunked
 
 
 # =============================================================================
@@ -80,23 +81,22 @@ def load_experiment_results(
     if datafile:
         search_root = search_root / datafile
 
-    # Build lookup: experiment name -> results.json path
-    all_results_paths = {
-        p.parent.name: p
-        for p in search_root.glob("**/results.json")
-    }
-
     for name in experiment_names:
-        # Try scoped path first, then fallback to lookup
-        results_path = search_root / name / "results.json"
-        if not results_path.exists():
-            results_path = all_results_paths.get(name)
-        if results_path is None or not results_path.exists():
+        exp_dir = search_root / name
+        if not exp_dir.is_dir():
+            # Fallback: search subdirectories for a matching experiment name
+            candidates = [p.parent for p in search_root.glob(f"**/{name}/summary.json")]
+            if candidates:
+                exp_dir = candidates[0]
+            else:
+                print(f"Warning: No results found for {name} under {search_root}")
+                continue
+
+        try:
+            all_results[name] = load_results(exp_dir)
+        except FileNotFoundError:
             print(f"Warning: No results found for {name} under {search_root}")
             continue
-
-        with open(results_path) as f:
-            all_results[name] = json.load(f)
 
     return all_results
 
@@ -384,11 +384,10 @@ def save_ensemble_results(
     """Save ensemble results."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save results JSON
-    results_path = output_dir / "results.json"
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved results: {results_path}")
+    # Save results as chunked JSON
+    chunk_paths = save_results_chunked(results, output_dir)
+    for cp in chunk_paths:
+        print(f"Saved results chunk: {cp}")
 
     # Save summary JSON
     summary = {

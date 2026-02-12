@@ -202,6 +202,14 @@ python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
 # --- Both providers together ---
 python scripts/run_full_benchmark.py --env PowerEdge
 
+# Full benchmark with test dataset (local HF models on the PowerEdge)
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
+    --questions data/test_solutions.csv
+
+# Full benchmark with train dataset (local HF models on the PowerEdge)
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
+    --questions data/train_QA.csv
+
 # Single model only
 python scripts/run_full_benchmark.py --model qwen7b --env GB10
 python scripts/run_full_benchmark.py --model claude_haiku --env Bedrock
@@ -244,7 +252,7 @@ python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-
 
 ```bash
 # Auto-discovers all experiments (both train_QA and test_solutions)
-python scripts/generate_results_matrix.py
+python scripts/generate_results_matrix.py 
 
 # Only train_QA experiments
 python scripts/generate_results_matrix.py --datafile train_QA
