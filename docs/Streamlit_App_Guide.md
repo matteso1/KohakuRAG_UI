@@ -46,6 +46,34 @@ ls -lh data/embeddings/wattbot_jinav4.db   # verify
 The app provides a chat interface backed by the full RAG pipeline
 (retrieval + LLM generation). It supports two modes:
 
+### Sidebar settings
+
+| Control | Description |
+|---------|-------------|
+| **Mode** | Single model or Ensemble |
+| **Precision** | Quantisation level: 4bit (default), bf16, fp16, auto |
+| **Retrieved chunks (top_k)** | Number of vector-search results fed to the LLM (1–20, default 8) |
+| **Allow best-guess answers** | Toggle (off by default). When on, out-of-scope questions get a best-effort answer labelled with a warning instead of "Out-of-scope" |
+| **Model config / Ensemble models** | Which `hf_*.py` config(s) to use |
+| **Aggregation** (ensemble only) | `majority` or `first_non_blank` |
+
+### Answer display
+
+Each answer is shown as:
+
+1. **Bold full-sentence explanation** — the primary display. Citations
+   reference source documents by ref_id, e.g. *"According to [wu2021a],
+   manufacturing accounts for 74% of a client device's carbon footprint."*
+2. **Value** — the extracted short answer (e.g. `74`)
+3. **Sources** — clickable inline links to the cited documents
+   (e.g. `Sources: wu2021a · doe2020b`), resolved from `metadata.csv`
+   URLs or LLM-provided URLs
+4. Expandable sections for timing, retrieved context, and raw LLM response
+
+When "Allow best-guess answers" is enabled and the model has low
+confidence, a yellow warning banner is shown:
+> Best guess — the retrieved context only partially supports this answer.
+
 ### Single model
 
 Pick one model config from the sidebar, ask questions, get answers.
