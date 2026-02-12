@@ -97,7 +97,7 @@ def _load_metadata_urls() -> dict[str, str]:
     mapping: dict[str, str] = {}
     if not _METADATA_CSV.exists():
         return mapping
-    with open(_METADATA_CSV, newline="", encoding="utf-8") as f:
+    with open(_METADATA_CSV, newline="", encoding="utf-8", errors="replace") as f:
         for row in csv.DictReader(f):
             doc_id = row.get("id", "").strip()
             url = row.get("url", "").strip()
