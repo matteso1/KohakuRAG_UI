@@ -104,7 +104,7 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
     # Expand globs
     submission_files = []
     for pattern in submission_patterns:
-        expanded = glob.glob(pattern)
+        expanded = glob.glob(pattern, recursive=True)
         if expanded:
             submission_files.extend([Path(p) for p in expanded])
         else:
@@ -274,14 +274,9 @@ def main():
         nargs="+",
         default=[
             "artifacts/submission_*.csv",
-            "artifacts/experiments/*/submission.csv",
-            "artifacts/experiments/*/*.csv",
-            "artifacts/experiments/*/*/submission.csv",
-            "artifacts/experiments/*/*/*.csv",
-            "artifacts/experiments/*/*/*/submission.csv",
-            "artifacts/experiments/*/*/*/*.csv",
+            "artifacts/experiments/**/submission.csv",
         ],
-        help="List of submission CSV files (supports glob patterns)"
+        help="List of submission CSV files (supports glob patterns including **)"
     )
     parser.add_argument(
         "--ground-truth", "-g",
