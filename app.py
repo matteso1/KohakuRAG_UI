@@ -759,6 +759,20 @@ def _extract_confidence(raw_response: str) -> str:
     return ""
 
 
+def _humanize_ref_id(rid: str) -> str:
+    """Convert a ref_id like ``luccioni2025c`` to ``Luccioni et al., 2025``.
+
+    Expects the common ``<surname><4-digit-year>[suffix]`` pattern.
+    Falls back to the raw id if the pattern doesn't match.
+    """
+    m = re.match(r"([a-zA-Z]+)(\d{4})", rid)
+    if m:
+        author = m.group(1).capitalize()
+        year = m.group(2)
+        return f"{author} et al., {year}"
+    return rid
+
+
 def _linkify_citations(
     text: str,
     ref_ids=None,
@@ -766,9 +780,12 @@ def _linkify_citations(
 ) -> str:
     """Replace ``[ref_id]`` citations in *text* with clickable markdown links.
 
-    Looks up each ``[...]`` token against METADATA_URLS (primary) and the
-    answer's own ref_url list (fallback).  Already-linked references
-    (``[id](url)``) are left untouched.
+    * Converts raw ids to human-readable labels (``Luccioni et al., 2025``).
+    * Inserts comma separators between adjacent citations so they don't
+      render as a single run-on string.
+    * Looks up each ``[...]`` token against METADATA_URLS (primary) and the
+      answer's own ref_url list (fallback).  Already-linked references
+      (``[id](url)``) are left untouched.
     """
     if not text:
         return text
@@ -787,12 +804,21 @@ def _linkify_citations(
     def _replace(match: re.Match) -> str:
         rid = match.group(1)
         url = METADATA_URLS.get(rid) or answer_urls.get(rid)
+        label = _humanize_ref_id(rid)
         if url:
-            return f"[{rid}]({url})"
+            return f"[{label}]({url})"
+        # No URL — still humanize if it looks like a ref_id
+        if label != rid:
+            return f"({label})"
         return match.group(0)
 
     # Match [something] NOT already followed by '(' (avoids double-linking)
-    return re.sub(r"\[([^\]]+)\](?!\()", _replace, text)
+    text = re.sub(r"\[([^\]]+)\](?!\()", _replace, text)
+
+    # Insert ", " between adjacent markdown links: ...](url)[... → ...](url), [...
+    text = re.sub(r"\]\(([^)]+)\)\[", r"](\1), [", text)
+
+    return text
 
 
 def _display_single_result(result, elapsed: float):
@@ -826,10 +852,11 @@ def _display_single_result(result, elapsed: float):
             url = METADATA_URLS.get(rid)
             if not url:
                 url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            label = _humanize_ref_id(rid)
             if url and url != "is_blank":
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
 
     details = {
@@ -905,10 +932,11 @@ def _display_ensemble_result(
         links = []
         for rid in agg["ref_id"]:
             url = METADATA_URLS.get(rid)
+            label = _humanize_ref_id(rid)
             if url:
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
 
     # First model's retrieval context (shared across models since same embedder+store)
@@ -974,10 +1002,11 @@ def _render_details(details: dict):
             url = METADATA_URLS.get(rid)
             if not url:
                 url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            label = _humanize_ref_id(rid)
             if url and url != "is_blank":
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
         sm = details.get("supporting_materials", "")
         if sm and sm != "is_blank":
