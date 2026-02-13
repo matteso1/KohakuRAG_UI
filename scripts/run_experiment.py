@@ -475,15 +475,20 @@ class ExperimentRunner:
         # Reset GPU peak stats before loading (for accurate VRAM measurement)
         reset_gpu_peak_stats()
 
+        dtype = self.config.get("hf_dtype", "4bit") if provider == "hf_local" else "api"
+        print(f"[init] Precision: {dtype}", flush=True)
+
         llm_load_start = time.time()
         self.chat_model = create_chat_model_from_config(self.config, SYSTEM_PROMPT)
         self.llm_load_time = time.time() - llm_load_start
-        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s")
+        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s", flush=True)
 
+        embed_model_type = self.config.get("embedding_model", "jina")
+        print(f"[init] Loading embedder ({embed_model_type})...", flush=True)
         embed_load_start = time.time()
         embedder = create_embedder_from_config(self.config)
         self.embedder_load_time = time.time() - embed_load_start
-        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s")
+        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s", flush=True)
 
         self.model_load_time = self.llm_load_time + self.embedder_load_time
 
@@ -534,6 +539,7 @@ class ExperimentRunner:
         - Stops after max_retries additional attempts or on a non-blank answer.
         """
         async with self.semaphore:
+            print(f"[{index}/{total}] {row['id']}: processing...", flush=True)
             start_time = time.time()
             error_msg = None
             raw_response = ""
@@ -766,46 +772,19 @@ class ExperimentRunner:
         for batch_start in range(0, len(remaining_rows), CHUNK_SIZE):
             batch_rows = remaining_rows[batch_start : batch_start + CHUNK_SIZE]
 
-            PER_QUESTION_TIMEOUT = 600  # 10 minutes per question
-
             tasks = []
             for i, (_idx, row) in enumerate(batch_rows):
                 done_so_far = len(completed_ids) + batch_start + i + 1
                 tasks.append(
-                    asyncio.wait_for(
-                        self.process_question(row, done_so_far, total),
-                        timeout=PER_QUESTION_TIMEOUT,
-                    )
+                    self.process_question(row, done_so_far, total)
                 )
 
             batch_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Convert timeouts to error QuestionResult objects
+            # Convert exceptions to error QuestionResult objects
             batch_results = []
             for j, result in enumerate(batch_results_raw):
-                if isinstance(result, asyncio.TimeoutError):
-                    _idx, row = batch_rows[j]
-                    done_so_far = len(completed_ids) + batch_start + j + 1
-                    print(f"[{done_so_far}/{total}] {row['id']}: TIMEOUT (>{PER_QUESTION_TIMEOUT}s)", flush=True)
-                    batch_results.append(QuestionResult(
-                        id=row["id"],
-                        question=row["question"],
-                        gt_value=str(row.get("answer_value", "is_blank")),
-                        gt_unit=str(row.get("answer_unit", "")),
-                        gt_ref=str(row.get("ref_id", "is_blank")),
-                        pred_value="is_blank",
-                        pred_unit=str(row.get("answer_unit", "")),
-                        pred_ref="is_blank",
-                        pred_explanation=f"Error: Timeout after {PER_QUESTION_TIMEOUT}s",
-                        raw_response="",
-                        value_correct=False,
-                        ref_score=0.0,
-                        na_correct=False,
-                        weighted_score=0.0,
-                        latency_seconds=float(PER_QUESTION_TIMEOUT),
-                        error=f"Timeout after {PER_QUESTION_TIMEOUT}s",
-                    ))
-                elif isinstance(result, Exception):
+                if isinstance(result, Exception):
                     _idx, row = batch_rows[j]
                     done_so_far = len(completed_ids) + batch_start + j + 1
                     print(f"[{done_so_far}/{total}] {row['id']}: ERROR - {str(result)[:80]}", flush=True)
