@@ -52,13 +52,14 @@ import pandas as pd
 from kohakurag import RAGPipeline, LLMQueryPlanner
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel, LocalHFEmbeddingModel
-from kohakurag.llm import (
-    BedrockChatModel,
-    HuggingFaceLocalChatModel,
-    OpenAIChatModel,
-    OpenRouterChatModel,
-    BEDROCK_AVAILABLE as HAS_BEDROCK,
-)
+from kohakurag.llm import HuggingFaceLocalChatModel, OpenAIChatModel, OpenRouterChatModel
+
+# Optional: Bedrock support (only available if llm_bedrock module exists)
+try:
+    from llm_bedrock import BedrockChatModel
+    HAS_BEDROCK = True
+except ImportError:
+    HAS_BEDROCK = False
 
 from score import score as compute_wattbot_score, row_bits, is_blank
 from hardware_metrics import (
@@ -360,17 +361,16 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
     elif provider == "bedrock":
         if not HAS_BEDROCK:
             raise ImportError(
-                "Bedrock provider requires boto3. "
-                "Install with: pip install boto3"
+                "Bedrock provider requires llm_bedrock module. "
+                "Copy llm_bedrock.py from the bedrock branch or install AWS dependencies."
             )
         model_id = config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0")
         return BedrockChatModel(
             model_id=model_id,
-            profile_name=config.get("bedrock_profile"),
+            profile_name=config.get("bedrock_profile", "bedrock_nils"),
             region_name=config.get("bedrock_region", "us-east-2"),
             system_prompt=system_prompt,
             max_retries=config.get("max_retries", 3),
-            max_concurrent=config.get("max_concurrent", 5),
         )
 
     elif provider == "openrouter":

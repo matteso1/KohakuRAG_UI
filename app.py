@@ -1,9 +1,8 @@
 """
 WattBot RAG — Streamlit App
 
-Interactive UI for querying the WattBot RAG pipeline.
-Supports local HuggingFace models, AWS Bedrock, and OpenRouter providers.
-Single-model and live multi-model ensemble modes.
+Interactive UI for querying the WattBot RAG pipeline with local HF models.
+Supports single-model and live multi-model ensemble modes.
 
 Launch:
     streamlit run app.py
@@ -36,7 +35,7 @@ sys.path.insert(0, str(_repo_root / "scripts"))
 from kohakurag import RAGPipeline
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaV4EmbeddingModel
-from kohakurag.llm import HuggingFaceLocalChatModel, BedrockChatModel, OpenRouterChatModel
+from kohakurag.llm import HuggingFaceLocalChatModel
 from kohakurag.pipeline import LLMQueryPlanner, SimpleQueryPlanner
 
 # ---------------------------------------------------------------------------
@@ -155,12 +154,8 @@ def _debug(msg: str) -> None:
 
 
 def discover_configs() -> dict[str, Path]:
-    """Find all hf_*.py and bedrock_*.py config files and return {display_name: path}."""
-    configs = {}
-    for pattern in ("hf_*.py", "bedrock_*.py"):
-        for p in sorted(CONFIGS_DIR.glob(pattern)):
-            configs[p.stem] = p
-    return dict(sorted(configs.items()))
+    """Find all hf_*.py config files and return {display_name: path}."""
+    return {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
 
 
 def load_config(config_path: Path) -> dict:
@@ -176,7 +171,6 @@ def load_config(config_path: Path) -> dict:
         "max_retries", "max_concurrent",
         "embedding_model", "embedding_dim", "embedding_task", "embedding_model_id",
         "hf_model_id", "hf_dtype", "hf_max_new_tokens", "hf_temperature",
-        "bedrock_model", "bedrock_region", "bedrock_profile",
     ]:
         if hasattr(module, key):
             config[key] = getattr(module, key)
@@ -280,21 +274,8 @@ def _load_shared_resources(config: dict) -> tuple[JinaV4EmbeddingModel, KVaultNo
     return embedder, store
 
 
-def _load_chat_model(config: dict, precision: str):
-    """Create a chat model from config (HF local, Bedrock, or OpenRouter)."""
-    provider = config.get("llm_provider", "hf_local")
-
-    if provider == "bedrock":
-        return BedrockChatModel(
-            model_id=config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0"),
-            profile_name=config.get("bedrock_profile"),
-            region_name=config.get("bedrock_region", "us-east-2"),
-            system_prompt=SYSTEM_PROMPT,
-            max_retries=config.get("max_retries", 3),
-            max_concurrent=config.get("max_concurrent", 5),
-        )
-
-    # Default: HF local
+def _load_chat_model(config: dict, precision: str) -> HuggingFaceLocalChatModel:
+    """Create a HuggingFaceLocalChatModel from config."""
     return HuggingFaceLocalChatModel(
         model=config.get("hf_model_id", "Qwen/Qwen2.5-7B-Instruct"),
         system_prompt=SYSTEM_PROMPT,
@@ -305,20 +286,17 @@ def _load_chat_model(config: dict, precision: str):
     )
 
 
-def _unload_chat_model(chat_model) -> None:
-    """Free GPU memory from a loaded model (no-op for API-based models)."""
+def _unload_chat_model(chat_model: HuggingFaceLocalChatModel) -> None:
+    """Free GPU memory from a loaded model."""
+    import torch
     if hasattr(chat_model, "_model"):
         del chat_model._model
     if hasattr(chat_model, "_tokenizer"):
         del chat_model._tokenizer
     del chat_model
     gc.collect()
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except ImportError:
-        pass
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _apply_planner(
@@ -568,13 +546,14 @@ def main():
 
     configs = discover_configs()
     if not configs:
-        st.error("No config files found in vendor/KohakuRAG/configs/ (hf_*.py or bedrock_*.py)")
+        st.error("No HF config files found in vendor/KohakuRAG/configs/")
         return
 
     # ---- Sidebar ----
     with st.sidebar:
         st.header("Settings")
         mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
+        precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
         top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
         best_guess = st.toggle("Allow best-guess answers", value=False,
                                help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
@@ -623,41 +602,25 @@ def main():
                 "Aggregation", ["majority", "first_non_blank"],
             )
 
-        # Check if any selected config is a local HF model (needs precision/VRAM)
-        _has_local = any(c.startswith("hf_") for c in selected_configs)
-
-        # Precision only matters for local HF models
-        if _has_local:
-            precision = st.selectbox("Precision (local models)", ["4bit", "bf16", "fp16", "auto"], index=0)
-        else:
-            precision = "auto"  # Irrelevant for API providers
-
-        # GPU info (only relevant when local models are selected)
+        # GPU info
         st.divider()
-        if _has_local:
-            gpu_info = get_gpu_info()
-            if gpu_info["gpu_count"] > 0:
-                st.caption(f"**{gpu_info['gpu_count']} GPU(s)** detected")
-                for g in gpu_info["gpus"]:
-                    st.caption(f"  GPU {g['index']}: {g['name']} — "
-                               f"{g['free_gb']:.1f} / {g['total_gb']:.1f} GB free")
-            else:
-                st.caption("No GPU detected")
+        gpu_info = get_gpu_info()
+        if gpu_info["gpu_count"] > 0:
+            st.caption(f"**{gpu_info['gpu_count']} GPU(s)** detected")
+            for g in gpu_info["gpus"]:
+                st.caption(f"  GPU {g['index']}: {g['name']} — "
+                           f"{g['free_gb']:.1f} / {g['total_gb']:.1f} GB free")
         else:
-            gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
-            _api_configs = [c for c in selected_configs if c.startswith("bedrock_")]
-            if _api_configs:
-                st.caption("**API mode** — no local GPU required")
+            st.caption("No GPU detected")
 
-        # Ensemble VRAM plan (only for local HF models)
-        local_configs = [c for c in selected_configs if c.startswith("hf_")]
-        if mode == "Ensemble" and len(selected_configs) >= 2 and local_configs:
-            plan = plan_ensemble(local_configs, precision, gpu_info)
+        # Ensemble VRAM plan
+        if mode == "Ensemble" and len(selected_configs) >= 2:
+            plan = plan_ensemble(selected_configs, precision, gpu_info)
             vram_list = [f"{n}: ~{v:.0f}GB" for n, v in
-                         zip(local_configs, plan["model_vrams"])]
+                         zip(selected_configs, plan["model_vrams"])]
             st.caption(f"VRAM: {', '.join(vram_list)}")
             if plan["mode"] == "parallel":
-                st.caption("Strategy: **parallel** (local models in memory)")
+                st.caption("Strategy: **parallel** (all models in memory)")
             elif plan["mode"] == "sequential":
                 st.caption("Strategy: **sequential** (load one at a time)")
             else:
@@ -674,11 +637,7 @@ def main():
             pipeline = init_single_pipeline(selected_configs[0], precision)
             _apply_planner(pipeline, use_planner, planner_queries)
         elif mode == "Ensemble":
-            # API-only ensembles always run "parallel" (concurrent API calls)
-            if not local_configs:
-                plan = {"mode": "parallel", "model_vrams": [0] * len(selected_configs)}
-            else:
-                plan = plan_ensemble(local_configs, precision, gpu_info)
+            plan = plan_ensemble(selected_configs, precision, gpu_info)
             if plan["mode"] == "error":
                 st.error(f"Cannot run ensemble: {plan['reason']}")
                 return
