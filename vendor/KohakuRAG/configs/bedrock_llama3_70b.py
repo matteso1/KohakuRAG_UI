@@ -8,8 +8,8 @@ Usage:
 """
 
 # Database settings
-db = "../../data/embeddings/wattbot_jinav4.db"
-table_prefix = "wattbot_jv4"
+db = "../../data/embeddings/wattbot_titan_v2.db"
+table_prefix = "wattbot_tv2"
 
 # Input/output
 questions = "../../data/train_QA.csv"
@@ -27,9 +27,9 @@ bedrock_region = "us-east-2"
 #   embedding_model = "jinav4"
 # Option B: Bedrock Titan V2 (torch-free — use on laptops with a Titan V2 index)
 #   embedding_model = "bedrock"
-embedding_model = "jinav4"
+embedding_model = "bedrock"
 embedding_dim = 1024
-embedding_task = "retrieval"
+bedrock_embedding_model = "amazon.titan-embed-text-v2:0"
 
 # Retrieval settings (matched to local configs for fair comparison)
 top_k = 8
