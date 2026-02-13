@@ -32,9 +32,18 @@ import argparse
 import asyncio
 import csv
 import importlib.util
+import io
 import json
+import os
 import sys
 import time
+
+# Force UTF-8 stdout/stderr on Windows (cp1252 can't handle Unicode in
+# corpus text like "MWh → kWh").  Must run before any print() calls.
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.environ.setdefault("PYTHONUTF8", "1")
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -812,8 +821,8 @@ class ExperimentRunner:
             # Flush this batch to its own chunk file
             chunk_data = [asdict(r) for r in batch_results]
             chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
-            with open(chunk_path, "w") as f:
-                json.dump(chunk_data, f, indent=2)
+            with open(chunk_path, "w", encoding="utf-8") as f:
+                json.dump(chunk_data, f, indent=2, ensure_ascii=False)
             print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}", flush=True)
             chunk_idx += 1
         total_time = time.time() - start_time
@@ -931,8 +940,8 @@ class ExperimentRunner:
 
         # Save summary JSON
         summary_path = self.output_dir / "summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(asdict(summary), f, indent=2)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(summary), f, indent=2, ensure_ascii=False)
         print(f"Saved summary: {summary_path}")
 
 

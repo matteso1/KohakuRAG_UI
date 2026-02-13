@@ -106,8 +106,8 @@ def save_results_chunked(
     for i in range(0, len(results), chunk_size):
         chunk = results[i : i + chunk_size]
         chunk_path = output_dir / f"results_chunk_{i // chunk_size:03d}.json"
-        with open(chunk_path, "w") as f:
-            json.dump(chunk, f, indent=2)
+        with open(chunk_path, "w", encoding="utf-8") as f:
+            json.dump(chunk, f, indent=2, ensure_ascii=False)
         written.append(chunk_path)
 
     return written

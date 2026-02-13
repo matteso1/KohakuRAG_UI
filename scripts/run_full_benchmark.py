@@ -149,6 +149,7 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     try:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
