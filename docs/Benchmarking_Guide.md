@@ -7,6 +7,90 @@ All commands assume you are at the **repo root** with your venv active.
 
 ---
 
+## Quick-start recipe (copy-paste)
+
+The typical end-to-end workflow. Replace `ENV` with your machine name
+(`PowerEdge`, `GB10`, etc.) and `DS` with the dataset (`test_solutions`
+or `train_QA`). Run each phase in order.
+
+```bash
+ENV=PowerEdge
+DS=test_solutions
+QS=data/test_solutions.csv   # or data/train_QA.csv
+```
+
+### Phase 1 — Run all individual models
+
+```bash
+python scripts/run_full_benchmark.py --provider hf_local --env $ENV \
+    --questions $QS
+```
+
+### Phase 2 — Generate matrices & plots (individual models)
+
+```bash
+# Per-system results matrices (one per system that has results)
+python scripts/generate_results_matrix.py --datafile $DS --system $ENV
+
+# Per-system plots (auto-discovers all systems)
+python scripts/plot_model_size.py      --datafile $DS
+python scripts/plot_score_breakdown.py --datafile $DS
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_${ENV}.csv \
+    --datafile $DS --system $ENV
+
+# Cross-system latency comparison (all systems)
+python scripts/plot_cross_system_latency.py --datafile $DS
+```
+
+### Phase 3 — Ensembles (run after individual models finish)
+
+```bash
+# Top-3
+python scripts/run_ensemble.py \
+    --experiments qwen72b-bench qwen32b-bench qwen14b-bench \
+    --name ensemble-top3-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+
+# Top-5
+python scripts/run_ensemble.py \
+    --experiments qwen72b-bench qwen3-30b-a3b-bench qwen32b-bench \
+                 qwen14b-bench qwen7b-bench \
+    --name ensemble-top5-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+
+# Kitchen sink (all 11)
+python scripts/run_ensemble.py \
+    --experiments \
+        qwen72b-bench qwen3-30b-a3b-bench qwen32b-bench qwen14b-bench \
+        mixtral-8x22b-bench qwen7b-bench qwen3b-bench mistral7b-bench \
+        mixtral-8x7b-bench phi3-mini-bench olmoe-1b7b-bench \
+    --name ensemble-all11-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+```
+
+### Phase 4 — Regenerate matrices & plots (with ensembles)
+
+```bash
+# Rebuild matrix (now includes ensemble rows)
+python scripts/generate_results_matrix.py --datafile $DS --system $ENV
+
+# Regenerate all plots
+python scripts/plot_model_size.py      --datafile $DS
+python scripts/plot_score_breakdown.py --datafile $DS
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_${ENV}.csv \
+    --datafile $DS --system $ENV
+python scripts/plot_cross_system_latency.py --datafile $DS
+```
+
+Output lands in `artifacts/plots/$DS/$ENV/` (one folder per system).
+
+---
+
 ## 0) Prerequisites — Build the vector index
 
 Before running any experiments, you need a vector database. The config files
@@ -491,16 +575,15 @@ python scripts/plot_from_matrix.py \
 python scripts/plot_cross_system_latency.py --datafile test_solutions
 ```
 
-Output directory structure with `--system`:
+Output directory structure:
 
 ```
-artifacts/plots/test_solutions/            # combined (no --system)
-artifacts/plots/test_solutions/PowerEdge/  # --system PowerEdge
-artifacts/plots/test_solutions/GB10/       # --system GB10
-artifacts/plots/test_solutions/Bedrock/    # --system Bedrock (future)
+artifacts/plots/test_solutions/PowerEdge/  # plots for PowerEdge
+artifacts/plots/test_solutions/GB10/       # plots for GB10
+artifacts/plots/test_solutions/Bedrock/    # plots for Bedrock (future)
 ```
 
-Without `--datafile`, plots go to `artifacts/plots/` directly.
+Without `--datafile`, plots go to `artifacts/plots/<system>/` directly.
 
 Ground truth is auto-detected: `data/test_solutions.csv` if present, otherwise
 `data/train_QA.csv`. Override with `--ground-truth <path>`.
@@ -1032,12 +1115,11 @@ KohakuRAG_UI/
 │   │   │       └── ...
 │   │   └── GB10/            # Results from GB10 runs
 │   │       └── train_QA/
-│   ├── plots/                # Generated charts
-│   │   └── test_solutions/   # Per-datafile, with optional system subfolders
-│   │       ├── *.png         # Combined plots (all systems)
-│   │       ├── PowerEdge/    # Per-system plots (--system PowerEdge)
-│   │       ├── GB10/         # Per-system plots (--system GB10)
-│   │       └── Bedrock/      # Per-system plots (--system Bedrock, future)
+│   ├── plots/                # Generated charts (per-datafile, per-system)
+│   │   └── test_solutions/
+│   │       ├── PowerEdge/    # Plots for PowerEdge experiments
+│   │       ├── GB10/         # Plots for GB10 experiments
+│   │       └── Bedrock/      # Plots for Bedrock experiments (future)
 │   └── results_matrix.csv
 ├── notebooks/
 │   └── test_local_hf_pipeline.ipynb
