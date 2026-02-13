@@ -947,8 +947,13 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
     """Run an experiment with the given config."""
     # Print CUDA status upfront so GPU issues are caught immediately
     import torch
-    print(f"[env] PyTorch {torch.__version__} | CUDA available: {torch.cuda.is_available()}"
-          f"{f' | Device: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else ' | *** WARNING: running on CPU ***'}")
+    if torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(gpu_count)]
+        gpu_str = ", ".join(f"cuda:{i} {name}" for i, name in enumerate(gpu_names))
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: True | {gpu_count} GPU(s): {gpu_str}")
+    else:
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: False | *** WARNING: running on CPU ***")
 
     config = load_config(config_path)
     config["_config_path"] = config_path
