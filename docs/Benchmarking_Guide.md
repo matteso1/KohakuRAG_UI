@@ -241,8 +241,8 @@ full precision (roughly 4× more VRAM).
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
 | `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
 
-Bedrock configs (from the `bedrock` branch) also work if you have
-`llm_bedrock.py` and AWS credentials set up.
+Bedrock configs live in `vendor/KohakuRAG/configs/bedrock_*.py`. Pass
+`--profile <your-aws-profile>` (or set `AWS_PROFILE` env var) to authenticate.
 
 ## 3) Running all models (full benchmark)
 
@@ -262,8 +262,12 @@ python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
 # Single model only
 python scripts/run_full_benchmark.py --model qwen7b --env GB10
 
-# All providers (local + bedrock, if bedrock configs exist)
-python scripts/run_full_benchmark.py --env PowerEdge
+# All providers (local + bedrock)
+python scripts/run_full_benchmark.py --env PowerEdge --profile bedrock_endemann
+
+# Bedrock models only
+python scripts/run_full_benchmark.py --provider bedrock --env $ENV \
+    --questions data/$DS.csv --profile bedrock_endemann
 
 # Run all models in bf16 instead of default 4-bit
 python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env PowerEdge
@@ -821,8 +825,8 @@ embedding_dim = 1024
 embedding_task = "retrieval"
 ```
 
-For Bedrock, ensure `llm_bedrock.py` is on the Python path and AWS credentials
-are configured (see the `bedrock` branch for examples).
+For Bedrock, pass `--profile <your-aws-profile>` when running experiments.
+Ensure your AWS SSO session is active (`aws sso login --profile <name>`).
 
 ---
 
