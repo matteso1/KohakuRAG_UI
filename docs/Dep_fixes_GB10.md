@@ -175,11 +175,11 @@ uv pip install -r local_requirements.txt
 Or install torch directly with the CUDA index:
 
 ```bash
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 ```
 
 Then verify:
 ```bash
 python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
-# Should show: 2.x.x+cu126 and CUDA: True
+# Should show: 2.x.x+cu130 and CUDA: True
 ```

@@ -128,12 +128,12 @@ Notes:
 python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
 ```
 
-Expected output should show a version like `2.x.x+cu126` and `CUDA: True`.
+Expected output should show a version like `2.x.x+cu130` and `CUDA: True`.
 If it shows `+cpu` or `CUDA: False`, torch was installed without GPU support —
 reinstall with:
 
 ```bash
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 ```
 
 

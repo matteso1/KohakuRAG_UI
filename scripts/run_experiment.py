@@ -943,6 +943,11 @@ class ExperimentRunner:
 
 async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit") -> None:
     """Run an experiment with the given config."""
+    # Print CUDA status upfront so GPU issues are caught immediately
+    import torch
+    print(f"[env] PyTorch {torch.__version__} | CUDA available: {torch.cuda.is_available()}"
+          f"{f' | Device: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else ' | *** WARNING: running on CPU ***'}")
+
     config = load_config(config_path)
     config["_config_path"] = config_path
     config["_run_environment"] = run_environment
