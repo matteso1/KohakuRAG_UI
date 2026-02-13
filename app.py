@@ -36,6 +36,7 @@ from kohakurag import RAGPipeline
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaV4EmbeddingModel
 from kohakurag.llm import HuggingFaceLocalChatModel
+from kohakurag.pipeline import LLMQueryPlanner, SimpleQueryPlanner
 
 # ---------------------------------------------------------------------------
 # Prompts (shared with run_experiment.py)
@@ -117,7 +118,7 @@ VRAM_4BIT_GB = {
     "hf_gemma2_27b": 17, "hf_mixtral_8x7b": 26, "hf_mixtral_8x22b": 80,
     "hf_mistral7b": 6, "hf_phi3_mini": 3, "hf_qwen3_30b_a3b": 18,
     "hf_qwen3_next_80b_a3b": 40, "hf_qwen3_next_80b_a3b_thinking": 40,
-    "hf_olmoe_1b7b": 4,
+    "hf_olmoe_1b7b": 4, "hf_qwen1_5_110b": 60,
 }
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
@@ -298,6 +299,21 @@ def _unload_chat_model(chat_model: HuggingFaceLocalChatModel) -> None:
         torch.cuda.empty_cache()
 
 
+def _apply_planner(
+    pipeline: RAGPipeline, use_planner: bool, planner_queries: int,
+) -> None:
+    """Configure the query planner on an already-built pipeline.
+
+    Swaps the lightweight planner object without reloading model weights.
+    """
+    if use_planner:
+        pipeline._planner = LLMQueryPlanner(
+            pipeline._chat, max_queries=planner_queries,
+        )
+    else:
+        pipeline._planner = SimpleQueryPlanner()
+
+
 @st.cache_resource(show_spinner="Loading model and vector store...")
 def init_single_pipeline(config_name: str, precision: str) -> RAGPipeline:
     """Load a single-model pipeline. Cached across reruns."""
@@ -334,38 +350,66 @@ def init_shared_only() -> tuple[JinaV4EmbeddingModel, KVaultNodeStore]:
 # ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
-def _run_qa_sync(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
-    """Run pipeline.run_qa synchronously."""
+def _run_qa_sync(
+    pipeline: RAGPipeline,
+    question: str,
+    top_k: int,
+    best_guess: bool = False,
+    max_retries: int = 0,
+):
+    """Run pipeline.run_qa synchronously, retrying on failures.
+
+    Args:
+        max_retries: Number of additional attempts after the first failure.
+                     0 means no retries (single attempt).
+    """
     sys_prompt = SYSTEM_PROMPT_BEST_GUESS if best_guess else SYSTEM_PROMPT
     usr_template = USER_TEMPLATE_BEST_GUESS if best_guess else USER_TEMPLATE
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(
-            pipeline.run_qa(
-                question,
-                system_prompt=sys_prompt,
-                user_template=usr_template,
-                top_k=top_k,
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(
+                pipeline.run_qa(
+                    question,
+                    system_prompt=sys_prompt,
+                    user_template=usr_template,
+                    top_k=top_k,
+                )
             )
-        )
-    finally:
-        loop.close()
+        except Exception as exc:
+            last_exc = exc
+            _debug(f"Attempt {attempt + 1}/{max_retries + 1} failed: {exc}")
+            if attempt < max_retries:
+                time.sleep(1)  # brief pause before retry
+        finally:
+            loop.close()
+    raise last_exc  # type: ignore[misc]
 
 
-def run_single_query(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
+def run_single_query(
+    pipeline: RAGPipeline, question: str, top_k: int,
+    best_guess: bool = False, max_retries: int = 0,
+):
     """Run a single model query."""
-    return _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+    return _run_qa_sync(
+        pipeline, question, top_k,
+        best_guess=best_guess, max_retries=max_retries,
+    )
 
 
 def run_ensemble_parallel_query(
     pipelines: dict[str, RAGPipeline], question: str, top_k: int,
-    best_guess: bool = False,
+    best_guess: bool = False, max_retries: int = 0,
 ) -> dict[str, object]:
     """Query all pre-loaded models concurrently."""
     results = {}
     for name, pipeline in pipelines.items():
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+        result = _run_qa_sync(
+            pipeline, question, top_k,
+            best_guess=best_guess, max_retries=max_retries,
+        )
         results[name] = {"result": result, "time": time.time() - t0}
     return results
 
@@ -377,6 +421,9 @@ def run_ensemble_sequential_query(
     top_k: int,
     progress_callback=None,
     best_guess: bool = False,
+    max_retries: int = 0,
+    use_planner: bool = False,
+    planner_queries: int = 3,
 ) -> dict[str, object]:
     """Load each model one at a time, query, unload. Saves VRAM."""
     embedder, store = init_shared_only()
@@ -391,9 +438,13 @@ def run_ensemble_sequential_query(
         pipeline = RAGPipeline(
             store=store, embedder=embedder, chat_model=chat_model, planner=None,
         )
+        _apply_planner(pipeline, use_planner, planner_queries)
 
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+        result = _run_qa_sync(
+            pipeline, question, top_k,
+            best_guess=best_guess, max_retries=max_retries,
+        )
         elapsed = time.time() - t0
         results[name] = {"result": result, "time": elapsed}
 
@@ -508,6 +559,31 @@ def main():
                                help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
 
         st.divider()
+        st.subheader("Query planner & retries")
+        use_planner = st.toggle(
+            "Enable query planner", value=False,
+            help=(
+                "Expands each question into multiple diverse search queries "
+                "via the LLM for better retrieval coverage."
+            ),
+        )
+        planner_queries = 3
+        if use_planner:
+            planner_queries = st.slider(
+                "Planner queries", min_value=2, max_value=10, value=3,
+                help="Number of diverse search queries the LLM generates per question.",
+            )
+        max_retries = st.number_input(
+            "Max retries", min_value=0, max_value=10, value=2,
+            help="Maximum retry attempts when the LLM response cannot be parsed.",
+        )
+        st.caption(
+            "Tip: Disabling the query planner skips an extra LLM inference "
+            "call, and lowering retries caps worst-case wait time. Both "
+            "reduce end-to-end latency per question."
+        )
+
+        st.divider()
         config_list = list(configs.keys())
 
         if mode == "Single model":
@@ -559,6 +635,7 @@ def main():
     try:
         if mode == "Single model":
             pipeline = init_single_pipeline(selected_configs[0], precision)
+            _apply_planner(pipeline, use_planner, planner_queries)
         elif mode == "Ensemble":
             plan = plan_ensemble(selected_configs, precision, gpu_info)
             if plan["mode"] == "error":
@@ -568,7 +645,9 @@ def main():
                 ensemble_pipelines = init_ensemble_parallel(
                     tuple(selected_configs), precision,
                 )
-            # sequential doesn't pre-load models
+                for _p in ensemble_pipelines.values():
+                    _apply_planner(_p, use_planner, planner_queries)
+            # sequential doesn't pre-load models (planner set inside query fn)
     except Exception as e:
         st.error(f"Failed to load pipeline: {e}")
         tb = traceback.format_exc()
@@ -584,7 +663,16 @@ def main():
     # Render history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                details = msg.get("details", {})
+                linked = _linkify_citations(
+                    msg["content"],
+                    ref_ids=details.get("ref_id"),
+                    ref_urls=details.get("ref_url"),
+                )
+                st.markdown(f"**{linked}**")
+            else:
+                st.markdown(msg["content"])
             if msg["role"] == "assistant" and "details" in msg:
                 _render_details(msg["details"])
 
@@ -600,7 +688,10 @@ def main():
             if mode == "Single model":
                 with st.spinner("Retrieving and generating..."):
                     try:
-                        result = run_single_query(pipeline, question, top_k, best_guess=best_guess)
+                        result = run_single_query(
+                            pipeline, question, top_k,
+                            best_guess=best_guess, max_retries=max_retries,
+                        )
                     except Exception as e:
                         st.error(f"Pipeline error: {e}")
                         tb = traceback.format_exc()
@@ -620,6 +711,7 @@ def main():
                             model_results = run_ensemble_parallel_query(
                                 ensemble_pipelines, question, top_k,
                                 best_guess=best_guess,
+                                max_retries=max_retries,
                             )
                     else:
                         status = st.status(
@@ -632,6 +724,9 @@ def main():
                             selected_configs, precision, question, top_k,
                             progress_callback=_progress,
                             best_guess=best_guess,
+                            max_retries=max_retries,
+                            use_planner=use_planner,
+                            planner_queries=planner_queries,
                         )
                         status.update(label="Aggregating results...", state="complete")
                 except Exception as e:
@@ -664,18 +759,83 @@ def _extract_confidence(raw_response: str) -> str:
     return ""
 
 
+def _humanize_ref_id(rid: str) -> str:
+    """Convert a ref_id like ``luccioni2025c`` to ``Luccioni et al., 2025``.
+
+    Expects the common ``<surname><4-digit-year>[suffix]`` pattern.
+    Falls back to the raw id if the pattern doesn't match.
+    """
+    m = re.match(r"([a-zA-Z]+)(\d{4})", rid)
+    if m:
+        author = m.group(1).capitalize()
+        year = m.group(2)
+        return f"{author} et al., {year}"
+    return rid
+
+
+def _linkify_citations(
+    text: str,
+    ref_ids=None,
+    ref_urls=None,
+) -> str:
+    """Replace ``[ref_id]`` citations in *text* with clickable markdown links.
+
+    * Converts raw ids to human-readable labels (``Luccioni et al., 2025``).
+    * Inserts comma separators between adjacent citations so they don't
+      render as a single run-on string.
+    * Looks up each ``[...]`` token against METADATA_URLS (primary) and the
+      answer's own ref_url list (fallback).  Already-linked references
+      (``[id](url)``) are left untouched.
+    """
+    if not text:
+        return text
+
+    # Build fallback url map from the answer's own ref data
+    answer_urls: dict[str, str] = {}
+    if ref_ids and ref_ids != "is_blank":
+        ids = ref_ids if isinstance(ref_ids, list) else [ref_ids]
+        urls = ref_urls if isinstance(ref_urls, list) else ([ref_urls] if ref_urls else [])
+        for i, rid in enumerate(ids):
+            if not METADATA_URLS.get(rid) and i < len(urls):
+                u = urls[i]
+                if u and u != "is_blank":
+                    answer_urls[rid] = u
+
+    def _replace(match: re.Match) -> str:
+        rid = match.group(1)
+        url = METADATA_URLS.get(rid) or answer_urls.get(rid)
+        label = _humanize_ref_id(rid)
+        if url:
+            return f"[{label}]({url})"
+        # No URL — still humanize if it looks like a ref_id
+        if label != rid:
+            return f"({label})"
+        return match.group(0)
+
+    # Match [something] NOT already followed by '(' (avoids double-linking)
+    text = re.sub(r"\[([^\]]+)\](?!\()", _replace, text)
+
+    # Insert ", " between adjacent markdown links: ...](url)[... → ...](url), [...
+    text = re.sub(r"\]\(([^)]+)\)\[", r"](\1), [", text)
+
+    return text
+
+
 def _display_single_result(result, elapsed: float):
     """Display a single-model answer."""
     answer = result.answer
     timing = result.timing
     confidence = _extract_confidence(result.raw_response)
 
-    if answer.explanation and answer.explanation != "is_blank":
+    # Linkify inline [ref_id] citations so they match the Sources section
+    linked_explanation = _linkify_citations(
+        answer.explanation, ref_ids=answer.ref_id, ref_urls=answer.ref_url,
+    )
+
+    if linked_explanation and linked_explanation != "is_blank":
+        st.markdown(f"**{linked_explanation}**")
         if confidence == "low":
-            st.markdown(f"**{answer.explanation}**")
             st.warning("Best guess — the retrieved context only partially supports this answer.")
-        else:
-            st.markdown(f"**{answer.explanation}**")
     elif answer.answer and answer.answer != "is_blank":
         st.markdown(f"**{answer.answer}**")
     else:
@@ -692,10 +852,11 @@ def _display_single_result(result, elapsed: float):
             url = METADATA_URLS.get(rid)
             if not url:
                 url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            label = _humanize_ref_id(rid)
             if url and url != "is_blank":
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
 
     details = {
@@ -727,8 +888,12 @@ def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
-    if agg["explanation"] and agg["explanation"] != "is_blank":
-        st.markdown(f"**{agg['explanation']}**")
+    linked_explanation = _linkify_citations(
+        agg["explanation"], ref_ids=agg.get("ref_id"), ref_urls=agg.get("ref_url"),
+    )
+
+    if linked_explanation and linked_explanation != "is_blank":
+        st.markdown(f"**{linked_explanation}**")
     elif agg["answer"] and agg["answer"] != "is_blank":
         st.markdown(f"**{agg['answer']}**")
     else:
@@ -757,7 +922,9 @@ def _display_ensemble_result(
                 f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
-                st.caption(info["explanation"])
+                st.caption(_linkify_citations(
+                    info["explanation"], ref_ids=info.get("ref_id"),
+                ))
             st.divider()
 
     # Clickable reference links
@@ -765,10 +932,11 @@ def _display_ensemble_result(
         links = []
         for rid in agg["ref_id"]:
             url = METADATA_URLS.get(rid)
+            label = _humanize_ref_id(rid)
             if url:
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
 
     # First model's retrieval context (shared across models since same embedder+store)
@@ -834,10 +1002,11 @@ def _render_details(details: dict):
             url = METADATA_URLS.get(rid)
             if not url:
                 url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            label = _humanize_ref_id(rid)
             if url and url != "is_blank":
-                links.append(f"[{rid}]({url})")
+                links.append(f"[{label}]({url})")
             else:
-                links.append(rid)
+                links.append(label)
         st.markdown("Sources: " + " · ".join(links))
         sm = details.get("supporting_materials", "")
         if sm and sm != "is_blank":

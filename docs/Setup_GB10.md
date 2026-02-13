@@ -109,16 +109,35 @@ If imports point into `.venv/site-packages`, stop — you are not using the vend
 
 ### 6) Install **local-only development dependencies**
 
-This branch should include a `local_requirements.txt` for dependencies
+This branch includes platform-specific requirements files for dependencies
 needed *after* the base install (HF backends, local inference helpers, etc.).
 
+**On the GB10**, use `local_requirements_gb10.txt` — it extends the base file
+and adds `--extra-index-url` for CUDA 13.0 PyTorch wheels:
+
 ```bash
-uv pip install -r local_requirements.txt
+uv pip install -r local_requirements_gb10.txt
 ```
 
 Notes:
-- This file is intentionally **separate** from core requirements.
-- It is expected to evolve as HF / local inference work progresses.
+- The GB10 has CUDA 13.0. Without the `cu130` index, pip installs CPU-only
+  torch and the GPU sits completely idle.
+- On other machines (e.g. PowerEdge with CUDA 12.x), use `local_requirements.txt`
+  directly and install the appropriate CUDA torch separately.
+
+**Verify CUDA torch was installed** (important!):
+
+```bash
+python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
+```
+
+Expected output should show a version like `2.x.x+cu130` and `CUDA: True`.
+If it shows `+cpu` or `CUDA: False`, torch was installed without GPU support —
+reinstall with:
+
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+```
 
 
 

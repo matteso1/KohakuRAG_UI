@@ -1,0 +1,1252 @@
+[
+  {
+    "id": "q111",
+    "question": "True or False: The AI Act requires providers of GPAI models with systemic risk to conduct risk assessments that include environmental risks.",
+    "gt_value": "1",
+    "gt_unit": "is_blank",
+    "gt_ref": "['ebert2024']",
+    "pred_value": "0",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"ebert2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "0",
+      "qwen72b-bench": "1",
+      "qwen32b-bench": "0"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"ebert2024\"]",
+      "qwen72b-bench": "[\"ebert2024\"]",
+      "qwen32b-bench": "[\"ebert2024\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q112",
+    "question": "What is the EPA's recently tightened primary standard for the annual average limit of PM2.5?",
+    "gt_value": "9",
+    "gt_unit": "\u00b5g/m\u00b3",
+    "gt_ref": "['han2024']",
+    "pred_value": "9",
+    "pred_unit": "\u00b5g/m\u00b3",
+    "pred_ref": "[\"han2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "9",
+      "qwen72b-bench": "9",
+      "qwen32b-bench": "9"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
+      "qwen72b-bench": "[\"han2024\"]",
+      "qwen32b-bench": "[\"han2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q113",
+    "question": "A life cycle assessment found that one Amazon Kindle e-reader produces the same amount of CO2 as how many physical print books?",
+    "gt_value": "115",
+    "gt_unit": "books",
+    "gt_ref": "['luccioni2025a']",
+    "pred_value": "115",
+    "pred_unit": "books",
+    "pred_ref": "[\"luccioni2025a\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "115",
+      "qwen72b-bench": "115",
+      "qwen32b-bench": "115"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\"]",
+      "qwen72b-bench": "[\"luccioni2025a\"]",
+      "qwen32b-bench": "[\"luccioni2025a\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q114",
+    "question": "According to a recent study on the public health impacts of AI, by what factor could the per-household health burden from air pollutants in the most affected, economically-disadvantaged communities exceed that in less-impacted communities?",
+    "gt_value": "200",
+    "gt_unit": "multiplier",
+    "gt_ref": "['han2024']",
+    "pred_value": "200",
+    "pred_unit": "multiplier",
+    "pred_ref": "[\"han2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "200",
+      "qwen72b-bench": "200",
+      "qwen32b-bench": "200"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
+      "qwen72b-bench": "[\"han2024\"]",
+      "qwen32b-bench": "[\"han2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q115",
+    "question": "What was the energy consumption of the DS Llama 70B model for inference on the FKTG dataset?",
+    "gt_value": "702.06",
+    "gt_unit": "Wh",
+    "gt_ref": "['zschache2025']",
+    "pred_value": "702.06",
+    "pred_unit": "Wh",
+    "pred_ref": "[\"zschache2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "702.06",
+      "qwen72b-bench": "702.06",
+      "qwen32b-bench": "702.06"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"zschache2025\"]",
+      "qwen72b-bench": "[\"zschache2025\"]",
+      "qwen32b-bench": "[\"zschache2025\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q116",
+    "question": "According to the 2022 paper by Dodge et al., what is the total number of parameters in the large language model they analyzed?",
+    "gt_value": "6100000000",
+    "gt_unit": "parameters",
+    "gt_ref": "['dodge2022']",
+    "pred_value": "is_blank",
+    "pred_unit": "parameters",
+    "pred_ref": "[\"is_blank\", \"luccioni2023\", \"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "is_blank",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2024\", \"luccioni2023\"]",
+      "qwen72b-bench": "[\"is_blank\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": false,
+    "ref_score": 0.0,
+    "na_correct": true
+  },
+  {
+    "id": "q117",
+    "question": "What phenomenon is described as technological progress improving efficiency, which then results in increased usage and overall resource consumption?",
+    "gt_value": "Jevons paradox",
+    "gt_unit": "is_blank",
+    "gt_ref": "['luccioni2025b']",
+    "pred_value": "Jevons' Paradox",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"luccioni2025a\", \"morrison2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "Jevons Paradox",
+      "qwen72b-bench": "Jevons' Paradox",
+      "qwen32b-bench": "Jevons' Paradox"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\", \"morrison2025\", \"fernandez2025\", \"jegham2025\"]",
+      "qwen72b-bench": "[\"luccioni2025a\"]",
+      "qwen32b-bench": "[\"morrison2025\", \"luccioni2025a\"]"
+    },
+    "value_correct": false,
+    "ref_score": 0.0,
+    "na_correct": true
+  },
+  {
+    "id": "q118",
+    "question": "How many Meena training runs would use the same total energy as a single full training run of GPT-3?",
+    "gt_value": "5",
+    "gt_unit": "multiplier",
+    "gt_ref": "['patterson2021']",
+    "pred_value": "5.55",
+    "pred_unit": "multiplier",
+    "pred_ref": "[\"patterson2021\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "5.55",
+      "qwen72b-bench": "5.55",
+      "qwen32b-bench": "5.75"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"patterson2021\"]",
+      "qwen72b-bench": "[\"patterson2021\"]",
+      "qwen32b-bench": "[\"patterson2021\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q119",
+    "question": "According to Table 2 in a 2024 study on AI's power consumption, what is the average energy consumption, in kWh, for performing 1,000 image generation inferences?",
+    "gt_value": "2.907",
+    "gt_unit": "kWh",
+    "gt_ref": "['luccioni2024']",
+    "pred_value": "2.907",
+    "pred_unit": "kWh",
+    "pred_ref": "[\"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "2.907",
+      "qwen72b-bench": "2.907",
+      "qwen32b-bench": "2.907"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2024\"]",
+      "qwen72b-bench": "[\"luccioni2024\"]",
+      "qwen32b-bench": "[\"luccioni2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q120",
+    "question": "How many pounds of CO2e are estimated for an average American life in one year?",
+    "gt_value": "36156",
+    "gt_unit": "lbs",
+    "gt_ref": "['strubell2019']",
+    "pred_value": "36156",
+    "pred_unit": "lbs",
+    "pred_ref": "[\"strubell2019\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "36156",
+      "qwen72b-bench": "36156",
+      "qwen32b-bench": "36156"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"strubell2019\"]",
+      "qwen72b-bench": "[\"strubell2019\"]",
+      "qwen32b-bench": "[\"strubell2019\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q121",
+    "question": "According to a recent paper's 2030 projections on the public health impacts of air pollution from U.S. data centers, which county in West Virginia is projected to have the highest per-household health cost?",
+    "gt_value": "Mason County",
+    "gt_unit": "is_blank",
+    "gt_ref": "['han2024']",
+    "pred_value": "Marion",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"han2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "Marion",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
+      "qwen72b-bench": "[\"han2024\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q122",
+    "question": "By what multiplier did Mistral-small's emissions change after optimization in the financial sentiment classification task?",
+    "gt_value": "1.33",
+    "gt_unit": "multiplier",
+    "gt_ref": "['khan2025']",
+    "pred_value": "0.75",
+    "pred_unit": "multiplier",
+    "pred_ref": "[\"khan2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "0.75",
+      "qwen72b-bench": "0.75",
+      "qwen32b-bench": "0.75"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"khan2025\"]",
+      "qwen72b-bench": "[\"khan2025\"]",
+      "qwen32b-bench": "[\"khan2025\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q123",
+    "question": "What were the combined training and fine-tuning energy costs in kWh for the BLOOMz-7B model, as reported in the 'Power Hungry Processing' study?",
+    "gt_value": "59257",
+    "gt_unit": "kWh",
+    "gt_ref": "['luccioni2024']",
+    "pred_value": "59257",
+    "pred_unit": "kWh",
+    "pred_ref": "[\"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "59257",
+      "qwen72b-bench": "59257",
+      "qwen32b-bench": "59257"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2024\"]",
+      "qwen72b-bench": "[\"luccioni2024\"]",
+      "qwen32b-bench": "[\"luccioni2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q125",
+    "question": "What is the total number of parameters in the final FLM-101B model?",
+    "gt_value": "1.01E+11",
+    "gt_unit": "parameters",
+    "gt_ref": "['li2025a']",
+    "pred_value": "101000000000",
+    "pred_unit": "parameters",
+    "pred_ref": "[\"li2025a\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "101000000000",
+      "qwen72b-bench": "101000000000",
+      "qwen32b-bench": "101000000000"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"li2025a\"]",
+      "qwen72b-bench": "[\"li2025a\"]",
+      "qwen32b-bench": "[\"li2025a\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q126",
+    "question": "Fetch the amount of energy (in kWh) required for a full training run of a 6.1B parameter model. Using that information, and using the energy cost of a comparable model (BLOOMz-7B), approximately how many inferences are needed to match this training energy cost?",
+    "gt_value": "1035000000",
+    "gt_unit": "inferences",
+    "gt_ref": "['dodge2022', 'luccioni2024']",
+    "pred_value": "1185140000",
+    "pred_unit": "inferences",
+    "pred_ref": "[\"dodge2022\", \"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "1185140000",
+      "qwen72b-bench": "592570000",
+      "qwen32b-bench": "1035000000"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"dodge2022\", \"luccioni2024\"]",
+      "qwen72b-bench": "[\"luccioni2024\"]",
+      "qwen32b-bench": "[\"dodge2022\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q127",
+    "question": "In the 2024 study 'Power Hungry Processing', what was the total amount of energy consumed for all model experimentation and evaluation?",
+    "gt_value": "754.66",
+    "gt_unit": "kWh",
+    "gt_ref": "['luccioni2024']",
+    "pred_value": "754.66",
+    "pred_unit": "kWh",
+    "pred_ref": "[\"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "754.66",
+      "qwen72b-bench": "754.66",
+      "qwen32b-bench": "754.66"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2024\"]",
+      "qwen72b-bench": "[\"luccioni2024\"]",
+      "qwen32b-bench": "[\"luccioni2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q128",
+    "question": "For the BLOOMz-7B model, how many inferences are required for the cumulative energy cost of deployment to equal the initial energy cost of training and fine-tuning?",
+    "gt_value": "592570000",
+    "gt_unit": "inferences",
+    "gt_ref": "['luccioni2024']",
+    "pred_value": "592570000",
+    "pred_unit": "inferences",
+    "pred_ref": "[\"luccioni2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "592570000",
+      "qwen72b-bench": "592570000",
+      "qwen32b-bench": "592570000"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2024\"]",
+      "qwen72b-bench": "[\"luccioni2024\"]",
+      "qwen32b-bench": "[\"luccioni2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q129",
+    "question": "What dataset name is used for the German nuclear waste site objection texts classified in the experiments?",
+    "gt_value": "FKTG",
+    "gt_unit": "is_blank",
+    "gt_ref": "['zschache2025']",
+    "pred_value": "FKTG-dataset",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"zschache2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "FKTG-dataset",
+      "qwen72b-bench": "FKTG-dataset",
+      "qwen32b-bench": "FKTG-dataset"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"zschache2025\"]",
+      "qwen72b-bench": "[\"zschache2025\"]",
+      "qwen32b-bench": "[\"zschache2025\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q130",
+    "question": "How much freshwater (in liters) was consumed by Meta's Llama 3 inference serving clusters in 2024?",
+    "gt_value": "is_blank",
+    "gt_unit": "liters",
+    "gt_ref": "is_blank",
+    "pred_value": "is_blank",
+    "pred_unit": "liters",
+    "pred_ref": "[\"is_blank\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "is_blank",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[]",
+      "qwen72b-bench": "[\"is_blank\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q131",
+    "question": "What percentage of NVIDIA H100 GPUs manufactured in 2024 used recycled rare earth metals?",
+    "gt_value": "is_blank",
+    "gt_unit": "percent",
+    "gt_ref": "is_blank",
+    "pred_value": "is_blank",
+    "pred_unit": "percent",
+    "pred_ref": "[\"is_blank\", \"luccioni2025a\", \"morrison2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "is_blank",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"morrison2025\", \"luccioni2025a\"]",
+      "qwen72b-bench": "[\"is_blank\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": true,
+    "ref_score": 0.3333333333333333,
+    "na_correct": true
+  },
+  {
+    "id": "q132",
+    "question": "The actual CO2e for the Evolved Transformer NAS (3.2 tCO2e) is equivalent to approximately how many passengers taking a round trip between San Francisco and New York?",
+    "gt_value": "3",
+    "gt_unit": "passengers",
+    "gt_ref": "['patterson2021']",
+    "pred_value": "3",
+    "pred_unit": "passengers",
+    "pred_ref": "[\"patterson2021\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "3",
+      "qwen72b-bench": "3",
+      "qwen32b-bench": "3"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"patterson2021\"]",
+      "qwen72b-bench": "[\"patterson2021\"]",
+      "qwen32b-bench": "[\"patterson2021\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q133",
+    "question": "According to May 2025 data from the API platform OpenRouter, what percentage of LLM token usage occurred through models that did not disclose their environmental impact?",
+    "gt_value": "84",
+    "gt_unit": "percent",
+    "gt_ref": "['luccioni2025c']",
+    "pred_value": "84",
+    "pred_unit": "percent",
+    "pred_ref": "[\"luccioni2025c\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "84",
+      "qwen72b-bench": "84",
+      "qwen32b-bench": "84"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025c\"]",
+      "qwen72b-bench": "[\"luccioni2025c\"]",
+      "qwen32b-bench": "[\"luccioni2025c\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q134",
+    "question": "What is the bare minimum number of NVIDIA A100 80GB GPUs required to run LLaMA-13B inference without compression or quantization?",
+    "gt_value": "1",
+    "gt_unit": "A100_80GB_GPU",
+    "gt_ref": "['samsi2024']",
+    "pred_value": "1",
+    "pred_unit": "A100_80GB_GPU",
+    "pred_ref": "[\"samsi2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "1",
+      "qwen72b-bench": "1",
+      "qwen32b-bench": "1"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"samsi2024\"]",
+      "qwen72b-bench": "[\"samsi2024\"]",
+      "qwen32b-bench": "[\"samsi2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q136",
+    "question": "What is the estimated range of CO2 emissions in metric tons for a *complete* training run of a 6.1 billion parameter transformer model?",
+    "gt_value": "[21,78]",
+    "gt_unit": "metric tons",
+    "gt_ref": "['dodge2022']",
+    "pred_value": "[21, 78]",
+    "pred_unit": "metric tons",
+    "pred_ref": "[\"dodge2022\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "[21, 78]",
+      "qwen72b-bench": "51.75",
+      "qwen32b-bench": "[21,78]"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"dodge2022\"]",
+      "qwen72b-bench": "[\"dodge2022\"]",
+      "qwen32b-bench": "[\"dodge2022\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q137",
+    "question": "What was the total carbon emissions (tCO2e) avoided by pruning and quantizing large language models in 2023?",
+    "gt_value": "is_blank",
+    "gt_unit": "tCO2e",
+    "gt_ref": "is_blank",
+    "pred_value": "is_blank",
+    "pred_unit": "tCO2e",
+    "pred_ref": "[\"is_blank\", \"khan2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "is_blank",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"khan2025\"]",
+      "qwen72b-bench": "[\"is_blank\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": true,
+    "ref_score": 0.5,
+    "na_correct": true
+  },
+  {
+    "id": "q138",
+    "question": "In a specific scenario blending A100 and A10G GPUs, what percentage of cost savings was achieved over an A100-only strategy?",
+    "gt_value": "24",
+    "gt_unit": "percent",
+    "gt_ref": "['griggs2024']",
+    "pred_value": "24",
+    "pred_unit": "percent",
+    "pred_ref": "[\"griggs2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "24",
+      "qwen72b-bench": "24",
+      "qwen32b-bench": "24"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"griggs2024\"]",
+      "qwen72b-bench": "[\"griggs2024\"]",
+      "qwen32b-bench": "[\"griggs2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q140",
+    "question": "According to Chen et al. (2025), what is the price per hour for an NVIDIA H20?",
+    "gt_value": "4.63",
+    "gt_unit": "USD per hour",
+    "gt_ref": "['chen2024']",
+    "pred_value": "4.63",
+    "pred_unit": "USD per hour",
+    "pred_ref": "[\"chen2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "4.63",
+      "qwen72b-bench": "4.63",
+      "qwen32b-bench": "4.63"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"chen2024\"]",
+      "qwen72b-bench": "[\"chen2024\"]",
+      "qwen32b-bench": "[\"chen2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q141",
+    "question": "True or False: Most carbon footprint analyses for AI models gather information automatically without needing to contact authors.",
+    "gt_value": "0",
+    "gt_unit": "is_blank",
+    "gt_ref": "['luccioni2025b']",
+    "pred_value": "0",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"luccioni2025b\", \"luccioni2025c\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "0",
+      "qwen72b-bench": "0",
+      "qwen32b-bench": "0"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025b\", \"luccioni2025c\"]",
+      "qwen72b-bench": "[\"luccioni2025b\"]",
+      "qwen32b-bench": "[\"luccioni2025b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 0.5,
+    "na_correct": true
+  },
+  {
+    "id": "q142",
+    "question": "In 2023, what percentage of the data centers' total electricity cost was their public health cost equivalent to, using the average attribution method?",
+    "gt_value": "43",
+    "gt_unit": "percent",
+    "gt_ref": "['han2024']",
+    "pred_value": "44",
+    "pred_unit": "percent",
+    "pred_ref": "[\"han2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "44",
+      "qwen72b-bench": "44",
+      "qwen32b-bench": "44"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
+      "qwen72b-bench": "[\"han2024\"]",
+      "qwen32b-bench": "[\"han2024\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q143",
+    "question": "What is the bare minimum number of NVIDIA A100 80GB GPUs required to run LLaMA-7B inference without compression or quantization?",
+    "gt_value": "1",
+    "gt_unit": "A100_80GB_GPU",
+    "gt_ref": "['samsi2024']",
+    "pred_value": "1",
+    "pred_unit": "A100_80GB_GPU",
+    "pred_ref": "[\"samsi2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "1",
+      "qwen72b-bench": "1",
+      "qwen32b-bench": "1"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"samsi2024\"]",
+      "qwen72b-bench": "[\"samsi2024\"]",
+      "qwen32b-bench": "[\"samsi2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q144",
+    "question": "True or False: Sustainable deployment techniques described for large language models demonstrated up to a 45% reduction in carbon emissions after quantization.",
+    "gt_value": "1",
+    "gt_unit": "is_blank",
+    "gt_ref": "['khan2025']",
+    "pred_value": "1",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"khan2025\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "1",
+      "qwen72b-bench": "1",
+      "qwen32b-bench": "1"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"khan2025\"]",
+      "qwen72b-bench": "[\"khan2025\"]",
+      "qwen32b-bench": "[\"khan2025\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q145",
+    "question": "How many answers were researchers able to collect after reaching out to over 500 authors for their carbon footprint analysis?",
+    "gt_value": "95",
+    "gt_unit": "answers",
+    "gt_ref": "['luccioni2025b']",
+    "pred_value": "95",
+    "pred_unit": "answers",
+    "pred_ref": "[\"luccioni2023\", \"luccioni2025b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "95",
+      "qwen72b-bench": "95",
+      "qwen32b-bench": "95"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025b\", \"luccioni2023\"]",
+      "qwen72b-bench": "[\"luccioni2025b\"]",
+      "qwen32b-bench": "[\"luccioni2025b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 0.5,
+    "na_correct": true
+  },
+  {
+    "id": "q147",
+    "question": "Based on the reported training budget and total GPU hours, estimate the approximate cost per H100 GPU-hour for the JetMoE project.",
+    "gt_value": "3.33",
+    "gt_unit": "USD per hour",
+    "gt_ref": "['shen2024']",
+    "pred_value": "3.33",
+    "pred_unit": "USD per hour",
+    "pred_ref": "[\"shen2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "3.33",
+      "qwen72b-bench": "3.33",
+      "qwen32b-bench": "3.33"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"shen2024\"]",
+      "qwen72b-bench": "[\"shen2024\"]",
+      "qwen32b-bench": "[\"shen2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q148",
+    "question": "When training a Llama-3.1 scale model in Altoona, Iowa, the health cost was what percentage of the electricity cost?",
+    "gt_value": "122",
+    "gt_unit": "percent",
+    "gt_ref": "['han2024']",
+    "pred_value": "122",
+    "pred_unit": "percent",
+    "pred_ref": "[\"han2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "122",
+      "qwen72b-bench": "122",
+      "qwen32b-bench": "122"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
+      "qwen72b-bench": "[\"han2024\"]",
+      "qwen32b-bench": "[\"han2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q149",
+    "question": "How many tokens were used to pre-train the JetMoE-8B model?",
+    "gt_value": "1.25E+12",
+    "gt_unit": "tokens",
+    "gt_ref": "['shen2024']",
+    "pred_value": "1250000000000",
+    "pred_unit": "tokens",
+    "pred_ref": "[\"shen2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "1250000000000",
+      "qwen72b-bench": "1250000000000",
+      "qwen32b-bench": "1250000000000"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"shen2024\"]",
+      "qwen72b-bench": "[\"shen2024\"]",
+      "qwen32b-bench": "[\"shen2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q150",
+    "question": "As of January 2024, how many Amazon Renewable Energy Projects were announced in the United Kingdom?",
+    "gt_value": "36",
+    "gt_unit": "projects",
+    "gt_ref": "['amazon2023']",
+    "pred_value": "36",
+    "pred_unit": "projects",
+    "pred_ref": "[\"amazon2023\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "36",
+      "qwen72b-bench": "36",
+      "qwen32b-bench": "36"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
+      "qwen72b-bench": "[\"amazon2023\"]",
+      "qwen32b-bench": "[\"amazon2023\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q151",
+    "question": "In 2023, what percentage of Amazon's Workforce in the United States across all levels identified as men?",
+    "gt_value": "53.2",
+    "gt_unit": "percent",
+    "gt_ref": "['amazon2023']",
+    "pred_value": "43.1",
+    "pred_unit": "percent",
+    "pred_ref": "[\"amazon2023\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "43.1",
+      "qwen72b-bench": "56.8",
+      "qwen32b-bench": "66.5"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
+      "qwen72b-bench": "[\"amazon2023\"]",
+      "qwen32b-bench": "[\"amazon2023\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q152",
+    "question": "What percentage of Apple's total water footprint is accounted for by its supply chain?",
+    "gt_value": "99",
+    "gt_unit": "percent",
+    "gt_ref": "['li2025b']",
+    "pred_value": "99",
+    "pred_unit": "percent",
+    "pred_ref": "[\"li2025b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "99",
+      "qwen72b-bench": "99",
+      "qwen32b-bench": "99"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"li2025b\"]",
+      "qwen72b-bench": "[\"li2025b\"]",
+      "qwen32b-bench": "[\"li2025b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q154",
+    "question": "What is the total execution time, in seconds, of a sparse BlackMamba model fine-tuned with a NVIDIA A40-48GB with a batch size of 84?",
+    "gt_value": "1.5",
+    "gt_unit": "seconds",
+    "gt_ref": "['xia2024']",
+    "pred_value": "2.0",
+    "pred_unit": "seconds",
+    "pred_ref": "[\"xia2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "is_blank",
+      "qwen72b-bench": "2.0",
+      "qwen32b-bench": "is_blank"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"xia2024\"]",
+      "qwen72b-bench": "[\"xia2024\"]",
+      "qwen32b-bench": "[\"is_blank\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q155",
+    "question": "Which metric was introduced to assess the ratio of computation to communication time when scaling distributed training across continents?",
+    "gt_value": "Granularity",
+    "gt_unit": "is_blank",
+    "gt_ref": "['erben2023']",
+    "pred_value": "granularity",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"erben2023\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "granularity metric",
+      "qwen72b-bench": "granularity",
+      "qwen32b-bench": "granularity"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"erben2023\"]",
+      "qwen72b-bench": "[\"erben2023\"]",
+      "qwen32b-bench": "[\"erben2023\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q156",
+    "question": "According to a coalition of Microsoft employees, a single deal with Exxon Mobil to expand oil production could add up to how many times more carbon emissions than the company's yearly carbon removal targets?",
+    "gt_value": "6.4",
+    "gt_unit": "times",
+    "gt_ref": "['luccioni2025a']",
+    "pred_value": "640",
+    "pred_unit": "times",
+    "pred_ref": "[\"luccioni2025a\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "6.4",
+      "qwen72b-bench": "640",
+      "qwen32b-bench": "640"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\", \"luccioni2025b\"]",
+      "qwen72b-bench": "[\"luccioni2025a\"]",
+      "qwen32b-bench": "[\"luccioni2025a\"]"
+    },
+    "value_correct": false,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q157",
+    "question": "What is the term for freshwater taken from ground or surface sources, either temporarily or permanently, for various uses?",
+    "gt_value": "Water withdrawal",
+    "gt_unit": "is_blank",
+    "gt_ref": "['li2025b']",
+    "pred_value": "Water withdrawal",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"li2025b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "Water withdrawal",
+      "qwen72b-bench": "Water withdrawal",
+      "qwen32b-bench": "Water withdrawal"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"li2025b\"]",
+      "qwen72b-bench": "[\"li2025b\"]",
+      "qwen32b-bench": "[\"li2025b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q159",
+    "question": "How often does the Standing Committee of the One Hundred Year Study form a Study Panel?",
+    "gt_value": "5",
+    "gt_unit": "years",
+    "gt_ref": "['stone2022']",
+    "pred_value": "5",
+    "pred_unit": "years",
+    "pred_ref": "[\"stone2022\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "5",
+      "qwen72b-bench": "5",
+      "qwen32b-bench": "5"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"stone2022\"]",
+      "qwen72b-bench": "[\"stone2022\"]",
+      "qwen32b-bench": "[\"stone2022\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q160",
+    "question": "What was the average number of connected devices per U.S. household reported in 2021 (smartphones, laptops, smart TVs, speakers, wearables, gaming consoles, etc)?",
+    "gt_value": "25",
+    "gt_unit": "devices",
+    "gt_ref": "['wu2021b']",
+    "pred_value": "25",
+    "pred_unit": "devices",
+    "pred_ref": "[\"wu2021b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "25",
+      "qwen72b-bench": "25",
+      "qwen32b-bench": "25"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"wu2021b\"]",
+      "qwen72b-bench": "[\"wu2021b\"]",
+      "qwen32b-bench": "[\"wu2021b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q161",
+    "question": "Based on publicly available data, what is the range of energy consumption, in MWh, to pre-train a large language model (LLM)?",
+    "gt_value": "[0.8,3500]",
+    "gt_unit": "MWh",
+    "gt_ref": "['luccioni2025c']",
+    "pred_value": "[0.8,3500]",
+    "pred_unit": "MWh",
+    "pred_ref": "[\"luccioni2025c\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "[0.8,3500]",
+      "qwen72b-bench": "[0.8, 3500]",
+      "qwen32b-bench": "[0.8,3500]"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025c\"]",
+      "qwen72b-bench": "[\"luccioni2025c\"]",
+      "qwen32b-bench": "[\"luccioni2025c\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q162",
+    "question": "True or False: IBM's Watson program did NOT beat human contenders in the Jeopardy challenge.",
+    "gt_value": "0",
+    "gt_unit": "is_blank",
+    "gt_ref": "['stone2022']",
+    "pred_value": "0",
+    "pred_unit": "is_blank",
+    "pred_ref": "[\"stone2022\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "0",
+      "qwen72b-bench": "0",
+      "qwen32b-bench": "0"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"stone2022\"]",
+      "qwen72b-bench": "[\"stone2022\"]",
+      "qwen32b-bench": "[\"stone2022\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q163",
+    "question": "One study estimates that how many queries to the GPT-3 model consume approximately half a liter of water?",
+    "gt_value": "[10,50]",
+    "gt_unit": "queries",
+    "gt_ref": "['luccioni2025a']",
+    "pred_value": "[10,50]",
+    "pred_unit": "queries",
+    "pred_ref": "[\"luccioni2025a\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "[10, 50]",
+      "qwen72b-bench": "[10,50]",
+      "qwen32b-bench": "[10,50]"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\"]",
+      "qwen72b-bench": "[\"luccioni2025a\"]",
+      "qwen32b-bench": "[\"luccioni2025a\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q165",
+    "question": "After model alignment, what MT-Bench score did the JetMoE-8B-Chat model achieve, surpassing the Llama-2-13b-Chat model?",
+    "gt_value": "6.681",
+    "gt_unit": "score",
+    "gt_ref": "['shen2024']",
+    "pred_value": "6.681",
+    "pred_unit": "score",
+    "pred_ref": "[\"shen2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "6.681",
+      "qwen72b-bench": "6.681",
+      "qwen32b-bench": "6.681"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"shen2024\"]",
+      "qwen72b-bench": "[\"shen2024\"]",
+      "qwen32b-bench": "[\"shen2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q167",
+    "question": "How many medium-length GPT-3 completions (prompt= 800 words; response 150-300 words) could be produced with the water required to fill a single 500 mL bottle?",
+    "gt_value": "[10,50]",
+    "gt_unit": "responses",
+    "gt_ref": "['li2025b']",
+    "pred_value": "[10,50]",
+    "pred_unit": "responses",
+    "pred_ref": "[\"li2025b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "[10, 50]",
+      "qwen72b-bench": "[10,50]",
+      "qwen32b-bench": "[10,50]"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\", \"li2025b\"]",
+      "qwen72b-bench": "[\"li2025b\"]",
+      "qwen32b-bench": "[\"li2025b\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  },
+  {
+    "id": "q168",
+    "question": "The 2024 Griggs et al. paper reports that M\u00e9lange can reduce deployment costs by up to what percentage in conversational chat settings?",
+    "gt_value": "77",
+    "gt_unit": "percent",
+    "gt_ref": "['griggs2024']",
+    "pred_value": "77",
+    "pred_unit": "percent",
+    "pred_ref": "[\"griggs2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
+    "raw_response": "",
+    "individual_answers": {
+      "qwen3-next-80b-a3b-bench": "77",
+      "qwen72b-bench": "77",
+      "qwen32b-bench": "77"
+    },
+    "individual_refs": {
+      "qwen3-next-80b-a3b-bench": "[\"griggs2024\"]",
+      "qwen72b-bench": "[\"griggs2024\"]",
+      "qwen32b-bench": "[\"griggs2024\"]"
+    },
+    "value_correct": true,
+    "ref_score": 1.0,
+    "na_correct": true
+  }
+]

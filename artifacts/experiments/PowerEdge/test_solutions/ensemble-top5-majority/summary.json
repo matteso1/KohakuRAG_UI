@@ -5,17 +5,18 @@
   "strategy": "majority",
   "ignore_blank": true,
   "models": [
+    "qwen3-next-80b-a3b-bench",
     "qwen72b-bench",
     "qwen32b-bench",
-    "qwen14b-bench",
-    "qwen7b-bench"
+    "qwen3-30b-a3b-bench",
+    "qwen14b-bench"
   ],
-  "num_models": 4,
+  "num_models": 5,
   "num_questions": 282,
-  "value_accuracy": 0.8297872340425532,
-  "ref_overlap": 0.88596757852077,
+  "value_accuracy": 0.8226950354609929,
+  "ref_overlap": 0.8914893617021277,
   "na_accuracy": 0.8125,
-  "overall_score": 0.8364855623100305,
-  "questions_correct": 234,
-  "questions_wrong": 48
+  "overall_score": 0.8319946808510639,
+  "questions_correct": 232,
+  "questions_wrong": 50
 }

@@ -7,6 +7,89 @@ All commands assume you are at the **repo root** with your venv active.
 
 ---
 
+## Quick-start recipe (copy-paste)
+
+The typical end-to-end workflow. Replace `ENV` with your machine name
+(`PowerEdge`, `GB10`, etc.) and `DS` with the dataset (`test_solutions`
+or `train_QA`). Run each phase in order.
+
+```bash
+ENV=PowerEdge
+DS=test_solutions
+QS=data/test_solutions.csv   # or data/train_QA.csv
+```
+
+### Phase 1 — Run all individual models
+
+```bash
+python scripts/run_full_benchmark.py --provider hf_local --env $ENV \
+    --questions $QS
+```
+
+### Phase 2 — Generate matrices & plots (individual models)
+
+```bash
+# Per-system results matrices (auto-discovers all systems)
+python scripts/generate_results_matrix.py --datafile $DS
+
+# Per-system plots (auto-discovers all systems)
+python scripts/plot_model_size.py      --datafile $DS
+python scripts/plot_score_breakdown.py --datafile $DS
+
+# Matrix-based plots (one call per system — needs corresponding matrix)
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_${ENV}.csv \
+    --datafile $DS --system $ENV
+
+# Cross-system latency comparison (all systems)
+python scripts/plot_cross_system_latency.py --datafile $DS
+```
+
+### Phase 3 — Ensembles (run after individual models finish)
+
+```bash
+# Top-3
+# Top-3
+python scripts/run_ensemble.py \
+    --experiments qwen3-next-80b-a3b-bench qwen72b-bench qwen32b-bench \
+    --name ensemble-top3-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+
+# Top-5
+python scripts/run_ensemble.py \
+    --experiments qwen3-next-80b-a3b-bench qwen72b-bench qwen32b-bench qwen3-30b-a3b-bench qwen14b-bench \
+    --name ensemble-top5-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+
+# Kitchen sink (all 11)
+python scripts/run_ensemble.py \
+    --experiments qwen3-next-80b-a3b-bench qwen72b-bench qwen32b-bench qwen3-30b-a3b-bench qwen14b-bench qwen7b-bench qwen1.5-110b-bench \
+    --name ensemble-all-majority \
+    --strategy majority --ignore-blank \
+    --env $ENV --datafile $DS
+```
+
+### Phase 4 — Regenerate matrices & plots (with ensembles)
+
+```bash
+# Rebuild matrices (auto-discovers all systems, now includes ensemble rows)
+python scripts/generate_results_matrix.py --datafile $DS
+
+# Regenerate all plots
+python scripts/plot_model_size.py      --datafile $DS
+python scripts/plot_score_breakdown.py --datafile $DS
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_${ENV}.csv \
+    --datafile $DS --system $ENV
+python scripts/plot_cross_system_latency.py --datafile $DS
+```
+
+Output lands in `artifacts/plots/$ENV/$DS/` (one folder per system).
+
+---
+
 ## 0) Prerequisites — Build the vector index
 
 Before running any experiments, you need a vector database. The config files
@@ -158,18 +241,11 @@ full precision (roughly 4× more VRAM).
 
 | Config file              | Model                        | Params | VRAM (4-bit) | Provider  |
 |--------------------------|------------------------------|--------|--------------|-----------|
-| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct      | 1.5B   | ~2 GB        | hf_local  |
-| `hf_qwen3b.py`          | Qwen 2.5 3B Instruct        | 3B     | ~3 GB        | hf_local  |
 | `hf_qwen7b.py`          | Qwen 2.5 7B Instruct        | 7B     | ~6 GB        | hf_local  |
 | `hf_qwen14b.py`         | Qwen 2.5 14B Instruct       | 14B    | ~10 GB       | hf_local  |
 | `hf_qwen32b.py`         | Qwen 2.5 32B Instruct       | 32B    | ~20 GB       | hf_local  |
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
-| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct       | 8B     | ~6 GB        | hf_local  |
-| `hf_gemma2_9b.py`       | Gemma 2 9B Instruct         | 9B     | ~7 GB        | hf_local  |
 | `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
-| `hf_mixtral_8x7b.py`    | Mixtral 8x7B Instruct (MoE) | 46.7B  | ~26 GB       | hf_local  |
-| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3    | 7B     | ~6 GB        | hf_local  |
-| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)         | 3.8B   | ~3 GB        | hf_local  |
 
 Bedrock configs (from the `bedrock` branch) also work if you have
 `llm_bedrock.py` and AWS credentials set up.
@@ -205,30 +281,7 @@ The benchmark runner:
 - Skips models whose config files don't exist
 - Runs each model as a subprocess with a 30-minute timeout
 - Prints a pass/fail/skip summary at the end
-
----
-
-## 4) Comparing results across runs
-
-### Post-hoc normalisation and scoring
-
-After an experiment completes, run post-hoc processing to normalise raw
-model output and produce a Kaggle-ready `submission.csv`:
-
-```bash
-# Process a single experiment (auto-finds results.json)
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
-```
-
-### Score a submission against ground truth
-
-```bash
-python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
-```
-
+- 
 ### Generate a side-by-side comparison matrix
 
 ```bash
@@ -245,11 +298,35 @@ python scripts/generate_results_matrix.py --datafile test_solutions
 python scripts/generate_results_matrix.py \
     --submissions artifacts/experiments/*/submission.csv \
     --output artifacts/results_matrix.csv
+    
 ```
 
 This produces a CSV where each row is a question and columns show each model's
 prediction + correctness, making it easy to spot which questions each model
 gets right or wrong.
+
+
+## 4) Comparing results across runs
+
+### Post-hoc normalisation and scoring (run_full_benchmark will run this automatically)
+
+After an experiment completes, run post-hoc processing to normalise raw
+model output and produce a Kaggle-ready `submission.csv`:
+
+```bash
+# Process a single experiment (auto-finds results.json)
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
+```
+
+### Score a submission against ground truth (run_full_benchmark will run this automatically)
+
+```bash
+python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
+```
+
 
 ### Ensemble voting
 
@@ -278,16 +355,6 @@ state.  LLM sampling temperature introduces per-run diversity.
 **Mode 2 — Cross-model ensemble**: Aggregate results from previously completed
 experiments (different models).
 
-```bash
-python scripts/run_ensemble.py \
-    --experiments qwen7b-v1 llama3-8b-v1 mistral7b-v1 \
-    --name ensemble-3way --env PowerEdge
-
-# Specify datafile explicitly (auto-detected from source experiments by default)
-python scripts/run_ensemble.py \
-    --experiments qwen7b-v1 llama3-8b-v1 \
-    --name ensemble-test --env PowerEdge --datafile test_solutions
-```
 
 **Aggregation strategies:**
 
@@ -301,34 +368,6 @@ python scripts/run_ensemble.py \
 answer, blank ("is_blank") runs are filtered out before voting.  Enabled by
 default for same-model ensembles.
 
-### Recommended ensemble: Top-3 majority vote
-
-Based on test_solutions benchmarking (n=282), the recommended production
-ensemble is **Qwen 2.5 72B + Qwen 2.5 32B + Qwen 2.5 14B** using majority
-voting. This combination was selected for complementary strengths:
-
-| Model          | WattBot Score | NA Recall | Unique Wins | Latency | VRAM (4-bit) |
-|----------------|:---:|:---:|:---:|:---:|:---:|
-| Qwen 2.5 72B  | 0.752 | 0.938 | 0 | 15.7s | ~33 GB |
-| Qwen 2.5 32B  | 0.710 | **1.000** | 2 | **8.4s** | ~22 GB |
-| Qwen 2.5 14B  | 0.660 | 0.875 | **4** | 16.0s | ~15 GB |
-
-**Why these three:**
-
-- **72B** is the top scorer overall (highest value accuracy and ref overlap).
-- **32B** has perfect NA recall (1.0) — it never misclassifies an
-  unanswerable question, acting as a safety anchor in the vote.
-- **14B** has the most unique wins (4 questions only it gets right) and
-  the lowest agreement with the other two (~0.82), providing the diversity
-  that makes ensembling worthwhile.
-- All three are Qwen 2.5 family at 4-bit, so inference infrastructure is
-  uniform. Combined VRAM is ~70 GB (fits sequentially on a single 96 GB GPU).
-
-**Why not Qwen3 30B-A3B?** Despite ranking #2 individually (0.724), it is
-9x slower than 32B (76s vs 8.4s per question), uses 2x more energy
-(297 Wh vs 131 Wh), has worse NA recall (0.81), and only 1 unique win.
-Its agreement with 72B (0.91) is the same as 32B's, so it adds no extra
-diversity.
 
 ```bash
 # Run the recommended ensemble on test_solutions
@@ -493,25 +532,51 @@ All plotting scripts accept `--datafile <name>` to restrict to a specific
 question set (e.g. `train_QA` or `test_solutions`). Without `--datafile`,
 all experiments are included regardless of which question set was used.
 
+All scripts also accept `--system/-S <name>` to restrict to a specific
+hardware system (e.g. `PowerEdge`, `GB10`, `Bedrock`). Plots are always
+saved to a per-system subfolder under the datafile directory.
+
+**Auto-discovery:** `generate_results_matrix.py`, `plot_model_size.py`, and
+`plot_score_breakdown.py` automatically discover all system directories and
+generate one output per system when `--system` is not specified. This is the
+default and recommended workflow — you don't need to call them multiple times.
+
+`plot_from_matrix.py` requires a pre-built matrix CSV, so it must be called
+once per system with the corresponding `--matrix` path.
+
 ```bash
-# 1. Build the results matrix (required by plot_from_matrix.py)
-python scripts/generate_results_matrix.py --datafile train_QA
-
-# 2. Generate all plots (for train_QA only)
-python scripts/plot_model_size.py      --datafile train_QA
-python scripts/plot_from_matrix.py     --datafile train_QA
-python scripts/plot_score_breakdown.py --datafile train_QA
-
-# Or for test_solutions
+# 1. Per-system results matrices (auto-discovers PowerEdge, GB10, etc.)
+#    Outputs: results_matrix_PowerEdge.csv, results_matrix_GB10.csv, ...
 python scripts/generate_results_matrix.py --datafile test_solutions
+
+# 2. Per-system plots (auto-discovers all systems)
 python scripts/plot_model_size.py      --datafile test_solutions
-python scripts/plot_from_matrix.py     --datafile test_solutions
 python scripts/plot_score_breakdown.py --datafile test_solutions
+
+# 3. Or target a single system explicitly
+python scripts/plot_model_size.py      --datafile test_solutions --system PowerEdge
+
+# 4. Matrix-based plots (one call per system — needs corresponding matrix)
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_PowerEdge.csv \
+    --datafile test_solutions --system PowerEdge
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_GB10.csv \
+    --datafile test_solutions --system GB10
+
+# 5. Cross-system latency comparison
+python scripts/plot_cross_system_latency.py --datafile test_solutions
 ```
 
-When `--datafile` is provided, plots are saved to a matching subdirectory
-(e.g. `artifacts/plots/train_QA/`, `artifacts/plots/test_solutions/`).
-Without `--datafile`, plots go to `artifacts/plots/` directly.
+Output directory structure:
+
+```
+artifacts/plots/PowerEdge/test_solutions/  # plots for PowerEdge
+artifacts/plots/GB10/test_solutions/       # plots for GB10
+artifacts/plots/Bedrock/test_solutions/    # plots for Bedrock (future)
+```
+
+Without `--datafile`, plots go to `artifacts/plots/<system>/` directly.
 
 Ground truth is auto-detected: `data/test_solutions.csv` if present, otherwise
 `data/train_QA.csv`. Override with `--ground-truth <path>`.
@@ -542,6 +607,23 @@ Local HF models show as **squares**, API models as **circles**.
 
 Grouped bars showing Value Accuracy, Ref Overlap, and NA Recall per model
 with 95% Wilson CI error bars.
+
+### plot_cross_system_latency.py — Cross-system latency comparison (up to 4 plots)
+
+Compares per-question latency for models benchmarked on multiple hardware
+systems. Automatically discovers all systems under `artifacts/experiments/`.
+
+1. **Mean latency comparison** — grouped bars for shared models, split by system
+2. **Latency distributions** — box-plots showing per-question spread
+3. **Retrieval vs. generation breakdown** — stacked bars (retrieval + generation time)
+4. **All models overview** — horizontal bar chart of every model across all systems
+
+Plots 1-3 are only generated when at least one model appears on 2+ systems.
+Plot 4 is always generated.
+
+```bash
+python scripts/plot_cross_system_latency.py --datafile test_solutions
+```
 
 ---
 
@@ -1011,7 +1093,8 @@ KohakuRAG_UI/
 │   ├── audit_experiments.py
 │   ├── plot_model_size.py
 │   ├── plot_from_matrix.py
-│   └── plot_score_breakdown.py
+│   ├── plot_score_breakdown.py
+│   └── plot_cross_system_latency.py
 ├── artifacts/                # Experiment outputs (gitignored, machine-specific)
 │   ├── experiments/          # Per-experiment results, organized by --env and datafile
 │   │   ├── PowerEdge/       # Results from PowerEdge runs
@@ -1025,7 +1108,12 @@ KohakuRAG_UI/
 │   │   │       └── ...
 │   │   └── GB10/            # Results from GB10 runs
 │   │       └── train_QA/
-│   ├── plots/                # Generated charts
+│   ├── plots/                # Generated charts (per-system, per-datafile)
+│   │   ├── PowerEdge/        # Plots for PowerEdge experiments
+│   │   │   └── test_solutions/
+│   │   ├── GB10/             # Plots for GB10 experiments
+│   │   │   └── test_solutions/
+│   │   └── Bedrock/          # Plots for Bedrock experiments (future)
 │   └── results_matrix.csv
 ├── notebooks/
 │   └── test_local_hf_pipeline.ipynb
