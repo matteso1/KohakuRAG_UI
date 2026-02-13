@@ -273,6 +273,14 @@ a brief approval process.
 
 ## Phase 4 — Build the index and run experiments
 
+Set these variables once per session. All commands below use them.
+
+```bash
+ENV=Bedrock
+DS=test_solutions                # or train_QA
+QS=data/test_solutions.csv       # or data/train_QA.csv
+```
+
 ### 13) Get or build the document index
 
 **Option A — Download pre-built index from S3** (fastest):
@@ -309,46 +317,40 @@ If you get an answer with citations, Bedrock + RAG is working end-to-end.
 ```bash
 # Claude 3 Haiku (fast, cheap — good first test)
 python scripts/run_experiment.py \
-  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
-  --name claude-haiku-bench \
-  --env Bedrock
+  --config vendor/KohakuRAG/configs/bedrock_haiku.py \
+  --name haiku-bench \
+  --env $ENV --questions $QS
 
 # Claude 3.5 Sonnet (higher quality)
 python scripts/run_experiment.py \
-  --config vendor/KohakuRAG/configs/bedrock_claude_sonnet.py \
-  --name claude-sonnet-bench \
-  --env Bedrock
+  --config vendor/KohakuRAG/configs/bedrock_sonnet.py \
+  --name sonnet-bench \
+  --env $ENV --questions $QS
 ```
 
-**Choosing which dataset to run against:**
-By default both scripts use `data/train_QA.csv`. Use `--questions` / `-q`
-to point at a different file:
-
-```bash
-# Run against the held-out test set
-python scripts/run_experiment.py \
-  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
-  --name claude-haiku-test \
-  --env Bedrock \
-  --questions data/test_solutions.csv
-```
-
-The dataset filename stem (e.g. `train_QA`, `test_solutions`) becomes a
-subfolder under the environment directory, so results stay separated:
+Results land in `artifacts/experiments/$ENV/$DS/<name>/`. The dataset
+filename stem (`train_QA` or `test_solutions`) becomes a subfolder
+automatically, so train and test results never collide:
 
 ```
-artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/
-artifacts/experiments/Bedrock/test_solutions/claude-haiku-test/
+artifacts/experiments/Bedrock/
+├── train_QA/
+│   └── haiku-bench/
+└── test_solutions/
+    └── haiku-bench/
 ```
 
 ### 16) Full Bedrock benchmark
 
 ```bash
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+python scripts/run_full_benchmark.py --provider bedrock --env $ENV \
+    --questions $QS
 ```
 
-**Choosing which models run** — the model registry lives at the top of
-`scripts/run_full_benchmark.py` in two dictionaries:
+### Choosing which models run
+
+The **model registry** lives at the top of `scripts/run_full_benchmark.py`
+in two dictionaries:
 
 | Dictionary | Purpose |
 |---|---|
@@ -363,35 +365,35 @@ BEDROCK_MODELS = {
     "bedrock_haiku": "haiku-bench",
     "bedrock_claude35_haiku": "claude35-haiku-bench",
     "bedrock_sonnet": "sonnet-bench",
-    ...
+    "bedrock_claude37_sonnet": "claude37-sonnet-bench",
+    "bedrock_llama3_70b": "llama3-70b-bench",
+    "bedrock_llama4_scout": "llama4-scout-bench",
+    "bedrock_llama4_maverick": "llama4-maverick-bench",
+    "bedrock_nova_pro": "nova-pro-bench",
+    "bedrock_deepseek_v3": "deepseek-r1-bench",
 }
 ```
 
-To add or remove a model, edit these dictionaries directly.
-Comment out a line to skip it; add a new line to include it.
-The config file must exist in `vendor/KohakuRAG/configs/` — any entries
-without a matching config file are silently skipped.
+To **add or remove a model**, edit these dictionaries directly —
+comment out a line to skip it, add a new line to include it.
+The config file must exist in `vendor/KohakuRAG/configs/`; entries
+without a matching config are silently skipped.
 
 **Filtering at the command line** (no code changes needed):
 
 ```bash
 # Only bedrock models
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+python scripts/run_full_benchmark.py --provider bedrock --env $ENV \
+    --questions $QS
 
 # Only local models
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
+    --questions $QS
 
 # A single model (substring match on config name or experiment name)
-python scripts/run_full_benchmark.py --model haiku --env Bedrock
-
-# Different dataset
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
-  --questions data/test_solutions.csv --split test
+python scripts/run_full_benchmark.py --model haiku --env $ENV \
+    --questions $QS
 ```
-
-> **`--split` note:** When running a different question set, pass `--split`
-> so experiment names get a suffix (e.g. `haiku-bench-test`) and don't
-> overwrite existing results.
 
 ### 17) Compare Bedrock vs local results
 
@@ -399,30 +401,30 @@ After running both providers:
 
 ```bash
 # Run bedrock models
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
+    --questions $QS
 
 # Run local models (on a GPU machine)
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
+    --questions $QS
 
 # Generate comparison plots
 python scripts/plot_from_matrix.py
 ```
 
-Results are organized by environment:
+Results are organized by environment and dataset:
 
 ```
 artifacts/experiments/
-  Bedrock/
-    train_QA/
-      claude-haiku-bench/
-        summary.json
-        submission.csv
-      claude-sonnet-bench/
-        ...
-  PowerEdge/
-    train_QA/
-      qwen7b-bench/
-        ...
+├── Bedrock/
+│   └── test_solutions/
+│       ├── haiku-bench/
+│       │   ├── summary.json
+│       │   └── submission.csv
+│       └── sonnet-bench/
+└── PowerEdge/
+    └── test_solutions/
+        └── qwen7b-bench/
 ```
 
 ---
