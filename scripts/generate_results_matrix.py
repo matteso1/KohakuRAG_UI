@@ -124,6 +124,15 @@ def main():
 
     args = parser.parse_args()
 
+    # Auto-adjust output path when --system is given and --output was not
+    # explicitly overridden, so per-system matrices don't clobber each other.
+    # e.g. artifacts/results_matrix.csv -> artifacts/results_matrix_PowerEdge.csv
+    if args.system and args.output == "artifacts/results_matrix.csv":
+        stem = Path(args.output).stem        # "results_matrix"
+        suffix = Path(args.output).suffix    # ".csv"
+        parent = str(Path(args.output).parent)
+        args.output = f"{parent}/{stem}_{args.system}{suffix}"
+
     # Expand globs
     submission_files = []
     for pattern in args.submissions:

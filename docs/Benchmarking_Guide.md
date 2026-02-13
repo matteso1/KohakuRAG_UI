@@ -477,8 +477,8 @@ python scripts/plot_score_breakdown.py --datafile test_solutions --system PowerE
 python scripts/plot_score_breakdown.py --datafile test_solutions --system GB10
 
 # 4. Per-system results matrix (for matrix-based plots)
-python scripts/generate_results_matrix.py --datafile test_solutions --system PowerEdge \
-    --output artifacts/results_matrix_PowerEdge.csv
+#    --system auto-names the output: results_matrix_PowerEdge.csv, etc.
+python scripts/generate_results_matrix.py --datafile test_solutions --system PowerEdge
 python scripts/plot_from_matrix.py \
     --matrix artifacts/results_matrix_PowerEdge.csv \
     --datafile test_solutions --system PowerEdge
