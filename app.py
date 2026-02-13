@@ -36,6 +36,7 @@ from kohakurag import RAGPipeline
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaV4EmbeddingModel
 from kohakurag.llm import HuggingFaceLocalChatModel
+from kohakurag.pipeline import LLMQueryPlanner, SimpleQueryPlanner
 
 # ---------------------------------------------------------------------------
 # Prompts (shared with run_experiment.py)
@@ -298,6 +299,21 @@ def _unload_chat_model(chat_model: HuggingFaceLocalChatModel) -> None:
         torch.cuda.empty_cache()
 
 
+def _apply_planner(
+    pipeline: RAGPipeline, use_planner: bool, planner_queries: int,
+) -> None:
+    """Configure the query planner on an already-built pipeline.
+
+    Swaps the lightweight planner object without reloading model weights.
+    """
+    if use_planner:
+        pipeline._planner = LLMQueryPlanner(
+            pipeline._chat, max_queries=planner_queries,
+        )
+    else:
+        pipeline._planner = SimpleQueryPlanner()
+
+
 @st.cache_resource(show_spinner="Loading model and vector store...")
 def init_single_pipeline(config_name: str, precision: str) -> RAGPipeline:
     """Load a single-model pipeline. Cached across reruns."""
@@ -334,38 +350,66 @@ def init_shared_only() -> tuple[JinaV4EmbeddingModel, KVaultNodeStore]:
 # ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
-def _run_qa_sync(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
-    """Run pipeline.run_qa synchronously."""
+def _run_qa_sync(
+    pipeline: RAGPipeline,
+    question: str,
+    top_k: int,
+    best_guess: bool = False,
+    max_retries: int = 0,
+):
+    """Run pipeline.run_qa synchronously, retrying on failures.
+
+    Args:
+        max_retries: Number of additional attempts after the first failure.
+                     0 means no retries (single attempt).
+    """
     sys_prompt = SYSTEM_PROMPT_BEST_GUESS if best_guess else SYSTEM_PROMPT
     usr_template = USER_TEMPLATE_BEST_GUESS if best_guess else USER_TEMPLATE
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(
-            pipeline.run_qa(
-                question,
-                system_prompt=sys_prompt,
-                user_template=usr_template,
-                top_k=top_k,
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(
+                pipeline.run_qa(
+                    question,
+                    system_prompt=sys_prompt,
+                    user_template=usr_template,
+                    top_k=top_k,
+                )
             )
-        )
-    finally:
-        loop.close()
+        except Exception as exc:
+            last_exc = exc
+            _debug(f"Attempt {attempt + 1}/{max_retries + 1} failed: {exc}")
+            if attempt < max_retries:
+                time.sleep(1)  # brief pause before retry
+        finally:
+            loop.close()
+    raise last_exc  # type: ignore[misc]
 
 
-def run_single_query(pipeline: RAGPipeline, question: str, top_k: int, best_guess: bool = False):
+def run_single_query(
+    pipeline: RAGPipeline, question: str, top_k: int,
+    best_guess: bool = False, max_retries: int = 0,
+):
     """Run a single model query."""
-    return _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+    return _run_qa_sync(
+        pipeline, question, top_k,
+        best_guess=best_guess, max_retries=max_retries,
+    )
 
 
 def run_ensemble_parallel_query(
     pipelines: dict[str, RAGPipeline], question: str, top_k: int,
-    best_guess: bool = False,
+    best_guess: bool = False, max_retries: int = 0,
 ) -> dict[str, object]:
     """Query all pre-loaded models concurrently."""
     results = {}
     for name, pipeline in pipelines.items():
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+        result = _run_qa_sync(
+            pipeline, question, top_k,
+            best_guess=best_guess, max_retries=max_retries,
+        )
         results[name] = {"result": result, "time": time.time() - t0}
     return results
 
@@ -377,6 +421,9 @@ def run_ensemble_sequential_query(
     top_k: int,
     progress_callback=None,
     best_guess: bool = False,
+    max_retries: int = 0,
+    use_planner: bool = False,
+    planner_queries: int = 3,
 ) -> dict[str, object]:
     """Load each model one at a time, query, unload. Saves VRAM."""
     embedder, store = init_shared_only()
@@ -391,9 +438,13 @@ def run_ensemble_sequential_query(
         pipeline = RAGPipeline(
             store=store, embedder=embedder, chat_model=chat_model, planner=None,
         )
+        _apply_planner(pipeline, use_planner, planner_queries)
 
         t0 = time.time()
-        result = _run_qa_sync(pipeline, question, top_k, best_guess=best_guess)
+        result = _run_qa_sync(
+            pipeline, question, top_k,
+            best_guess=best_guess, max_retries=max_retries,
+        )
         elapsed = time.time() - t0
         results[name] = {"result": result, "time": elapsed}
 
@@ -508,6 +559,31 @@ def main():
                                help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
 
         st.divider()
+        st.subheader("Query planner & retries")
+        use_planner = st.toggle(
+            "Enable query planner", value=False,
+            help=(
+                "Expands each question into multiple diverse search queries "
+                "via the LLM for better retrieval coverage."
+            ),
+        )
+        planner_queries = 3
+        if use_planner:
+            planner_queries = st.slider(
+                "Planner queries", min_value=2, max_value=10, value=3,
+                help="Number of diverse search queries the LLM generates per question.",
+            )
+        max_retries = st.number_input(
+            "Max retries", min_value=0, max_value=10, value=2,
+            help="Maximum retry attempts when the LLM response cannot be parsed.",
+        )
+        st.caption(
+            "Tip: Disabling the query planner skips an extra LLM inference "
+            "call, and lowering retries caps worst-case wait time. Both "
+            "reduce end-to-end latency per question."
+        )
+
+        st.divider()
         config_list = list(configs.keys())
 
         if mode == "Single model":
@@ -559,6 +635,7 @@ def main():
     try:
         if mode == "Single model":
             pipeline = init_single_pipeline(selected_configs[0], precision)
+            _apply_planner(pipeline, use_planner, planner_queries)
         elif mode == "Ensemble":
             plan = plan_ensemble(selected_configs, precision, gpu_info)
             if plan["mode"] == "error":
@@ -568,7 +645,9 @@ def main():
                 ensemble_pipelines = init_ensemble_parallel(
                     tuple(selected_configs), precision,
                 )
-            # sequential doesn't pre-load models
+                for _p in ensemble_pipelines.values():
+                    _apply_planner(_p, use_planner, planner_queries)
+            # sequential doesn't pre-load models (planner set inside query fn)
     except Exception as e:
         st.error(f"Failed to load pipeline: {e}")
         tb = traceback.format_exc()
@@ -600,7 +679,10 @@ def main():
             if mode == "Single model":
                 with st.spinner("Retrieving and generating..."):
                     try:
-                        result = run_single_query(pipeline, question, top_k, best_guess=best_guess)
+                        result = run_single_query(
+                            pipeline, question, top_k,
+                            best_guess=best_guess, max_retries=max_retries,
+                        )
                     except Exception as e:
                         st.error(f"Pipeline error: {e}")
                         tb = traceback.format_exc()
@@ -620,6 +702,7 @@ def main():
                             model_results = run_ensemble_parallel_query(
                                 ensemble_pipelines, question, top_k,
                                 best_guess=best_guess,
+                                max_retries=max_retries,
                             )
                     else:
                         status = st.status(
@@ -632,6 +715,9 @@ def main():
                             selected_configs, precision, question, top_k,
                             progress_callback=_progress,
                             best_guess=best_guess,
+                            max_retries=max_retries,
+                            use_planner=use_planner,
+                            planner_queries=planner_queries,
                         )
                         status.update(label="Aggregating results...", state="complete")
                 except Exception as e:
