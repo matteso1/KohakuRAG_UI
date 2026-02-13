@@ -87,21 +87,23 @@ uv pip install -e vendor/KohakuRAG
 ### 5) Install Bedrock and app dependencies
 
 ```bash
-uv pip install boto3 streamlit python-dotenv
+uv pip install -r bedrock_requirements.txt
 ```
 
-> `boto3` is the only extra dependency needed for Bedrock. The rest of the
-> pipeline (embeddings, vector store, scoring) uses the same packages as the
-> local pipeline.
+> **Why not just `pip install boto3`?** The Jina V4 embedding model used by
+> the RAG pipeline imports `SlidingWindowCache` from `transformers.cache_utils`,
+> which was removed in transformers 5.x. `bedrock_requirements.txt` pins
+> `transformers>=4.42,<5` to prevent the resulting `ImportError`.
 
 ### 6) Smoke test
 
 ```bash
 python -c "import kohakuvault, kohakurag; print('Imports OK')"
 python -c "import boto3; print(f'boto3 {boto3.__version__} OK')"
+python -c "from transformers.cache_utils import SlidingWindowCache; print('transformers OK')"
 ```
 
-Both should print without errors.
+All three should print without errors.
 
 ---
 
@@ -254,6 +256,7 @@ Tokens: {'inputTokens': 18, 'outputTokens': 4, 'totalTokens': 22}
 | `ThrottlingException` | Too many concurrent requests | Reduce `max_concurrent` in config; retry logic handles transient throttles |
 | Slow first query | Embedding model loading (~2 GB) | Normal — subsequent queries are fast |
 | `ResourceNotFoundException` | Model not available in region | Try `us-east-1` or `us-west-2` |
+| `ImportError: cannot import name 'SlidingWindowCache'` | `transformers>=5` installed | `uv pip install -r bedrock_requirements.txt` (pins `<5`) |
 
 ### Enable models in the Bedrock Console
 

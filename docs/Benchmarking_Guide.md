@@ -825,8 +825,10 @@ embedding_dim = 1024
 embedding_task = "retrieval"
 ```
 
-For Bedrock, pass `--profile <your-aws-profile>` when running experiments.
-Ensure your AWS SSO session is active (`aws sso login --profile <name>`).
+For Bedrock, install `bedrock_requirements.txt` (pins `transformers<5` to avoid
+`SlidingWindowCache` import errors), pass `--profile <your-aws-profile>` when
+running experiments, and ensure your SSO session is active
+(`aws sso login --profile <name>`). See `docs/Setup_Bedrock.md` for full setup.
 
 ---
 

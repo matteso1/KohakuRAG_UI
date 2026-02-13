@@ -1,0 +1,36 @@
+# Bedrock-only requirements — lightweight alternative to local_requirements.txt
+# for machines that only run Bedrock (cloud LLM) benchmarks.
+#
+# Usage:
+#   uv pip install -r bedrock_requirements.txt
+#
+# NOTE: The transformers pin is critical. The Jina V4 embedding model code
+# imports SlidingWindowCache from transformers.cache_utils, which was removed
+# in transformers 5.x.  Without the <5 cap you will see:
+#   ImportError: cannot import name 'SlidingWindowCache' from
+#   'transformers.cache_utils'
+
+# AWS SDK
+boto3
+
+# Embeddings & tokenisers (shared with local path)
+torch
+transformers>=4.42,<5          # Jina V4 model code incompatible with 5.x
+einops
+peft
+Pillow>=12.0.0
+torchvision
+httpx>=0.27.0
+
+# Data / scoring
+numpy>=2.3
+pandas
+scikit-learn
+matplotlib
+
+# RAG engine
+kohakuvault>=0.7.1
+
+# App deps (only if not already included elsewhere)
+streamlit
+python-dotenv
