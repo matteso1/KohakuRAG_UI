@@ -394,21 +394,23 @@ python scripts/run_full_benchmark.py --model haiku --env $ENV \
     --questions data/$DS.csv
 ```
 
-### 17) Compare Bedrock vs local results
-
-After running both providers:
+### 17) Generate matrices & plots
 
 ```bash
-# Run bedrock models
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
-    --questions data/$DS.csv
+# Results matrix (auto-discovers all systems)
+python scripts/generate_results_matrix.py --datafile $DS
 
-# Run local models (on a GPU machine)
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
-    --questions data/$DS.csv
+# Per-system plots (auto-discovers all systems)
+python scripts/plot_model_size.py      --datafile $DS
+python scripts/plot_score_breakdown.py --datafile $DS
 
-# Generate comparison plots
-python scripts/plot_from_matrix.py
+# Matrix-based plots (one call per system — needs corresponding matrix)
+python scripts/plot_from_matrix.py \
+    --matrix artifacts/results_matrix_${ENV}.csv \
+    --datafile $DS --system $ENV
+
+# Cross-system latency comparison (all systems)
+python scripts/plot_cross_system_latency.py --datafile $DS
 ```
 
 Results are organized by environment and dataset:
