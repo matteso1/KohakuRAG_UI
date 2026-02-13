@@ -547,9 +547,23 @@ class HuggingFaceLocalChatModel(ChatModel):
         self.effective_dtype = effective_dtype
         # Report where the model actually landed
         device = next(self._model.parameters()).device
-        print(f"[init] Model weights loaded ({effective_dtype}) -> {device}"
-              f"{' (GPU)' if device.type == 'cuda' else ' *** WARNING: on CPU, GPU not used ***'}",
-              flush=True)
+        if device.type == "cuda":
+            # With device_map="auto", layers may span multiple GPUs.
+            # Show the full device distribution if available.
+            hf_device_map = getattr(self._model, "hf_device_map", None)
+            if hf_device_map:
+                devices_used = sorted(set(str(d) for d in hf_device_map.values()))
+                if len(devices_used) > 1:
+                    print(f"[init] Model weights loaded ({effective_dtype}) -> sharded across {', '.join(f'cuda:{d}' if d.isdigit() else d for d in devices_used)} (multi-GPU)",
+                          flush=True)
+                else:
+                    print(f"[init] Model weights loaded ({effective_dtype}) -> cuda:{devices_used[0]} (GPU)",
+                          flush=True)
+            else:
+                print(f"[init] Model weights loaded ({effective_dtype}) -> {device} (GPU)", flush=True)
+        else:
+            print(f"[init] Model weights loaded ({effective_dtype}) -> {device} *** WARNING: on CPU, GPU not used ***",
+                  flush=True)
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
         """Generate a chat completion using local HF model.
