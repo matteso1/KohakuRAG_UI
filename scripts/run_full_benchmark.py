@@ -139,6 +139,8 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     )
     # Matches e.g. "[3/41] Q123: some answer [OK] (8.2s | ret=0.5s gen=7.7s)"
     _progress_re = re.compile(r"^\[(\d+)/(\d+)\].*\[(?:OK|WRONG)\]\s*\((\d+\.\d+)s")
+    # Stage prefixes to forward so the user sees loading/run progress
+    _stage_prefixes = ("[init]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
         proc = subprocess.Popen(
@@ -159,6 +161,15 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         for line in iter(proc.stdout.readline, ""):
             line = line.rstrip("\n")
             all_lines.append(line)
+
+            # Forward key stage lines so the user sees loading progress
+            if any(line.startswith(p) for p in _stage_prefixes):
+                print(f"  {line}", flush=True)
+                continue
+
+            # Skip noisy lines early (before progress/report checks)
+            if _noise_re.search(line):
+                continue
 
             # Extract progress from per-question output
             m = _progress_re.match(line)
