@@ -194,7 +194,7 @@ You will be prompted for:
 | Prompt | Value |
 |--------|-------|
 | SSO session name | `bedrock_yourname` (e.g. `bedrock_endemann`) |
-| SSO start URL | `https://d-9067aa9c10.awsapps.com/start` |
+| SSO start URL | `https://uw-madison-dlt3.awsapps.com/start` |
 | SSO region | `us-east-1` |
 | SSO registration scopes | *(press Enter for default)* |
 
