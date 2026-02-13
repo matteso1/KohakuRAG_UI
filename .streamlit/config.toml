@@ -1,0 +1,12 @@
+[theme]
+primaryColor = "#c5050c"          # UW Madison cardinal red
+backgroundColor = "#0e1117"       # Dark background
+secondaryBackgroundColor = "#1a1d24"
+textColor = "#fafafa"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
