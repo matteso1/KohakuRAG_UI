@@ -392,15 +392,17 @@ def main():
         if not gt_path.exists():
             gt_path = project_root / "data" / "train_QA.csv"
 
-    # Build base output path (before system subfolder)
-    base_output = project_root / args.output
-    if args.datafile:
-        base_output = base_output.parent / args.datafile / base_output.name
+    # Build output path: plots/ENV/DS/score_breakdown.png
+    base_output = project_root / args.output  # e.g. artifacts/plots/score_breakdown.png
+    plots_dir = base_output.parent             # e.g. artifacts/plots
+    filename = base_output.name                # e.g. score_breakdown.png
 
     if args.system:
         # Single system
-        out = base_output.parent / args.system / base_output.name
-        _run_for_system(gt_path, experiments_dir, out, args.datafile, args.system)
+        out_dir = plots_dir / args.system
+        if args.datafile:
+            out_dir = out_dir / args.datafile
+        _run_for_system(gt_path, experiments_dir, out_dir / filename, args.datafile, args.system)
     else:
         # Auto-discover systems
         systems = _discover_systems(experiments_dir)
@@ -409,8 +411,10 @@ def main():
             sys.exit(1)
         print(f"Discovered {len(systems)} system(s): {systems}")
         for system in systems:
-            out = base_output.parent / system / base_output.name
-            _run_for_system(gt_path, experiments_dir, out, args.datafile, system)
+            out_dir = plots_dir / system
+            if args.datafile:
+                out_dir = out_dir / args.datafile
+            _run_for_system(gt_path, experiments_dir, out_dir / filename, args.datafile, system)
 
 
 if __name__ == "__main__":

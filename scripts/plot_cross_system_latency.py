@@ -14,7 +14,7 @@ Generates:
 Usage:
     python scripts/plot_cross_system_latency.py
     python scripts/plot_cross_system_latency.py --experiments artifacts/experiments \
-        --datafile test_solutions --output artifacts/plots/test_solutions
+        --datafile test_solutions --output artifacts/plots
 """
 
 import argparse

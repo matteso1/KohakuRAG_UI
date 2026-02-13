@@ -164,10 +164,10 @@ def main():
     print(f"Selected {len(models)} models after filtering: {models}")
     
     output_dir = Path(args.output_dir)
-    if args.datafile:
-        output_dir = output_dir / args.datafile
     if args.system:
         output_dir = output_dir / args.system
+    if args.datafile:
+        output_dir = output_dir / args.datafile
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Helper for plot aesthetics

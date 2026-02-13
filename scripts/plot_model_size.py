@@ -805,12 +805,12 @@ def main():
         sys.exit(1)
 
     base_output = Path(args.output)
-    if args.datafile:
-        base_output = base_output / args.datafile
 
     if args.system:
         # Single system specified — generate one set of plots
         out = base_output / args.system
+        if args.datafile:
+            out = out / args.datafile
         generate_plots(experiments_dir, out, args.filter, args.datafile, args.system)
     else:
         # Auto-discover systems and generate per-system plots
@@ -821,6 +821,8 @@ def main():
         print(f"Discovered {len(systems)} system(s): {systems}")
         for system in systems:
             out = base_output / system
+            if args.datafile:
+                out = out / args.datafile
             generate_plots(experiments_dir, out, args.filter, args.datafile, system)
 
 

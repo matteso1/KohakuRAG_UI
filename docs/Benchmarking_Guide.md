@@ -89,7 +89,7 @@ python scripts/plot_from_matrix.py \
 python scripts/plot_cross_system_latency.py --datafile $DS
 ```
 
-Output lands in `artifacts/plots/$DS/$ENV/` (one folder per system).
+Output lands in `artifacts/plots/$ENV/$DS/` (one folder per system).
 
 ---
 
@@ -581,9 +581,9 @@ python scripts/plot_cross_system_latency.py --datafile test_solutions
 Output directory structure:
 
 ```
-artifacts/plots/test_solutions/PowerEdge/  # plots for PowerEdge
-artifacts/plots/test_solutions/GB10/       # plots for GB10
-artifacts/plots/test_solutions/Bedrock/    # plots for Bedrock (future)
+artifacts/plots/PowerEdge/test_solutions/  # plots for PowerEdge
+artifacts/plots/GB10/test_solutions/       # plots for GB10
+artifacts/plots/Bedrock/test_solutions/    # plots for Bedrock (future)
 ```
 
 Without `--datafile`, plots go to `artifacts/plots/<system>/` directly.
@@ -1118,11 +1118,12 @@ KohakuRAG_UI/
 │   │   │       └── ...
 │   │   └── GB10/            # Results from GB10 runs
 │   │       └── train_QA/
-│   ├── plots/                # Generated charts (per-datafile, per-system)
-│   │   └── test_solutions/
-│   │       ├── PowerEdge/    # Plots for PowerEdge experiments
-│   │       ├── GB10/         # Plots for GB10 experiments
-│   │       └── Bedrock/      # Plots for Bedrock experiments (future)
+│   ├── plots/                # Generated charts (per-system, per-datafile)
+│   │   ├── PowerEdge/        # Plots for PowerEdge experiments
+│   │   │   └── test_solutions/
+│   │   ├── GB10/             # Plots for GB10 experiments
+│   │   │   └── test_solutions/
+│   │   └── Bedrock/          # Plots for Bedrock experiments (future)
 │   └── results_matrix.csv
 ├── notebooks/
 │   └── test_local_hf_pipeline.ipynb
