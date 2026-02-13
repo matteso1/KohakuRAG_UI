@@ -22,7 +22,7 @@ Repo: https://github.com/qualiaMachine/KohakuRAG_UI
 
 ### 1) Clone the repo
 
-Open a terminal (**PowerShell** on Windows, **Terminal** on macOS/Linux).
+Open a terminal (**Git Bash** on Windows, **Terminal** on macOS/Linux).
 
 ```bash
 # Navigate to where you keep git repos (adjust to your preference)
@@ -38,15 +38,15 @@ cd KohakuRAG_UI
 ### 2) Install uv (fast Python package manager)
 
 <details>
-<summary><b>Windows (PowerShell)</b></summary>
+<summary><b>Windows (Git Bash)</b></summary>
 
-```powershell
-irm https://astral.sh/uv/install.ps1 | iex
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Close and reopen PowerShell, then verify:
+Close and reopen Git Bash, then verify:
 
-```powershell
+```bash
 uv --version
 ```
 
@@ -74,26 +74,10 @@ uv venv --python 3.11
 Activate the venv:
 
 <details>
-<summary><b>Windows (PowerShell)</b></summary>
+<summary><b>Windows (Git Bash)</b></summary>
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-If you get an "execution policy" error:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.\.venv\Scripts\Activate.ps1
-```
-
-</details>
-
-<details>
-<summary><b>Windows (cmd.exe)</b></summary>
-
-```cmd
-.\.venv\Scripts\activate.bat
+```bash
+source .venv/Scripts/activate
 ```
 
 </details>
@@ -151,6 +135,9 @@ Both should print without errors.
 
 ### 7) Install the AWS CLI
 
+Follow the official guide for your OS:
+https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
 <details>
 <summary><b>Windows</b></summary>
 
@@ -158,13 +145,13 @@ Download and run the official MSI installer:
 
 https://awscli.amazonaws.com/AWSCLIV2.msi
 
-Or, if you have `winget`:
+Or, if you have `winget` (run from cmd.exe or PowerShell):
 
-```powershell
+```
 winget install Amazon.AWSCLI
 ```
 
-Close and reopen your terminal after installation.
+Close and reopen Git Bash after installation.
 
 </details>
 
@@ -224,23 +211,9 @@ account and role, then finish the CLI prompts:
 
 Copy the template and fill in your profile:
 
-<details>
-<summary><b>Windows (PowerShell)</b></summary>
-
-```powershell
-Copy-Item .env.example .env
-```
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
 ```bash
 cp .env.example .env
 ```
-
-</details>
 
 Edit `.env` and set:
 
@@ -361,38 +334,19 @@ cd ../..
 
 Verify the database was created:
 
-<details>
-<summary><b>Windows (PowerShell)</b></summary>
-
-```powershell
-Get-Item data\embeddings\wattbot_jinav4.db | Select-Object Length
-```
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
 ```bash
 ls -lh data/embeddings/wattbot_jinav4.db
 ```
-
-</details>
 
 ### 13) Run a single experiment
 
 ```bash
 # Claude 3 Haiku (fast, cheap — good first test)
-python scripts/run_experiment.py ^
-  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py ^
-  --name claude-haiku-bench ^
+python scripts/run_experiment.py \
+  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
+  --name claude-haiku-bench \
   --env Bedrock
-```
 
-> **Note:** On Windows cmd.exe, use `^` for line continuation. In
-> PowerShell, use `` ` `` (backtick). On macOS/Linux, use `\`.
-
-```bash
 # Claude 3.5 Sonnet (higher quality)
 python scripts/run_experiment.py \
   --config vendor/KohakuRAG/configs/bedrock_claude_sonnet.py \
