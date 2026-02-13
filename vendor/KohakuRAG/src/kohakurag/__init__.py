@@ -13,7 +13,7 @@ from .embeddings import (
     average_embeddings,
 )
 from .indexer import DocumentIndexer
-from .llm import BedrockChatModel, HuggingFaceLocalChatModel, OpenAIChatModel
+from .llm import HuggingFaceLocalChatModel, OpenAIChatModel
 from .parsers import (
     dict_to_payload,
     markdown_to_payload,
@@ -42,7 +42,6 @@ from .types import (
 
 __all__ = [
     "average_embeddings",
-    "BedrockChatModel",
     "ContextSnippet",
     "DocumentIndexer",
     "DocumentPayload",

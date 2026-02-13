@@ -63,12 +63,17 @@ HF_LOCAL_MODELS = {
     "hf_olmoe_1b7b": "olmoe-1b7b-bench",
 }
 
-# AWS Bedrock models (requires boto3 + AWS credentials)
+# AWS Bedrock models (requires llm_bedrock module + AWS credentials)
 BEDROCK_MODELS = {
-    "bedrock_claude_haiku": "claude-haiku-bench",
-    "bedrock_claude_sonnet": "claude-sonnet-bench",
-    "bedrock_nova_pro": "nova-pro-bench",
+    "bedrock_haiku": "haiku-bench",
+    "bedrock_claude35_haiku": "claude35-haiku-bench",
+    "bedrock_sonnet": "sonnet-bench",
+    "bedrock_claude37_sonnet": "claude37-sonnet-bench",
+    "bedrock_llama3_70b": "llama3-70b-bench",
     "bedrock_llama4_scout": "llama4-scout-bench",
+    "bedrock_llama4_maverick": "llama4-maverick-bench",
+    "bedrock_nova_pro": "nova-pro-bench",
+    "bedrock_deepseek_v3": "deepseek-r1-bench",
 }
 
 # All models combined

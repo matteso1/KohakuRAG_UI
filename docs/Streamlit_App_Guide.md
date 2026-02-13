@@ -111,12 +111,11 @@ References are scoped to runs that agree with the winning answer, then unioned.
 app.py                                   # Streamlit app entry point
 vendor/KohakuRAG/src/kohakurag/
 ├── pipeline.py                          # RAGPipeline — retrieval + structured QA
-├── llm.py                               # All LLM providers (BedrockChatModel, HuggingFaceLocalChatModel, etc.)
+├── llm.py                               # HuggingFaceLocalChatModel (4-bit, bf16, etc.)
 ├── embeddings.py                        # JinaV4EmbeddingModel (1024-dim)
 ├── datastore.py                         # KVaultNodeStore (SQLite vector DB)
 └── types.py                             # ContextSnippet, RetrievalMatch, etc.
-vendor/KohakuRAG/configs/hf_*.py         # Local HF model configs
-vendor/KohakuRAG/configs/bedrock_*.py    # AWS Bedrock model configs
+vendor/KohakuRAG/configs/hf_*.py         # Model configs (model ID, retrieval params)
 data/embeddings/wattbot_jinav4.db        # Vector index (built locally, gitignored)
 local_requirements.txt                   # Python dependencies
 ```
@@ -128,7 +127,7 @@ User question
   → JinaV4EmbeddingModel.embed()         # embed the query
   → KVaultNodeStore.search()              # vector search in jinav4.db
   → RAGPipeline.run_qa()                  # build prompt with retrieved context
-  → ChatModel.complete()                  # LLM inference (Bedrock API or local HF)
+  → HuggingFaceLocalChatModel.complete()  # local LLM inference
   → StructuredAnswer                      # parsed JSON answer
 ```
 
@@ -170,39 +169,22 @@ parallel vs sequential ensemble execution.
 
 ## 4) Configuration
 
-The app reads both `hf_*.py` and `bedrock_*.py` config files from
-`vendor/KohakuRAG/configs/`. Each config specifies `llm_provider` which
-controls which backend is used. Precision is only relevant for local HF
-models (selected in the sidebar at runtime).
+The app reads the same `hf_*.py` config files used by the benchmark
+scripts. Config files define model identity only — precision is selected
+in the sidebar at runtime.
 
 Key config fields consumed by the app:
 
-| Field | Provider | Purpose |
-|-------|----------|---------|
-| `llm_provider` | All | `"hf_local"`, `"bedrock"`, `"openrouter"` |
-| `hf_model_id` | hf_local | HuggingFace model identifier |
-| `hf_max_new_tokens` | hf_local | Max generation length (default 512) |
-| `hf_temperature` | hf_local | Sampling temperature (default 0.2) |
-| `bedrock_model` | bedrock | Bedrock model ID (e.g. `us.anthropic.claude-3-haiku-20240307-v1:0`) |
-| `bedrock_region` | bedrock | AWS region (default `us-east-2`) |
-| `bedrock_profile` | bedrock | AWS SSO profile name (optional) |
-| `max_concurrent` | All | Max concurrent inference requests |
-| `db` | All | Path to vector database |
-| `table_prefix` | All | Vector table prefix |
-| `embedding_dim` | All | Embedding dimension (1024 for jinav4) |
-| `embedding_task` | All | Embedding task type ("retrieval") |
-
-### Bedrock in the app
-
-When a bedrock config is selected:
-- **No GPU required** — the sidebar skips VRAM estimation and shows "API mode"
-- **No precision selector** — precision only applies to local HF models
-- **Faster** — API calls typically take 2-5s vs 5-30s for local inference
-- **Requires credentials** — set `AWS_PROFILE` in `.env` (see [Setup_Bedrock.md](Setup_Bedrock.md))
-
-You can mix bedrock and local configs in an ensemble. Bedrock models count
-as "parallel" (concurrent API calls) while local models follow the VRAM
-planner for parallel vs sequential execution.
+| Field | Purpose |
+|-------|---------|
+| `hf_model_id` | HuggingFace model identifier |
+| `hf_max_new_tokens` | Max generation length (default 512) |
+| `hf_temperature` | Sampling temperature (default 0.2) |
+| `max_concurrent` | Max concurrent inference requests |
+| `db` | Path to vector database |
+| `table_prefix` | Vector table prefix |
+| `embedding_dim` | Embedding dimension (1024 for jinav4) |
+| `embedding_task` | Embedding task type ("retrieval") |
 
 To add a new model to the app, just create a new `hf_*.py` config — the
 app auto-discovers all `hf_*.py` files in `vendor/KohakuRAG/configs/`.

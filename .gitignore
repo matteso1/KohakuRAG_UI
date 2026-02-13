@@ -4,24 +4,6 @@
 .env
 .env.local
 
-# CONFIDENTIAL: WattBot competition test solutions -- DO NOT COMMIT
-# Chris may reuse this for future competitions
-test_solutions.csv
-**/test_solutions.csv
-
-# Claude Code artifacts
-.claude/
-*.jsonl
-
-# Output artifacts (regeneratable)
-outputs/
-
-# Windows artifacts
-nul
-
-# Temporary/working files
-conversation_history.txt
-
 # Python
 __pycache__/
 *.py[cod]
@@ -73,7 +55,7 @@ artifacts/experiments/*/*/*/*
 !artifacts/experiments/*/*/*/summary.json
 !artifacts/experiments/*/*/*/submission.csv
 !artifacts/experiments/*/*/*/results_chunk_*.json
-# Step 5: inside plots/, only keep .png (including env sub-folders)
+# Step 7: inside plots/, only keep .png (including env sub-folders)
 artifacts/plots/*
 !artifacts/plots/*.png
 !artifacts/plots/*/

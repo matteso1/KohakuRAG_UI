@@ -65,6 +65,9 @@ def both_numeric(a: str, b: str) -> bool:
 # Applied inside row_bits so that format-only differences
 # (commas, magnitude suffixes, range strings) don't cause spurious failures.
 
+_TRUE_TOKENS  = {"true", "yes"}
+_FALSE_TOKENS = {"false", "no"}
+
 _MAGNITUDE_MAP = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
 _MAG_RE   = re.compile(r"^(-?\d+(?:\.\d+)?)\s*([KkMmBbTt])$")
 _RANGE_RE = re.compile(
@@ -82,12 +85,20 @@ _HEDGE_RE = re.compile(
 def _normalize_sub_value(raw: str) -> str:
     """Best-effort normalization of a submission answer_value.
 
-    Handles comma-thousands, magnitude suffixes (2B→2000000000),
-    hedging prefixes, and range strings ("80-90"→"[80,90]").
+    Handles boolean mapping (True→1, False→0), comma-thousands,
+    magnitude suffixes (2B→2000000000), hedging prefixes, and
+    range strings ("80-90"→"[80,90]").
     """
     s = _s(raw).strip()
     if not s or is_blank(s):
         return s
+
+    # boolean mapping (True/False/Yes/No → 1/0)
+    low = s.lower()
+    if low in _TRUE_TOKENS:
+        return "1"
+    if low in _FALSE_TOKENS:
+        return "0"
 
     # strip commas
     no_comma = s.replace(",", "")

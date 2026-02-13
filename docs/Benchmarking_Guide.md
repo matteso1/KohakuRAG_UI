@@ -168,7 +168,7 @@ quantization via `bitsandbytes`). Override with `--precision bf16`, `fp16`, or
 | `use_reordered_prompt`  | `True`  | Context is placed **before** the question (C→Q ordering) to combat the "lost in the middle" effect (~80% relative improvement) |
 | `planner_max_queries`   | `4`     | Number of diverse retrieval queries generated per question by the LLM query planner |
 
-All are set in every config file (`hf_*.py` and `bedrock_*.py`).
+All are set in every `hf_*.py` config file (e.g. `hf_qwen7b.py`).
 
 ### Using the test dataset
 
@@ -195,20 +195,15 @@ Results are organized by environment and datafile:
 artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
 ├── results.json     # Per-question details (raw LLM output, latency, scores)
 ├── summary.json     # Aggregate metrics (overall score, timing, dataset info)
-└── submission.csv   # Normalised Kaggle-format predictions (created by posthoc.py)
+└── submission.csv   # Kaggle-format predictions (written by run_experiment.py)
 ```
 
-**Important:** `results.json` stores **raw model output** (un-normalised).
-To produce a normalised `submission.csv` for Kaggle and get the final score,
-run the post-hoc processing step:
-
-```bash
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-```
-
-This applies answer normalisation (comma stripping, range formatting,
-abbreviation expansion, etc.) and re-scores against ground truth.
-See `scripts/posthoc.py` for details.
+**Note:** `score.py` already applies answer normalisation (comma stripping,
+range formatting, magnitude expansion, hedging removal) internally when
+scoring, so a separate post-hoc step is not required for benchmarking.
+`posthoc.py` exists only for re-processing raw results if the normalisation
+rules in `score.py` change and you want to regenerate `submission.csv`
+without re-running the full experiment.
 
 The `<datafile>` subfolder is derived from the questions CSV filename
 (e.g. `train_QA` from `data/train_QA.csv`, `test_solutions` from
@@ -247,37 +242,16 @@ full precision (roughly 4× more VRAM).
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
 | `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
 
-### AWS Bedrock models (API — no GPU required)
-
-Requires `boto3` and AWS credentials. See [Setup_Bedrock.md](Setup_Bedrock.md) for
-full setup instructions.
-
-| Config file                 | Model                   | Cost (per 1M tok) | Provider |
-|-----------------------------|-------------------------|--------------------|----------|
-| `bedrock_claude_haiku.py`   | Claude 3 Haiku          | $0.25 in / $1.25 out | bedrock |
-| `bedrock_claude_sonnet.py`  | Claude 3.5 Sonnet v2    | $3.00 in / $15.00 out | bedrock |
-| `bedrock_nova_pro.py`       | Amazon Nova Pro         | $0.80 in / $3.20 out | bedrock |
-| `bedrock_llama4_scout.py`   | Meta Llama 4 Scout 17B  | $0.17 in / $0.17 out | bedrock |
-
-All configs (local and bedrock) use **identical retrieval settings** (top_k, planner_max_queries,
-rerank_strategy, etc.) so results are directly comparable.
+Bedrock configs (from the `bedrock` branch) also work if you have
+`llm_bedrock.py` and AWS credentials set up.
 
 ## 3) Running all models (full benchmark)
 
 **Always pass `--env`** so every sub-experiment is tagged with the machine name.
 
 ```bash
-# --- Local HF models ---
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
-    --questions data/train_QA.csv
 
-# --- AWS Bedrock models ---
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
-    --questions data/train_QA.csv
-
-# --- Both providers together ---
-python scripts/run_full_benchmark.py --env PowerEdge
-
+    
 # Full benchmark with test dataset (local HF models on the PowerEdge)
 python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
     --questions data/test_solutions.csv
@@ -288,9 +262,11 @@ python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
 
 # Single model only
 python scripts/run_full_benchmark.py --model qwen7b --env GB10
-python scripts/run_full_benchmark.py --model claude_haiku --env Bedrock
 
-# Run local models in bf16 instead of default 4-bit
+# All providers (local + bedrock, if bedrock configs exist)
+python scripts/run_full_benchmark.py --env PowerEdge
+
+# Run all models in bf16 instead of default 4-bit
 python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env PowerEdge
 ```
 
@@ -327,20 +303,7 @@ gets right or wrong.
 
 ## 4) Comparing results across runs
 
-### Post-hoc normalisation and scoring (run_full_benchmark will run this automatically)
-
-After an experiment completes, run post-hoc processing to normalise raw
-model output and produce a Kaggle-ready `submission.csv`:
-
-```bash
-# Process a single experiment (auto-finds results.json)
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
-```
-
-### Score a submission against ground truth (run_full_benchmark will run this automatically)
+### Score a submission against ground truth
 
 ```bash
 python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
@@ -540,82 +503,6 @@ python scripts/audit_experiments.py --datafile train_QA
 
 Checks for: missing token counts, high latency, high error rates, score
 inconsistencies, duplicate model runs.
-
----
-
-## 4b) Bedrock vs Local comparison workflow
-
-The pipeline is designed so that both providers use identical retrieval settings,
-prompts, and scoring — only the LLM call differs. This makes results directly
-comparable for evaluating model quality, latency, and cost trade-offs.
-
-### Step 1: Run both providers
-
-```bash
-# Local HF models on your GPU machine
-python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
-
-# AWS Bedrock models (from any machine with credentials)
-python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
-```
-
-Or run specific models from each provider:
-
-```bash
-# Bedrock: Claude 3 Haiku
-python scripts/run_experiment.py \
-    --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
-    --name claude-haiku-bench --env Bedrock
-
-# Local: Qwen 7B (comparable size/speed tier)
-python scripts/run_experiment.py \
-    --config vendor/KohakuRAG/configs/hf_qwen7b.py \
-    --name qwen7b-bench --env PowerEdge
-```
-
-### Step 2: Normalise and score both
-
-```bash
-python scripts/posthoc.py artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-bench/
-```
-
-### Step 3: Compare
-
-```bash
-# Generate cross-provider comparison matrix
-python scripts/generate_results_matrix.py
-
-# Or compare specific submissions
-python scripts/score.py data/train_QA.csv \
-    artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/submission.csv
-python scripts/score.py data/train_QA.csv \
-    artifacts/experiments/PowerEdge/train_QA/qwen7b-bench/submission.csv
-```
-
-### Step 4: Cross-provider ensemble (optional)
-
-You can also mix bedrock and local models in a cross-model ensemble:
-
-```bash
-python scripts/run_ensemble.py \
-    --experiments claude-sonnet-bench qwen72b-bench qwen32b-bench \
-    --name ensemble-hybrid \
-    --strategy majority --ignore-blank \
-    --env Hybrid \
-    --datafile train_QA
-```
-
-### What to compare
-
-| Metric | Where to find it | Notes |
-|--------|-----------------|-------|
-| Accuracy (WattBot score) | `summary.json → overall_score` | Primary quality metric |
-| Latency per question | `summary.json → avg_latency_seconds` | Bedrock ~2-5s; local varies by model |
-| Cost per run | `summary.json → estimated_cost_usd` | $0 for local; tracked for API providers |
-| NA recall | `summary.json → na_accuracy` | How well the model detects unanswerable Qs |
-| Ref overlap | `summary.json → ref_overlap` | Citation accuracy |
-| Energy consumption | `summary.json → hardware` | GPU wattage for local (not applicable to bedrock) |
 
 ---
 
@@ -1107,32 +994,26 @@ size, energy (Wh), and power — ready for plotting.
 
 ---
 
-## 12) Results output for post-processing
+## 12) Results output
 
-Every experiment produces two files immediately, and a third after post-hoc
-processing:
+Every experiment produces three files:
 
 | File               | Format | What's in it                                                  |
 |--------------------|--------|---------------------------------------------------------------|
-| `results.json`     | JSON   | Per-question: **raw** model output, GT, latency, retrieval    |
+| `results.json`     | JSON   | Per-question: raw model output, GT, latency, retrieval        |
 | `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config snapshot    |
-| `submission.csv`   | CSV    | Normalised Kaggle-format predictions (created by `posthoc.py`)|
+| `submission.csv`   | CSV    | Kaggle-format predictions (written by `run_experiment.py`)    |
 
-`results.json` intentionally stores **raw (un-normalised)** model output so
-you can always re-run normalisation with improved rules without re-running
-expensive LLM inference:
+Answer normalisation (comma stripping, abbreviation expansion, range
+formatting, hedging removal, etc.) is applied **inside `score.py`** at
+scoring time — not as a separate step. This means all scripts that score
+(`run_experiment.py`, `generate_results_matrix.py`, `plot_score_breakdown.py`)
+use the same normalisation rules automatically.
 
-```bash
-# Normalise and re-score (writes submission.csv alongside results.json)
-python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/ --dry-run
-```
-
-All answer normalisation logic (comma stripping, abbreviation expansion,
-range formatting, hedging prefix removal, etc.) lives in **one place**:
-`scripts/posthoc.py`.
+`posthoc.py` exists as an optional tool: if you change normalisation rules
+in `score.py` and want to regenerate `submission.csv` without re-running
+inference, you can use it to re-normalise and re-score from the raw
+`results.json`.
 
 To iterate on post-processing in Python:
 
@@ -1178,8 +1059,8 @@ KohakuRAG_UI/
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
 │   ├── run_experiment.py     # Run one experiment (--env for machine label)
-│   ├── posthoc.py            # Post-hoc normalisation & scoring (single source of truth)
-│   ├── score.py              # WattBot scoring metric (used by Kaggle + posthoc)
+│   ├── score.py              # WattBot scoring metric + inline normalisation
+│   ├── posthoc.py            # Optional: re-normalise submission.csv from raw results
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
