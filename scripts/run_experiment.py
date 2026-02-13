@@ -17,17 +17,15 @@ Usage:
     python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name "qwen7b-test"
 
 Output:
-    - artifacts/experiments/<datafile>/<name>/results.json - Raw per-question results (un-normalised)
-    - artifacts/experiments/<datafile>/<name>/summary.json - Overall metrics and timing
+    - artifacts/experiments/<env>/<datafile>/<name>/results.json - Per-question results
+    - artifacts/experiments/<env>/<datafile>/<name>/summary.json - Overall metrics and timing
+    - artifacts/experiments/<env>/<datafile>/<name>/submission.csv - Kaggle-format predictions
 
-    Where <datafile> is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
+    Where <env> is the system name (e.g. "PowerEdge", "GB10") and <datafile>
+    is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
 
-    results.json stores the raw LLM output.  To produce a normalised submission.csv
-    for Kaggle, run the post-hoc processing step:
-
-        python scripts/posthoc.py artifacts/experiments/<datafile>/<name>/results.json
-
-    See scripts/posthoc.py for the canonical answer normalisation logic.
+    Answer normalisation is applied at scoring time by score.py (inside row_bits),
+    so a separate post-hoc step is not required.
 """
 
 import argparse
@@ -190,12 +188,11 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 
 
 # =============================================================================
-# Answer / Ref Normalisation  (canonical logic lives in posthoc.py)
+# Answer / Ref Normalisation
 # =============================================================================
-# Imported here so that callers that historically relied on these names from
-# run_experiment still work (e.g. ensemble scripts).  The experiment runner
-# itself no longer calls them inline — raw model output is saved to
-# results.json, and posthoc.py normalises + scores in a separate step.
+# Imported so that callers that historically relied on these names from
+# run_experiment still work (e.g. ensemble scripts).  Normalisation is
+# applied at scoring time by score.py (inside row_bits).
 
 from posthoc import normalize_answer_value, normalize_ref_id  # noqa: F401
 from results_io import CHUNK_SIZE, load_partial_progress
@@ -614,8 +611,8 @@ class ExperimentRunner:
                     # All retries exhausted — record the full count
                     retry_count = self.max_retries
 
-                # Store raw model output — normalisation is applied post-hoc
-                # by scripts/posthoc.py (single source of truth).
+                # Store raw model output — normalisation is applied at scoring
+                # time by score.py (inside row_bits).
                 pred_value = str(result.answer.answer_value).strip()
                 pred_ref = result.answer.ref_id  # raw list from pipeline
                 pred_explanation = result.answer.explanation
