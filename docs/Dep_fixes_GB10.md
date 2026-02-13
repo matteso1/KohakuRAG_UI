@@ -148,3 +148,38 @@ uv pip install kohaku-engine
 python -c "import kohakuengine; print('kohakuengine ok')"
 kogine --help
 ```
+
+---
+
+## Common issue: PyTorch installs as CPU-only (no GPU)
+
+**Symptom**: `nvidia-smi` / `nvtop` shows 0% GPU utilization during inference.
+Model runs extremely slowly (minutes per query instead of seconds).
+
+**Diagnosis**:
+```bash
+python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
+```
+If the version shows `+cpu` or CUDA is `False`, torch was installed without GPU support.
+
+**Root cause**: `pip install torch` (without a CUDA index URL) pulls the CPU-only
+wheel from PyPI by default.
+
+**Fix**: `local_requirements.txt` now includes `--extra-index-url` for the PyTorch
+CUDA index. Reinstalling from that file should resolve it:
+
+```bash
+uv pip install -r local_requirements.txt
+```
+
+Or install torch directly with the CUDA index:
+
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
+
+Then verify:
+```bash
+python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
+# Should show: 2.x.x+cu126 and CUDA: True
+```

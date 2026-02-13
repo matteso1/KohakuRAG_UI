@@ -119,6 +119,22 @@ uv pip install -r local_requirements.txt
 Notes:
 - This file is intentionally **separate** from core requirements.
 - It is expected to evolve as HF / local inference work progresses.
+- `local_requirements.txt` includes `--extra-index-url` for the PyTorch CUDA
+  wheels. Without this, pip defaults to CPU-only torch and the GPU sits idle.
+
+**Verify CUDA torch was installed** (important!):
+
+```bash
+python -c "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
+```
+
+Expected output should show a version like `2.x.x+cu126` and `CUDA: True`.
+If it shows `+cpu` or `CUDA: False`, torch was installed without GPU support —
+reinstall with:
+
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
 
 
 

@@ -2,7 +2,11 @@ ipykernel
 jupyterlab
 
 # Local HF inference (core)
+# NOTE: torch must come from the CUDA index, otherwise pip installs CPU-only.
+# The --extra-index-url below ensures torch/torchvision pull CUDA-enabled wheels.
+--extra-index-url https://download.pytorch.org/whl/cu126
 torch
+torchvision
 transformers>=4.42,<5  # Jina V4 model code incompatible with transformers 5.x
 accelerate
 huggingface_hub
