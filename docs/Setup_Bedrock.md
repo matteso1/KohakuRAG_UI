@@ -193,21 +193,35 @@ You will be prompted for:
 
 | Prompt | Value |
 |--------|-------|
-| SSO session name | `uw-madison` (or any name you prefer) |
-| SSO start URL | *(provided by Chris — check team Slack/email)* |
+| SSO session name | `bedrock_yourname` (e.g. `bedrock_endemann`) |
+| SSO start URL | `https://uw-madison-dlt3.awsapps.com/start/` |
 | SSO region | `us-east-2` |
-| SSO registration scopes | `sso:account:access` |
+| SSO registration scopes | *(press Enter for default)* |
 
-A browser window will open for login. After authenticating, select the
-account and role, then finish the CLI prompts:
+A browser window will open for UW login. You may be asked to
+**"Allow botocore-client to access your data"** — click Allow.
+
+After authenticating, you'll see available accounts. Select the
+**`ml-marathon-2024`** account, then choose the **`ml-bedrock...`** role.
+
+Finish the CLI prompts:
 
 | Prompt | Value |
 |--------|-------|
 | CLI default client Region | `us-east-2` |
-| CLI default output format | `json` |
-| CLI profile name | `bedrock` (or whatever you prefer) |
+| CLI default output format | *(press Enter for json)* |
+| CLI profile name | `bedrock_yourname` (match the session name) |
 
-### 9) Create your `.env` file
+### 9) Verify SSO works
+
+```bash
+aws sso login --profile bedrock_yourname
+aws sts get-caller-identity --profile bedrock_yourname
+```
+
+You should see your email and the account ID (`183295408236`) in the output.
+
+### 10) Create your `.env` file
 
 Copy the template and fill in your profile:
 
@@ -215,10 +229,10 @@ Copy the template and fill in your profile:
 cp .env.example .env
 ```
 
-Edit `.env` and set:
+Edit `.env` and set (use your actual profile name):
 
 ```bash
-AWS_PROFILE=bedrock
+AWS_PROFILE=bedrock_yourname
 AWS_REGION=us-east-2
 ```
 
@@ -251,22 +265,22 @@ The SDK will use the instance role automatically.
 
 ## Phase 3 — Verify Bedrock access
 
-### 10) Refresh SSO session
+### 11) Refresh SSO session
 
 SSO tokens expire after ~8–12 hours. Refresh before running experiments:
 
 ```bash
-aws sso login --profile bedrock
+aws sso login --profile bedrock_yourname
 ```
 
-### 11) Quick test script
+### 12) Quick test script
 
 Save this as `test_bedrock.py` (or just paste into a Python REPL):
 
 ```python
 import boto3
 
-session = boto3.Session(profile_name="bedrock")  # omit for env vars / instance role
+session = boto3.Session(profile_name="bedrock_yourname")  # omit for env vars / instance role
 client = session.client("bedrock-runtime", region_name="us-east-2")
 
 response = client.converse(
@@ -298,10 +312,13 @@ Tokens: {'inputTokens': 18, 'outputTokens': 4, 'totalTokens': 22}
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `ExpiredTokenException` | SSO session expired | `aws sso login --profile bedrock` |
+| `InvalidRequestException` on `RegisterClient` | Wrong SSO start URL or region | Verify the start URL (`https://uw-madison-dlt3.awsapps.com/start/`) and SSO region (`us-east-2`). Re-run `aws configure sso` |
+| `ExpiredTokenException` | SSO session expired | `aws sso login --profile bedrock_yourname` |
 | `AccessDeniedException` | Model not enabled | See "Enable Models" below |
 | `ValidationException: model not found` | Wrong model ID or region | Check model ID and try `us-east-1` |
 | `UnrecognizedClientException` | Bad credentials | Re-run `aws configure sso` |
+| `ThrottlingException` | Too many concurrent requests | Reduce `max_concurrent` in config; retry logic handles transient throttles |
+| Slow first query | Embedding model loading (~2 GB) | Normal — subsequent queries are fast |
 | `ResourceNotFoundException` | Model not available in region | Try `us-east-1` or `us-west-2` |
 
 ### Enable models in the Bedrock Console
@@ -322,9 +339,16 @@ a brief approval process.
 
 ## Phase 4 — Build the index and run experiments
 
-### 12) Build the document index
+### 13) Get or build the document index
 
-The index only needs to be built once (or when the corpus changes):
+**Option A — Download pre-built index from S3** (fastest):
+
+```bash
+aws s3 cp s3://wattbot-nils-kohakurag/indexes/wattbot_jinav4.db \
+    data/embeddings/wattbot_jinav4.db --profile bedrock_yourname
+```
+
+**Option B — Build from scratch** (only needed if the corpus changes):
 
 ```bash
 cd vendor/KohakuRAG
@@ -338,7 +362,15 @@ Verify the database was created:
 ls -lh data/embeddings/wattbot_jinav4.db
 ```
 
-### 13) Run a single experiment
+### 14) Quick RAG smoke test
+
+```bash
+python scripts/demo_bedrock_rag.py --question "What is the carbon footprint of GPT-3?"
+```
+
+If you get an answer with citations, Bedrock + RAG is working end-to-end.
+
+### 15) Run a single experiment
 
 ```bash
 # Claude 3 Haiku (fast, cheap — good first test)
@@ -354,19 +386,19 @@ python scripts/run_experiment.py \
   --env Bedrock
 ```
 
-### 14) Full Bedrock benchmark
+### 16) Full Bedrock benchmark
 
 ```bash
 python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
 ```
 
-### 15) Post-hoc normalization and scoring
+### 17) Post-hoc normalization and scoring
 
 ```bash
 python scripts/posthoc.py artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/results.json
 ```
 
-### 16) Compare Bedrock vs local results
+### 18) Compare Bedrock vs local results
 
 After running both providers:
 
@@ -402,7 +434,7 @@ artifacts/experiments/
 
 ## Phase 5 — Streamlit app
 
-### 17) Launch the app
+### 19) Launch the app
 
 ```bash
 streamlit run app.py
@@ -417,6 +449,63 @@ You can create ensembles mixing bedrock and local models (e.g.,
 
 ---
 
+## Using Bedrock in Python / Streamlit
+
+### BedrockChatModel
+
+```python
+from llm_bedrock import BedrockChatModel
+
+chat = BedrockChatModel(
+    profile_name="bedrock_yourname",   # AWS SSO profile
+    region_name="us-east-2",           # Bedrock region
+    model_id="us.anthropic.claude-3-haiku-20240307-v1:0",
+    max_concurrent=3,                  # Parallel requests (keep low)
+    max_retries=5,                     # Retry on throttle
+    base_retry_delay=3.0               # Seconds between retries
+)
+
+# Simple completion
+answer = await chat.complete(prompt)
+
+# With system message
+answer = await chat.complete_with_system(system_prompt, user_prompt)
+```
+
+### Full RAG query example
+
+```python
+from llm_bedrock import BedrockChatModel
+from kohakurag.datastore import KVaultNodeStore
+from kohakurag.embeddings import JinaEmbeddingModel
+
+# Init (once at app startup)
+chat = BedrockChatModel(profile_name="bedrock_yourname", region_name="us-east-2",
+                        model_id="us.anthropic.claude-3-haiku-20240307-v1:0")
+store = KVaultNodeStore(path="data/embeddings/wattbot_jinav4.db",
+                        table_prefix="wattbot_jv4", dimensions=1024)
+embedder = JinaEmbeddingModel()
+
+async def answer_question(question: str) -> dict:
+    query_embedding = await embedder.embed([question])
+    results = store.search_sync(query_embedding[0], k=5)
+    context = "\n\n".join([node.content for node, score in results])
+    sources = [node.metadata.get("doc_id", "unknown") for node, score in results]
+    prompt = f"Answer based on this context.\n\nContext:\n{context}\n\nQuestion: {question}"
+    answer = await chat.complete(prompt)
+    return {"answer": answer, "sources": list(set(sources))}
+```
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/llm_bedrock.py` | Bedrock integration (BedrockChatModel) |
+| `scripts/demo_bedrock_rag.py` | Full working RAG example |
+| `data/embeddings/wattbot_jinav4.db` | JinaV4 vector index |
+
+---
+
 ## Available Bedrock Models
 
 Pre-configured models in `vendor/KohakuRAG/configs/`:
@@ -425,6 +514,7 @@ Pre-configured models in `vendor/KohakuRAG/configs/`:
 |-------------|-------|----------------------|-------|
 | `bedrock_claude_haiku.py` | Claude 3 Haiku | $0.25 in / $1.25 out | Fast, cheap — good for prototyping |
 | `bedrock_claude_sonnet.py` | Claude 3.5 Sonnet v2 | $3.00 in / $15.00 out | Best quality for technical QA |
+| (see `configs/bedrock_claude37_sonnet.py`) | Claude 3.7 Sonnet | $3.00 in / $15.00 out | Latest Sonnet |
 | `bedrock_nova_pro.py` | Amazon Nova Pro | $0.80 in / $3.20 out | Amazon's native model |
 | `bedrock_llama4_scout.py` | Llama 4 Scout 17B | $0.17 in / $0.17 out | Cheapest option |
 
