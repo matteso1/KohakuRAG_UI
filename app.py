@@ -663,7 +663,16 @@ def main():
     # Render history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                details = msg.get("details", {})
+                linked = _linkify_citations(
+                    msg["content"],
+                    ref_ids=details.get("ref_id"),
+                    ref_urls=details.get("ref_url"),
+                )
+                st.markdown(f"**{linked}**")
+            else:
+                st.markdown(msg["content"])
             if msg["role"] == "assistant" and "details" in msg:
                 _render_details(msg["details"])
 
@@ -750,18 +759,57 @@ def _extract_confidence(raw_response: str) -> str:
     return ""
 
 
+def _linkify_citations(
+    text: str,
+    ref_ids=None,
+    ref_urls=None,
+) -> str:
+    """Replace ``[ref_id]`` citations in *text* with clickable markdown links.
+
+    Looks up each ``[...]`` token against METADATA_URLS (primary) and the
+    answer's own ref_url list (fallback).  Already-linked references
+    (``[id](url)``) are left untouched.
+    """
+    if not text:
+        return text
+
+    # Build fallback url map from the answer's own ref data
+    answer_urls: dict[str, str] = {}
+    if ref_ids and ref_ids != "is_blank":
+        ids = ref_ids if isinstance(ref_ids, list) else [ref_ids]
+        urls = ref_urls if isinstance(ref_urls, list) else ([ref_urls] if ref_urls else [])
+        for i, rid in enumerate(ids):
+            if not METADATA_URLS.get(rid) and i < len(urls):
+                u = urls[i]
+                if u and u != "is_blank":
+                    answer_urls[rid] = u
+
+    def _replace(match: re.Match) -> str:
+        rid = match.group(1)
+        url = METADATA_URLS.get(rid) or answer_urls.get(rid)
+        if url:
+            return f"[{rid}]({url})"
+        return match.group(0)
+
+    # Match [something] NOT already followed by '(' (avoids double-linking)
+    return re.sub(r"\[([^\]]+)\](?!\()", _replace, text)
+
+
 def _display_single_result(result, elapsed: float):
     """Display a single-model answer."""
     answer = result.answer
     timing = result.timing
     confidence = _extract_confidence(result.raw_response)
 
-    if answer.explanation and answer.explanation != "is_blank":
+    # Linkify inline [ref_id] citations so they match the Sources section
+    linked_explanation = _linkify_citations(
+        answer.explanation, ref_ids=answer.ref_id, ref_urls=answer.ref_url,
+    )
+
+    if linked_explanation and linked_explanation != "is_blank":
+        st.markdown(f"**{linked_explanation}**")
         if confidence == "low":
-            st.markdown(f"**{answer.explanation}**")
             st.warning("Best guess — the retrieved context only partially supports this answer.")
-        else:
-            st.markdown(f"**{answer.explanation}**")
     elif answer.answer and answer.answer != "is_blank":
         st.markdown(f"**{answer.answer}**")
     else:
@@ -813,8 +861,12 @@ def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
-    if agg["explanation"] and agg["explanation"] != "is_blank":
-        st.markdown(f"**{agg['explanation']}**")
+    linked_explanation = _linkify_citations(
+        agg["explanation"], ref_ids=agg.get("ref_id"), ref_urls=agg.get("ref_url"),
+    )
+
+    if linked_explanation and linked_explanation != "is_blank":
+        st.markdown(f"**{linked_explanation}**")
     elif agg["answer"] and agg["answer"] != "is_blank":
         st.markdown(f"**{agg['answer']}**")
     else:
@@ -843,7 +895,9 @@ def _display_ensemble_result(
                 f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
-                st.caption(info["explanation"])
+                st.caption(_linkify_citations(
+                    info["explanation"], ref_ids=info.get("ref_id"),
+                ))
             st.divider()
 
     # Clickable reference links
