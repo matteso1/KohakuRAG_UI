@@ -476,11 +476,13 @@ class ExperimentRunner:
         reset_gpu_peak_stats()
 
         dtype = self.config.get("hf_dtype", "4bit") if provider == "hf_local" else "api"
-        print(f"[init] Precision: {dtype}", flush=True)
 
         llm_load_start = time.time()
         self.chat_model = create_chat_model_from_config(self.config, SYSTEM_PROMPT)
         self.llm_load_time = time.time() - llm_load_start
+
+        effective = getattr(self.chat_model, "effective_dtype", dtype)
+        print(f"[init] Precision: {effective}", flush=True)
         print(f"[init] LLM loaded in {self.llm_load_time:.1f}s", flush=True)
 
         embed_model_type = self.config.get("embedding_model", "jina")
