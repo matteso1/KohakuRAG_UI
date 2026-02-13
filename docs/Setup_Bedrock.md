@@ -31,37 +31,21 @@ cd ~/GitHub
 # macOS / Linux example:
 cd ~/GitHub
 
-git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
+git clone -b main https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 ```
 
 ### 2) Install uv (fast Python package manager)
 
-<details>
-<summary><b>Windows (Git Bash)</b></summary>
-
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Close and reopen Git Bash, then verify:
+Close and reopen your terminal, then verify:
 
 ```bash
 uv --version
 ```
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc   # or ~/.zshrc on macOS
-uv --version
-```
-
-</details>
 
 ### 3) Create and activate the virtual environment
 
@@ -73,23 +57,13 @@ uv venv --python 3.11
 
 Activate the venv:
 
-<details>
-<summary><b>Windows (Git Bash)</b></summary>
-
 ```bash
+# Windows (Git Bash)
 source .venv/Scripts/activate
-```
 
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
-```bash
+# macOS / Linux
 source .venv/bin/activate
 ```
-
-</details>
 
 Verify:
 
@@ -138,44 +112,10 @@ Both should print without errors.
 Follow the official guide for your OS:
 https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
 
-<details>
-<summary><b>Windows</b></summary>
-
-Download and run the official MSI installer:
-
-https://awscli.amazonaws.com/AWSCLIV2.msi
-
-Or, if you have `winget` (run from cmd.exe or PowerShell):
-
-```
-winget install Amazon.AWSCLI
-```
-
-Close and reopen Git Bash after installation.
-
-</details>
-
-<details>
-<summary><b>macOS</b></summary>
-
-```bash
-brew install awscli
-```
-
-Or use the official pkg installer:
-https://awscli.amazonaws.com/AWSCLIV2.pkg
-
-</details>
-
-<details>
-<summary><b>Linux</b></summary>
-
-```bash
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip && sudo ./aws/install
-```
-
-</details>
+- **Windows**: Download the MSI installer from https://awscli.amazonaws.com/AWSCLIV2.msi
+  (or `winget install Amazon.AWSCLI` from cmd/PowerShell). Reopen Git Bash after installing.
+- **macOS**: `brew install awscli`
+- **Linux**: `curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && unzip awscliv2.zip && sudo ./aws/install`
 
 Verify:
 
@@ -240,8 +180,7 @@ AWS_REGION=us-east-2
 
 ### Alternative credential methods
 
-<details>
-<summary><b>Option B: Direct credentials (CI/CD or non-SSO)</b></summary>
+**Option B — Direct credentials (CI/CD or non-SSO):**
 
 ```bash
 # In .env (DO NOT commit this file)
@@ -250,16 +189,11 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-2
 ```
 
-</details>
-
-<details>
-<summary><b>Option C: IAM instance role (EC2/Lambda)</b></summary>
+**Option C — IAM instance role (EC2/Lambda):**
 
 If running on an AWS EC2 instance or Lambda with an attached IAM role that
 has `bedrock:InvokeModel` permissions, no credentials need to be configured.
 The SDK will use the instance role automatically.
-
-</details>
 
 ---
 
