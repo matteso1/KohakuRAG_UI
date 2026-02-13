@@ -10,8 +10,8 @@ This script proves the whole pipeline works. It:
 It's a great starting point for understanding how the pieces fit together.
 
 Prerequisites:
-- You need to be logged into AWS SSO: `aws sso login --profile bedrock_nils`
-- You need the WattBot index built: `python KohakuRAG/scripts/wattbot_build_index.py ...`
+- You need to be logged into AWS SSO: `aws sso login --profile <your_profile>`
+- You need the WattBot index at data/embeddings/wattbot_jinav4.db (see docs/Setup_Bedrock.md step 13)
 
 Usage:
     python scripts/demo_bedrock_rag.py --question "How much water does ChatGPT consume?"
@@ -36,9 +36,9 @@ from kohakurag.embeddings import JinaEmbeddingModel
 
 
 # Default configuration
-DEFAULT_DB = "artifacts/wattbot.db"
-DEFAULT_TABLE_PREFIX = "wattbot"
-DEFAULT_PROFILE = "bedrock_nils"
+DEFAULT_DB = "data/embeddings/wattbot_jinav4.db"
+DEFAULT_TABLE_PREFIX = "wattbot_jv4"
+DEFAULT_PROFILE = None  # reads AWS_PROFILE from .env automatically
 DEFAULT_REGION = "us-east-2"
 DEFAULT_MODEL = "us.anthropic.claude-3-haiku-20240307-v1:0"
 

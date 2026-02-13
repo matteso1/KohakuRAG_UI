@@ -957,6 +957,11 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
 
     config = load_config(config_path)
     config["_config_path"] = config_path
+
+    # Auto-detect environment from provider when not explicitly set
+    if not run_environment and config.get("llm_provider") == "bedrock":
+        run_environment = "Bedrock"
+
     config["_run_environment"] = run_environment
 
     # CLI --precision overrides any hf_dtype in config (only relevant for hf_local)

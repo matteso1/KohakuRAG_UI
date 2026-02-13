@@ -59,13 +59,20 @@ artifacts/*
 !artifacts/plots/
 !artifacts/results_matrix*.csv
 !artifacts/profile_mapping.json
-# Step 3: inside experiments/, ignore everything then whitelist
+# Step 3: inside experiments/, allow env directories (Bedrock, PowerEdge, GB10, ...)
 artifacts/experiments/*
 !artifacts/experiments/*/
-# Step 4: inside each experiment dir, ignore everything then whitelist
+# Step 4: allow datafile directories inside env dirs (train_QA, test_solutions, ...)
 artifacts/experiments/*/*
-!artifacts/experiments/*/summary.json
-!artifacts/experiments/*/submission.csv
+!artifacts/experiments/*/*/
+# Step 5: allow experiment name directories inside datafile dirs
+artifacts/experiments/*/*/*
+!artifacts/experiments/*/*/*/
+# Step 6: inside each experiment dir, only keep summary.json, submission.csv, and result chunks
+artifacts/experiments/*/*/*/*
+!artifacts/experiments/*/*/*/summary.json
+!artifacts/experiments/*/*/*/submission.csv
+!artifacts/experiments/*/*/*/results_chunk_*.json
 # Step 5: inside plots/, only keep .png (including env sub-folders)
 artifacts/plots/*
 !artifacts/plots/*.png
