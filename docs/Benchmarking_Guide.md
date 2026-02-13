@@ -29,12 +29,14 @@ python scripts/run_full_benchmark.py --provider hf_local --env $ENV \
 ### Phase 2 — Generate matrices & plots (individual models)
 
 ```bash
-# Per-system results matrices (one per system that has results)
-python scripts/generate_results_matrix.py --datafile $DS --system $ENV
+# Per-system results matrices (auto-discovers all systems)
+python scripts/generate_results_matrix.py --datafile $DS
 
 # Per-system plots (auto-discovers all systems)
 python scripts/plot_model_size.py      --datafile $DS
 python scripts/plot_score_breakdown.py --datafile $DS
+
+# Matrix-based plots (one call per system — needs corresponding matrix)
 python scripts/plot_from_matrix.py \
     --matrix artifacts/results_matrix_${ENV}.csv \
     --datafile $DS --system $ENV
@@ -75,8 +77,8 @@ python scripts/run_ensemble.py \
 ### Phase 4 — Regenerate matrices & plots (with ensembles)
 
 ```bash
-# Rebuild matrix (now includes ensemble rows)
-python scripts/generate_results_matrix.py --datafile $DS --system $ENV
+# Rebuild matrices (auto-discovers all systems, now includes ensemble rows)
+python scripts/generate_results_matrix.py --datafile $DS
 
 # Regenerate all plots
 python scripts/plot_model_size.py      --datafile $DS
@@ -544,26 +546,27 @@ All scripts also accept `--system/-S <name>` to restrict to a specific
 hardware system (e.g. `PowerEdge`, `GB10`, `Bedrock`). Plots are always
 saved to a per-system subfolder under the datafile directory.
 
-**Auto-discovery:** `plot_model_size.py` and `plot_score_breakdown.py`
-automatically discover all system directories and generate one set of plots
-per system when `--system` is not specified. This is the default and
-recommended workflow — you don't need to call them multiple times.
+**Auto-discovery:** `generate_results_matrix.py`, `plot_model_size.py`, and
+`plot_score_breakdown.py` automatically discover all system directories and
+generate one output per system when `--system` is not specified. This is the
+default and recommended workflow — you don't need to call them multiple times.
 
-`plot_from_matrix.py` requires a pre-built matrix CSV, so per-system
-matrices must be generated first with `generate_results_matrix.py --system`.
+`plot_from_matrix.py` requires a pre-built matrix CSV, so it must be called
+once per system with the corresponding `--matrix` path.
 
 ```bash
-# 1. Generate per-system plots (auto-discovers PowerEdge, GB10, etc.)
+# 1. Per-system results matrices (auto-discovers PowerEdge, GB10, etc.)
+#    Outputs: results_matrix_PowerEdge.csv, results_matrix_GB10.csv, ...
+python scripts/generate_results_matrix.py --datafile test_solutions
+
+# 2. Per-system plots (auto-discovers all systems)
 python scripts/plot_model_size.py      --datafile test_solutions
 python scripts/plot_score_breakdown.py --datafile test_solutions
 
-# 2. Or target a single system explicitly
+# 3. Or target a single system explicitly
 python scripts/plot_model_size.py      --datafile test_solutions --system PowerEdge
 
-# 3. Per-system results matrix (for matrix-based plots)
-#    --system auto-names the output: results_matrix_PowerEdge.csv, etc.
-python scripts/generate_results_matrix.py --datafile test_solutions --system PowerEdge
-python scripts/generate_results_matrix.py --datafile test_solutions --system GB10
+# 4. Matrix-based plots (one call per system — needs corresponding matrix)
 python scripts/plot_from_matrix.py \
     --matrix artifacts/results_matrix_PowerEdge.csv \
     --datafile test_solutions --system PowerEdge
@@ -571,7 +574,7 @@ python scripts/plot_from_matrix.py \
     --matrix artifacts/results_matrix_GB10.csv \
     --datafile test_solutions --system GB10
 
-# 4. Cross-system latency comparison
+# 5. Cross-system latency comparison
 python scripts/plot_cross_system_latency.py --datafile test_solutions
 ```
 
