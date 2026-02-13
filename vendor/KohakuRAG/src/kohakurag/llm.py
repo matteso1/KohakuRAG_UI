@@ -525,7 +525,11 @@ class HuggingFaceLocalChatModel(ChatModel):
             self._model_id,
             **load_kwargs,
         )
-        print(f"[init] Model weights loaded", flush=True)
+        # Report where the model actually landed
+        device = next(self._model.parameters()).device
+        print(f"[init] Model weights loaded -> {device}"
+              f"{' (GPU)' if device.type == 'cuda' else ' *** WARNING: on CPU, GPU not used ***'}",
+              flush=True)
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
         """Generate a chat completion using local HF model.
@@ -545,10 +549,7 @@ class HuggingFaceLocalChatModel(ChatModel):
         ]
 
         async def _run() -> str:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self._generate_sync, messages),
-                timeout=300,  # 5 min per generation call
-            )
+            return await asyncio.to_thread(self._generate_sync, messages)
 
         if self._semaphore is not None:
             async with self._semaphore:
