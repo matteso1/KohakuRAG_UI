@@ -194,20 +194,22 @@ You will be prompted for:
 | Prompt | Value |
 |--------|-------|
 | SSO session name | `bedrock_yourname` (e.g. `bedrock_endemann`) |
-| SSO start URL | `https://uw-madison-dlt3.awsapps.com/start` |
-| SSO region | `us-east-1` |
+| SSO start URL | `https://uw-madison-dlt3.awsapps.com/start/` |
+| SSO region | `us-east-2` |
 | SSO registration scopes | *(press Enter for default)* |
 
-> **Important:** The SSO region is `us-east-1` (where IAM Identity Center
-> lives). This is different from the Bedrock region (`us-east-2`) used later.
+A browser window will open for UW login. You may be asked to
+**"Allow botocore-client to access your data"** — click Allow.
 
-A browser window will open for UW login. After authenticating, select the
-Bedrock account (`183295408236`) and role, then finish the CLI prompts:
+After authenticating, you'll see available accounts. Select the
+**`ml-marathon-2024`** account, then choose the **`ml-bedrock...`** role.
+
+Finish the CLI prompts:
 
 | Prompt | Value |
 |--------|-------|
 | CLI default client Region | `us-east-2` |
-| CLI default output format | `json` |
+| CLI default output format | *(press Enter for json)* |
 | CLI profile name | `bedrock_yourname` (match the session name) |
 
 ### 9) Verify SSO works
@@ -310,7 +312,7 @@ Tokens: {'inputTokens': 18, 'outputTokens': 4, 'totalTokens': 22}
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `InvalidRequestException` on `RegisterClient` | Wrong SSO region or network issue | SSO region must be `us-east-1` (not `us-east-2`). Re-run `aws configure sso` |
+| `InvalidRequestException` on `RegisterClient` | Wrong SSO start URL or region | Verify the start URL (`https://uw-madison-dlt3.awsapps.com/start/`) and SSO region (`us-east-2`). Re-run `aws configure sso` |
 | `ExpiredTokenException` | SSO session expired | `aws sso login --profile bedrock_yourname` |
 | `AccessDeniedException` | Model not enabled | See "Enable Models" below |
 | `ValidationException: model not found` | Wrong model ID or region | Check model ID and try `us-east-1` |
