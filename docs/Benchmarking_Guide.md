@@ -158,18 +158,11 @@ full precision (roughly 4× more VRAM).
 
 | Config file              | Model                        | Params | VRAM (4-bit) | Provider  |
 |--------------------------|------------------------------|--------|--------------|-----------|
-| `hf_qwen1_5b.py`        | Qwen 2.5 1.5B Instruct      | 1.5B   | ~2 GB        | hf_local  |
-| `hf_qwen3b.py`          | Qwen 2.5 3B Instruct        | 3B     | ~3 GB        | hf_local  |
 | `hf_qwen7b.py`          | Qwen 2.5 7B Instruct        | 7B     | ~6 GB        | hf_local  |
 | `hf_qwen14b.py`         | Qwen 2.5 14B Instruct       | 14B    | ~10 GB       | hf_local  |
 | `hf_qwen32b.py`         | Qwen 2.5 32B Instruct       | 32B    | ~20 GB       | hf_local  |
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
-| `hf_llama3_8b.py`       | Llama 3.1 8B Instruct       | 8B     | ~6 GB        | hf_local  |
-| `hf_gemma2_9b.py`       | Gemma 2 9B Instruct         | 9B     | ~7 GB        | hf_local  |
 | `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
-| `hf_mixtral_8x7b.py`    | Mixtral 8x7B Instruct (MoE) | 46.7B  | ~26 GB       | hf_local  |
-| `hf_mistral7b.py`       | Mistral 7B Instruct v0.3    | 7B     | ~6 GB        | hf_local  |
-| `hf_phi3_mini.py`       | Phi-3.5 Mini (3.8B)         | 3.8B   | ~3 GB        | hf_local  |
 
 Bedrock configs (from the `bedrock` branch) also work if you have
 `llm_bedrock.py` and AWS credentials set up.
