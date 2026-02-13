@@ -135,6 +135,9 @@ Both should print without errors.
 
 ### 7) Install the AWS CLI
 
+Follow the official guide for your OS:
+https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
 <details>
 <summary><b>Windows</b></summary>
 
