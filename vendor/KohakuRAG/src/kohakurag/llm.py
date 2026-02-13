@@ -501,9 +501,11 @@ class HuggingFaceLocalChatModel(ChatModel):
         )
 
         # Load tokenizer
+        print(f"[init] Loading tokenizer for {model}...", flush=True)
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._model_id, use_fast=True
         )
+        print(f"[init] Tokenizer ready", flush=True)
 
         # Resolve dtype and quantization
         load_kwargs = {"device_map": "auto"}
@@ -528,10 +530,50 @@ class HuggingFaceLocalChatModel(ChatModel):
                 load_kwargs["dtype"] = torch.float16
 
         # Load model with automatic device placement
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self._model_id,
-            **load_kwargs,
-        )
+        effective_dtype = dtype
+        print(f"[init] Loading model weights...", flush=True)
+        try:
+            self._model = AutoModelForCausalLM.from_pretrained(
+                self._model_id,
+                **load_kwargs,
+            )
+        except ValueError as exc:
+            # Pre-quantized models (e.g. FP8) conflict with BitsAndBytesConfig;
+            # fall back to loading with native quantization.
+            if "quantization_config" in load_kwargs and "quantized" in str(exc):
+                effective_dtype = "native"
+                print(
+                    f"[init] Model is pre-quantized; loading with native "
+                    f"quantization instead of {dtype}...",
+                    flush=True,
+                )
+                load_kwargs.pop("quantization_config")
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    self._model_id,
+                    **load_kwargs,
+                )
+            else:
+                raise
+        self.effective_dtype = effective_dtype
+        # Report where the model actually landed
+        device = next(self._model.parameters()).device
+        if device.type == "cuda":
+            # With device_map="auto", layers may span multiple GPUs.
+            # Show the full device distribution if available.
+            hf_device_map = getattr(self._model, "hf_device_map", None)
+            if hf_device_map:
+                devices_used = sorted(set(str(d) for d in hf_device_map.values()))
+                if len(devices_used) > 1:
+                    print(f"[init] Model weights loaded ({effective_dtype}) -> sharded across {', '.join(f'cuda:{d}' if d.isdigit() else d for d in devices_used)} (multi-GPU)",
+                          flush=True)
+                else:
+                    print(f"[init] Model weights loaded ({effective_dtype}) -> cuda:{devices_used[0]} (GPU)",
+                          flush=True)
+            else:
+                print(f"[init] Model weights loaded ({effective_dtype}) -> {device} (GPU)", flush=True)
+        else:
+            print(f"[init] Model weights loaded ({effective_dtype}) -> {device} *** WARNING: on CPU, GPU not used ***",
+                  flush=True)
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
         """Generate a chat completion using local HF model.
@@ -551,10 +593,7 @@ class HuggingFaceLocalChatModel(ChatModel):
         ]
 
         async def _run() -> str:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self._generate_sync, messages),
-                timeout=300,  # 5 min per generation call
-            )
+            return await asyncio.to_thread(self._generate_sync, messages)
 
         if self._semaphore is not None:
             async with self._semaphore:

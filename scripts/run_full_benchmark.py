@@ -52,6 +52,7 @@ HF_LOCAL_MODELS = {
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
     "hf_qwen72b": "qwen72b-bench",
+    "hf_qwen1_5_110b": "qwen1.5-110b-bench",
     # "hf_gemma2_9b": "gemma2-9b-bench",     # gated — needs HF_TOKEN
     # "hf_gemma2_27b": "gemma2-27b-bench",   # gated — needs HF_TOKEN
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
@@ -134,6 +135,10 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     )
     # Matches e.g. "[3/41] Q123: some answer [OK] (8.2s | ret=0.5s gen=7.7s)"
     _progress_re = re.compile(r"^\[(\d+)/(\d+)\].*\[(?:OK|WRONG)\]\s*\((\d+\.\d+)s")
+    # Matches "[1/282] Q123: processing..." or "[1/282] Q123: TIMEOUT ..."
+    _status_re = re.compile(r"^\[(\d+)/(\d+)\].*(?:processing\.\.\.|TIMEOUT|ERROR)")
+    # Stage prefixes to forward so the user sees loading/run progress
+    _stage_prefixes = ("[init]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
         proc = subprocess.Popen(
@@ -154,6 +159,21 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         for line in iter(proc.stdout.readline, ""):
             line = line.rstrip("\n")
             all_lines.append(line)
+
+            # Forward key stage lines so the user sees loading progress
+            if any(line.startswith(p) for p in _stage_prefixes):
+                print(f"  {line}", flush=True)
+                continue
+
+            # Forward "processing..." / TIMEOUT / ERROR status lines
+            if _status_re.match(line):
+                elapsed = time.time() - start_time
+                print(f"\r  {line}  [{elapsed:.0f}s elapsed]", end="", flush=True)
+                continue
+
+            # Skip noisy lines early (before progress/report checks)
+            if _noise_re.search(line):
+                continue
 
             # Extract progress from per-question output
             m = _progress_re.match(line)

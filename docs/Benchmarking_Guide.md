@@ -224,30 +224,7 @@ The benchmark runner:
 - Skips models whose config files don't exist
 - Runs each model as a subprocess with a 30-minute timeout
 - Prints a pass/fail/skip summary at the end
-
----
-
-## 4) Comparing results across runs
-
-### Post-hoc normalisation and scoring
-
-After an experiment completes, run post-hoc processing to normalise raw
-model output and produce a Kaggle-ready `submission.csv`:
-
-```bash
-# Process a single experiment (auto-finds results.json)
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
-```
-
-### Score a submission against ground truth
-
-```bash
-python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
-```
-
+- 
 ### Generate a side-by-side comparison matrix
 
 ```bash
@@ -264,11 +241,35 @@ python scripts/generate_results_matrix.py --datafile test_solutions
 python scripts/generate_results_matrix.py \
     --submissions artifacts/experiments/*/submission.csv \
     --output artifacts/results_matrix.csv
+    
 ```
 
 This produces a CSV where each row is a question and columns show each model's
 prediction + correctness, making it easy to spot which questions each model
 gets right or wrong.
+
+
+## 4) Comparing results across runs
+
+### Post-hoc normalisation and scoring (run_full_benchmark will run this automatically)
+
+After an experiment completes, run post-hoc processing to normalise raw
+model output and produce a Kaggle-ready `submission.csv`:
+
+```bash
+# Process a single experiment (auto-finds results.json)
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
+
+# Dry-run: see the score without writing files
+python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
+```
+
+### Score a submission against ground truth (run_full_benchmark will run this automatically)
+
+```bash
+python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
+```
+
 
 ### Ensemble voting
 
@@ -297,16 +298,6 @@ state.  LLM sampling temperature introduces per-run diversity.
 **Mode 2 — Cross-model ensemble**: Aggregate results from previously completed
 experiments (different models).
 
-```bash
-python scripts/run_ensemble.py \
-    --experiments qwen7b-v1 llama3-8b-v1 mistral7b-v1 \
-    --name ensemble-3way --env PowerEdge
-
-# Specify datafile explicitly (auto-detected from source experiments by default)
-python scripts/run_ensemble.py \
-    --experiments qwen7b-v1 llama3-8b-v1 \
-    --name ensemble-test --env PowerEdge --datafile test_solutions
-```
 
 **Aggregation strategies:**
 
@@ -320,34 +311,6 @@ python scripts/run_ensemble.py \
 answer, blank ("is_blank") runs are filtered out before voting.  Enabled by
 default for same-model ensembles.
 
-### Recommended ensemble: Top-3 majority vote
-
-Based on test_solutions benchmarking (n=282), the recommended production
-ensemble is **Qwen 2.5 72B + Qwen 2.5 32B + Qwen 2.5 14B** using majority
-voting. This combination was selected for complementary strengths:
-
-| Model          | WattBot Score | NA Recall | Unique Wins | Latency | VRAM (4-bit) |
-|----------------|:---:|:---:|:---:|:---:|:---:|
-| Qwen 2.5 72B  | 0.752 | 0.938 | 0 | 15.7s | ~33 GB |
-| Qwen 2.5 32B  | 0.710 | **1.000** | 2 | **8.4s** | ~22 GB |
-| Qwen 2.5 14B  | 0.660 | 0.875 | **4** | 16.0s | ~15 GB |
-
-**Why these three:**
-
-- **72B** is the top scorer overall (highest value accuracy and ref overlap).
-- **32B** has perfect NA recall (1.0) — it never misclassifies an
-  unanswerable question, acting as a safety anchor in the vote.
-- **14B** has the most unique wins (4 questions only it gets right) and
-  the lowest agreement with the other two (~0.82), providing the diversity
-  that makes ensembling worthwhile.
-- All three are Qwen 2.5 family at 4-bit, so inference infrastructure is
-  uniform. Combined VRAM is ~70 GB (fits sequentially on a single 96 GB GPU).
-
-**Why not Qwen3 30B-A3B?** Despite ranking #2 individually (0.724), it is
-9x slower than 32B (76s vs 8.4s per question), uses 2x more energy
-(297 Wh vs 131 Wh), has worse NA recall (0.81), and only 1 unique win.
-Its agreement with 72B (0.91) is the same as 32B's, so it adds no extra
-diversity.
 
 ```bash
 # Run the recommended ensemble on test_solutions

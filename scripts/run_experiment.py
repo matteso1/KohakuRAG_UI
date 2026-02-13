@@ -103,6 +103,7 @@ class QuestionResult:
     rendered_prompt: str = ""  # The complete prompt sent to the LLM
     retrieved_snippets: list = field(default_factory=list)  # [{node_id, doc_title, text, score, rank}]
     num_snippets: int = 0
+    retry_count: int = 0  # Number of iterative-deepening retries used (0 = answered on first attempt)
 
 
 @dataclass
@@ -135,6 +136,10 @@ class ExperimentSummary:
     config_snapshot: dict = field(default_factory=dict)
     # Run environment (machine label for cross-machine comparison)
     run_environment: str = ""  # e.g. "GB10", "PowerEdge", "Bedrock-us-east-1"
+    # Retry stats
+    total_retries: int = 0  # Sum of retry_count across all questions
+    questions_retried: int = 0  # Number of questions that needed at least 1 retry
+    avg_retries: float = 0.0  # Average retry_count per question
     # Dataset info
     questions_file: str = ""  # path to the questions CSV used for this run
 
@@ -470,15 +475,22 @@ class ExperimentRunner:
         # Reset GPU peak stats before loading (for accurate VRAM measurement)
         reset_gpu_peak_stats()
 
+        dtype = self.config.get("hf_dtype", "4bit") if provider == "hf_local" else "api"
+
         llm_load_start = time.time()
         self.chat_model = create_chat_model_from_config(self.config, SYSTEM_PROMPT)
         self.llm_load_time = time.time() - llm_load_start
-        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s")
 
+        effective = getattr(self.chat_model, "effective_dtype", dtype)
+        print(f"[init] Precision: {effective}", flush=True)
+        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s", flush=True)
+
+        embed_model_type = self.config.get("embedding_model", "jina")
+        print(f"[init] Loading embedder ({embed_model_type})...", flush=True)
         embed_load_start = time.time()
         embedder = create_embedder_from_config(self.config)
         self.embedder_load_time = time.time() - embed_load_start
-        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s")
+        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s", flush=True)
 
         self.model_load_time = self.llm_load_time + self.embedder_load_time
 
@@ -529,6 +541,7 @@ class ExperimentRunner:
         - Stops after max_retries additional attempts or on a non-blank answer.
         """
         async with self.semaphore:
+            print(f"[{index}/{total}] {row['id']}: processing...", flush=True)
             start_time = time.time()
             error_msg = None
             raw_response = ""
@@ -551,6 +564,7 @@ class ExperimentRunner:
                 base_top_k_final = self.config.get("top_k_final", None)
                 result = None
                 answer_is_blank = True
+                retry_count = 0
 
                 # Retry loop: increase retrieval depth on blank answers
                 for attempt in range(self.max_retries + 1):
@@ -592,9 +606,13 @@ class ExperimentRunner:
                         or not result.answer.ref_id
                     )
                     if not answer_is_blank:
+                        retry_count = attempt
                         break  # Got a valid answer
                     if attempt < self.max_retries:
                         print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...", flush=True)
+                else:
+                    # All retries exhausted — record the full count
+                    retry_count = self.max_retries
 
                 # Store raw model output — normalisation is applied post-hoc
                 # by scripts/posthoc.py (single source of truth).
@@ -686,6 +704,7 @@ class ExperimentRunner:
                 rendered_prompt=rendered_prompt,
                 retrieved_snippets=snippets_data,
                 num_snippets=len(snippets_data),
+                retry_count=retry_count,
             )
 
     async def run(self, questions_df: pd.DataFrame) -> ExperimentSummary:
@@ -755,46 +774,19 @@ class ExperimentRunner:
         for batch_start in range(0, len(remaining_rows), CHUNK_SIZE):
             batch_rows = remaining_rows[batch_start : batch_start + CHUNK_SIZE]
 
-            PER_QUESTION_TIMEOUT = 600  # 10 minutes per question
-
             tasks = []
             for i, (_idx, row) in enumerate(batch_rows):
                 done_so_far = len(completed_ids) + batch_start + i + 1
                 tasks.append(
-                    asyncio.wait_for(
-                        self.process_question(row, done_so_far, total),
-                        timeout=PER_QUESTION_TIMEOUT,
-                    )
+                    self.process_question(row, done_so_far, total)
                 )
 
             batch_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Convert timeouts to error QuestionResult objects
+            # Convert exceptions to error QuestionResult objects
             batch_results = []
             for j, result in enumerate(batch_results_raw):
-                if isinstance(result, asyncio.TimeoutError):
-                    _idx, row = batch_rows[j]
-                    done_so_far = len(completed_ids) + batch_start + j + 1
-                    print(f"[{done_so_far}/{total}] {row['id']}: TIMEOUT (>{PER_QUESTION_TIMEOUT}s)", flush=True)
-                    batch_results.append(QuestionResult(
-                        id=row["id"],
-                        question=row["question"],
-                        gt_value=str(row.get("answer_value", "is_blank")),
-                        gt_unit=str(row.get("answer_unit", "")),
-                        gt_ref=str(row.get("ref_id", "is_blank")),
-                        pred_value="is_blank",
-                        pred_unit=str(row.get("answer_unit", "")),
-                        pred_ref="is_blank",
-                        pred_explanation=f"Error: Timeout after {PER_QUESTION_TIMEOUT}s",
-                        raw_response="",
-                        value_correct=False,
-                        ref_score=0.0,
-                        na_correct=False,
-                        weighted_score=0.0,
-                        latency_seconds=float(PER_QUESTION_TIMEOUT),
-                        error=f"Timeout after {PER_QUESTION_TIMEOUT}s",
-                    ))
-                elif isinstance(result, Exception):
+                if isinstance(result, Exception):
                     _idx, row = batch_rows[j]
                     done_so_far = len(completed_ids) + batch_start + j + 1
                     print(f"[{done_so_far}/{total}] {row['id']}: ERROR - {str(result)[:80]}", flush=True)
@@ -848,6 +840,9 @@ class ExperimentRunner:
         avg_retrieval = sum(r.retrieval_seconds for r in self.results) / total
         avg_generation = sum(r.generation_seconds for r in self.results) / total
         error_count = sum(1 for r in self.results if r.error)
+        total_retries = sum(r.retry_count for r in self.results)
+        questions_retried = sum(1 for r in self.results if r.retry_count > 0)
+        avg_retries = total_retries / total if total else 0.0
 
         # Get token usage from chat model (if supported)
         input_tokens = 0
@@ -901,6 +896,9 @@ class ExperimentRunner:
             estimated_cost_usd=estimated_cost,
             hardware=hw_dict,
             config_snapshot=self.config,
+            total_retries=total_retries,
+            questions_retried=questions_retried,
+            avg_retries=avg_retries,
             run_environment=self.config.get("_run_environment", ""),
             questions_file=self.config.get("_questions_file", ""),
         )
@@ -947,6 +945,16 @@ class ExperimentRunner:
 
 async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit") -> None:
     """Run an experiment with the given config."""
+    # Print CUDA status upfront so GPU issues are caught immediately
+    import torch
+    if torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(gpu_count)]
+        gpu_str = ", ".join(f"cuda:{i} {name}" for i, name in enumerate(gpu_names))
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: True | {gpu_count} GPU(s): {gpu_str}")
+    else:
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: False | *** WARNING: running on CPU ***")
+
     config = load_config(config_path)
     config["_config_path"] = config_path
     config["_run_environment"] = run_environment

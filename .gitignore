@@ -4,6 +4,24 @@
 .env
 .env.local
 
+# CONFIDENTIAL: WattBot competition test solutions -- DO NOT COMMIT
+# Chris may reuse this for future competitions
+test_solutions.csv
+**/test_solutions.csv
+
+# Claude Code artifacts
+.claude/
+*.jsonl
+
+# Output artifacts (regeneratable)
+outputs/
+
+# Windows artifacts
+nul
+
+# Temporary/working files
+conversation_history.txt
+
 # Python
 __pycache__/
 *.py[cod]
@@ -32,6 +50,25 @@ data/pdfs/
 
 # Experiment outputs (large, machine-specific)
 artifacts/raw_pdfs/
+
+# Artifacts -- ignore everything EXCEPT specific result files
+# Step 1: ignore everything under artifacts
+artifacts/*
+# Step 2: un-ignore the directories we need
+!artifacts/experiments/
+!artifacts/plots/
+!artifacts/results_matrix*.csv
+!artifacts/profile_mapping.json
+# Step 3: inside experiments/, ignore everything then whitelist
+artifacts/experiments/*
+!artifacts/experiments/*/
+# Step 4: inside each experiment dir, ignore everything then whitelist
+artifacts/experiments/*/*
+!artifacts/experiments/*/summary.json
+!artifacts/experiments/*/submission.csv
+# Step 5: inside plots/, only keep .png
+artifacts/plots/*
+!artifacts/plots/*.png
 
 # Vector databases are derived (built from data/corpus/) and too large for GitHub (>100MB).
 # Each machine rebuilds via: cd vendor/KohakuRAG && kogine run scripts/wattbot_build_index.py ...
