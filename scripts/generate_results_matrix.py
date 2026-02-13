@@ -82,6 +82,190 @@ def build_gt_from_results_json(submission_files: list) -> pd.DataFrame:
     return df
 
 
+def _discover_systems(experiments_dir: Path) -> list[str]:
+    """Return sorted list of system directory names under experiments_dir."""
+    return sorted(
+        d.name for d in experiments_dir.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    )
+
+
+def _output_path_for_system(base_output: str, system: str) -> str:
+    """Derive per-system output path: results_matrix.csv -> results_matrix_PowerEdge.csv."""
+    p = Path(base_output)
+    return str(p.parent / f"{p.stem}_{system}{p.suffix}")
+
+
+def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
+                     output: str, datafile: str | None, system: str | None):
+    """Core logic: expand globs, load GT, score submissions, write matrix."""
+    label = f"[{system}] " if system else ""
+
+    # Expand globs
+    submission_files = []
+    for pattern in submission_patterns:
+        expanded = glob.glob(pattern)
+        if expanded:
+            submission_files.extend([Path(p) for p in expanded])
+        else:
+            p = Path(pattern)
+            if p.exists():
+                submission_files.append(p)
+
+    # Filter to datafile subfolder if specified
+    if datafile:
+        submission_files = [p for p in submission_files if datafile in p.parts]
+
+    # Filter to system subfolder if specified
+    if system:
+        submission_files = [p for p in submission_files if system in p.parts]
+
+    unique_files = sorted(list(set(submission_files)))
+    if not unique_files:
+        print(f"{label}No submission files found — skipping")
+        return
+
+    print(f"{label}Loading {len(unique_files)} submission files...")
+
+    # Load Ground Truth - try multiple sources in order of preference
+    project_root = Path(__file__).parent.parent
+    gt_df = None
+    csv_gt_df = None  # keep CSV GT for explanation metadata
+
+    if ground_truth:
+        gt_candidates = [Path(ground_truth)]
+    else:
+        gt_candidates = [
+            project_root / "data" / "test_solutions.csv",
+            project_root / "data" / "train_QA.csv",
+        ]
+
+    for gt_path in gt_candidates:
+        if gt_path.exists():
+            try:
+                csv_gt_df = load_ground_truth(gt_path)
+                print(f"{label}Loaded ground truth from {gt_path} ({len(csv_gt_df)} questions).")
+                break
+            except Exception as e:
+                print(f"{label}Warning: Could not load {gt_path}: {e}")
+
+    # Check if CSV GT covers the submission IDs and pick best GT source
+    if csv_gt_df is not None:
+        sample_sub = load_submission(unique_files[0])
+        if sample_sub is not None:
+            overlap = len(csv_gt_df.index.intersection(sample_sub.index))
+            sub_count = len(sample_sub)
+            if overlap == 0:
+                print(f"{label}CSV ground truth has no overlapping IDs with submissions.")
+            elif overlap < sub_count:
+                print(f"{label}CSV ground truth covers {overlap}/{sub_count} submission IDs.")
+
+            # Use CSV GT directly if it covers all (or most) submissions
+            if overlap >= sub_count * 0.9:
+                gt_df = csv_gt_df
+            else:
+                # Try results.json for better ID coverage, merge CSV explanations
+                json_gt = build_gt_from_results_json(unique_files)
+                if json_gt is not None:
+                    if "explanation" in csv_gt_df.columns:
+                        common = json_gt.index.intersection(csv_gt_df.index)
+                        if len(common) > 0:
+                            json_gt.loc[common, "explanation"] = csv_gt_df.loc[common, "explanation"]
+                            print(f"{label}Merged explanations for {len(common)} questions from CSV ground truth.")
+                    gt_df = json_gt
+                    print(f"{label}Using results.json ground truth ({len(json_gt)} questions).")
+                else:
+                    gt_df = csv_gt_df
+                    print(f"{label}Using CSV ground truth despite low overlap ({overlap}/{sub_count}).")
+        else:
+            gt_df = csv_gt_df
+
+    if gt_df is None:
+        gt_df = build_gt_from_results_json(unique_files)
+        if gt_df is None:
+            print(f"{label}Error: No ground truth found (neither CSV nor results.json).")
+            return
+        print(f"{label}Reconstructed ground truth for {len(gt_df)} questions from results.json files.")
+
+    # Initialize Master DataFrame with GT
+    cols_to_keep = ["question", "answer_value", "ref_id"]
+    for c in ["explanation", "answer_unit", "question_type"]:
+        if c in gt_df.columns:
+            cols_to_keep.append(c)
+
+    master_df = gt_df[cols_to_keep].copy()
+    rename_map = {"answer_value": "GT_Value", "ref_id": "GT_Ref"}
+    if "explanation" in cols_to_keep:
+        rename_map["explanation"] = "GT_Explanation"
+    master_df = master_df.rename(columns=rename_map)
+
+    # Iterate through submissions and merge
+    processed_models = set()
+
+    for sub_path in unique_files:
+        # Derive model name
+        if sub_path.stem == "submission":
+            model_name = sub_path.parent.name
+        elif sub_path.stem.startswith("submission_"):
+            model_name = sub_path.stem.replace("submission_", "")
+        else:
+            model_name = sub_path.stem
+
+        model_name = model_name.replace("-v1", "").replace("bedrock_", "")
+
+        if model_name in processed_models:
+            print(f"{label}Skipping duplicate model: {model_name} ({sub_path})")
+            continue
+
+        processed_models.add(model_name)
+        print(f"{label}Processing {model_name}...")
+
+        sub_df = load_submission(sub_path)
+        if sub_df is None:
+            print(f"{label}Skipping {sub_path}: could not read")
+            continue
+
+        common_ids = master_df.index.intersection(sub_df.index)
+
+        if len(common_ids) == 0:
+             print(f"{label}Warning: No matching IDs for {model_name}")
+             continue
+
+        val_correct = []
+        ref_correct = []
+        na_correct = []
+
+        for qid in common_ids:
+            gt_row = gt_df.loc[qid]
+            sub_row = sub_df.loc[qid]
+
+            bits = row_bits(
+                sol={"answer_value": str(gt_row.get("answer_value", "")),
+                     "answer_unit": str(gt_row.get("answer_unit", "")),
+                     "ref_id": str(gt_row.get("ref_id", ""))},
+                sub={"answer_value": str(sub_row.get("answer_value", "")),
+                     "answer_unit": str(sub_row.get("answer_unit", "")),
+                     "ref_id": str(sub_row.get("ref_id", ""))}
+            )
+            val_correct.append(bits["val"])
+            ref_correct.append(bits["ref"])
+            na_correct.append(bits["na"])
+
+        temp_df = pd.DataFrame(index=common_ids)
+        temp_df[f"{model_name}_Value"] = sub_df.loc[common_ids, "answer_value"]
+        temp_df[f"{model_name}_Ref"] = sub_df.loc[common_ids, "ref_id"]
+        temp_df[f"{model_name}_ValCorrect"] = val_correct
+        temp_df[f"{model_name}_RefScore"] = ref_correct
+        temp_df[f"{model_name}_NACorrect"] = na_correct
+
+        master_df = master_df.join(temp_df, how="left")
+
+    # Output
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
+    print(f"{label}Writing matrix to {output}...")
+    master_df.to_csv(output)
+    print(f"{label}Done!")
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Results Matrix")
 
@@ -118,198 +302,35 @@ def main():
     parser.add_argument(
         "--system", "-S",
         default=None,
-        help="Filter to submissions from this system subfolder "
-             "(e.g. 'PowerEdge', 'GB10', 'Bedrock'). Default: include all.",
+        help="Filter to a single system subfolder "
+             "(e.g. 'PowerEdge', 'GB10', 'Bedrock'). "
+             "Default: auto-discover all systems and generate one matrix per system.",
     )
 
     args = parser.parse_args()
 
-    # Auto-adjust output path when --system is given and --output was not
-    # explicitly overridden, so per-system matrices don't clobber each other.
-    # e.g. artifacts/results_matrix.csv -> artifacts/results_matrix_PowerEdge.csv
-    if args.system and args.output == "artifacts/results_matrix.csv":
-        stem = Path(args.output).stem        # "results_matrix"
-        suffix = Path(args.output).suffix    # ".csv"
-        parent = str(Path(args.output).parent)
-        args.output = f"{parent}/{stem}_{args.system}{suffix}"
+    experiments_dir = Path("artifacts/experiments")
 
-    # Expand globs
-    submission_files = []
-    for pattern in args.submissions:
-        expanded = glob.glob(pattern)
-        if expanded:
-            submission_files.extend([Path(p) for p in expanded])
-        else:
-            # Maybe it's a direct file path that doesn't need glob expansion
-            p = Path(pattern)
-            if p.exists():
-                submission_files.append(p)
-
-    # Filter to datafile subfolder if specified
-    if args.datafile:
-        submission_files = [p for p in submission_files if args.datafile in p.parts]
-
-    # Filter to system subfolder if specified
     if args.system:
-        submission_files = [p for p in submission_files if args.system in p.parts]
-
-    unique_files = sorted(list(set(submission_files)))
-    if not unique_files:
-        print("No submission files found.")
-        sys.exit(1)
-
-    print(f"Loading {len(unique_files)} submission files...")
-
-    # Load Ground Truth - try multiple sources in order of preference
-    project_root = Path(__file__).parent.parent
-    gt_df = None
-    csv_gt_df = None  # keep CSV GT for explanation metadata
-
-    if args.ground_truth:
-        gt_candidates = [Path(args.ground_truth)]
+        # Single system — derive output path and run once
+        out = _output_path_for_system(args.output, args.system)
+        _generate_matrix(args.submissions, args.ground_truth, out,
+                         args.datafile, args.system)
     else:
-        gt_candidates = [
-            project_root / "data" / "test_solutions.csv",
-            project_root / "data" / "train_QA.csv",
-        ]
-
-    for gt_path in gt_candidates:
-        if gt_path.exists():
-            try:
-                csv_gt_df = load_ground_truth(gt_path)
-                print(f"Loaded ground truth from {gt_path} ({len(csv_gt_df)} questions).")
-                break
-            except Exception as e:
-                print(f"Warning: Could not load {gt_path}: {e}")
-
-    # Check if CSV GT covers the submission IDs and pick best GT source
-    if csv_gt_df is not None:
-        sample_sub = load_submission(unique_files[0])
-        if sample_sub is not None:
-            overlap = len(csv_gt_df.index.intersection(sample_sub.index))
-            sub_count = len(sample_sub)
-            if overlap == 0:
-                print(f"CSV ground truth has no overlapping IDs with submissions.")
-            elif overlap < sub_count:
-                print(f"CSV ground truth covers {overlap}/{sub_count} submission IDs.")
-
-            # Use CSV GT directly if it covers all (or most) submissions
-            if overlap >= sub_count * 0.9:
-                gt_df = csv_gt_df
-            else:
-                # Try results.json for better ID coverage, merge CSV explanations
-                json_gt = build_gt_from_results_json(unique_files)
-                if json_gt is not None:
-                    if "explanation" in csv_gt_df.columns:
-                        common = json_gt.index.intersection(csv_gt_df.index)
-                        if len(common) > 0:
-                            json_gt.loc[common, "explanation"] = csv_gt_df.loc[common, "explanation"]
-                            print(f"Merged explanations for {len(common)} questions from CSV ground truth.")
-                    gt_df = json_gt
-                    print(f"Using results.json ground truth ({len(json_gt)} questions).")
-                else:
-                    # CSV GT is still better than nothing
-                    gt_df = csv_gt_df
-                    print(f"Using CSV ground truth despite low overlap ({overlap}/{sub_count}).")
-        else:
-            gt_df = csv_gt_df
-
-    if gt_df is None:
-        gt_df = build_gt_from_results_json(unique_files)
-        if gt_df is None:
-            print("Error: No ground truth found (neither CSV nor results.json).")
+        # Auto-discover systems
+        if not experiments_dir.exists():
+            print(f"Error: experiments directory not found: {experiments_dir}")
             sys.exit(1)
-        print(f"Reconstructed ground truth for {len(gt_df)} questions from results.json files.")
+        systems = _discover_systems(experiments_dir)
+        if not systems:
+            print("No system directories found under experiments dir")
+            sys.exit(1)
+        print(f"Discovered {len(systems)} system(s): {systems}")
+        for system in systems:
+            out = _output_path_for_system(args.output, system)
+            _generate_matrix(args.submissions, args.ground_truth, out,
+                             args.datafile, system)
 
-    # Initialize Master DataFrame with GT
-    # Select relevant GT columns
-    cols_to_keep = ["question", "answer_value", "ref_id"]
-    # Add other metadata columns if they exist
-    for c in ["explanation", "answer_unit", "question_type"]:
-        if c in gt_df.columns:
-            cols_to_keep.append(c)
-
-    master_df = gt_df[cols_to_keep].copy()
-    rename_map = {"answer_value": "GT_Value", "ref_id": "GT_Ref"}
-    if "explanation" in cols_to_keep:
-        rename_map["explanation"] = "GT_Explanation"
-    master_df = master_df.rename(columns=rename_map)
-
-    # Iterate through submissions and merge
-    processed_models = set()
-
-    for sub_path in unique_files:
-        # Derive model name
-        if sub_path.stem == "submission":
-            # Use parent folder name: experiments/deepseek-r1-v1/submission.csv -> deepseek-r1
-            model_name = sub_path.parent.name
-        elif sub_path.stem.startswith("submission_"):
-            # artifacts/submission_llama4_scout.csv -> llama4_scout
-            model_name = sub_path.stem.replace("submission_", "")
-        else:
-            model_name = sub_path.stem
-
-        # Clean up tags
-        model_name = model_name.replace("-v1", "").replace("bedrock_", "")
-
-        if model_name in processed_models:
-            print(f"Skipping duplicate model: {model_name} ({sub_path})")
-            continue
-
-        processed_models.add(model_name)
-        print(f"Processing {model_name}...")
-
-        sub_df = load_submission(sub_path)
-        if sub_df is None:
-            print(f"Skipping {sub_path}: could not read")
-            continue
-
-        # Join with master
-        # We only care about matching IDs
-        common_ids = master_df.index.intersection(sub_df.index)
-
-        if len(common_ids) == 0:
-             print(f"Warning: No matching IDs for {model_name}")
-             continue
-
-
-        # Calculate scores for each row
-        val_correct = []
-        ref_correct = []
-        na_correct = []
-
-        for qid in common_ids:
-            gt_row = gt_df.loc[qid]
-            sub_row = sub_df.loc[qid]
-
-            # Use row_bits from score.py logic
-            bits = row_bits(
-                sol={"answer_value": str(gt_row.get("answer_value", "")),
-                     "answer_unit": str(gt_row.get("answer_unit", "")),
-                     "ref_id": str(gt_row.get("ref_id", ""))},
-                sub={"answer_value": str(sub_row.get("answer_value", "")),
-                     "answer_unit": str(sub_row.get("answer_unit", "")),
-                     "ref_id": str(sub_row.get("ref_id", ""))}
-            )
-            val_correct.append(bits["val"])
-            ref_correct.append(bits["ref"])
-            na_correct.append(bits["na"])
-
-        # Create temporary DF for this model's data
-        temp_df = pd.DataFrame(index=common_ids)
-        temp_df[f"{model_name}_Value"] = sub_df.loc[common_ids, "answer_value"]
-        temp_df[f"{model_name}_Ref"] = sub_df.loc[common_ids, "ref_id"]
-        temp_df[f"{model_name}_ValCorrect"] = val_correct
-        temp_df[f"{model_name}_RefScore"] = ref_correct
-        temp_df[f"{model_name}_NACorrect"] = na_correct
-
-        # Merge into master
-        master_df = master_df.join(temp_df, how="left")
-
-    # Output
-    print(f"Writing matrix to {args.output}...")
-    master_df.to_csv(args.output)
-    print("Done!")
 
 if __name__ == "__main__":
     main()
