@@ -491,9 +491,11 @@ class HuggingFaceLocalChatModel(ChatModel):
         )
 
         # Load tokenizer
+        print(f"[init] Loading tokenizer for {model}...", flush=True)
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._model_id, use_fast=True
         )
+        print(f"[init] Tokenizer ready", flush=True)
 
         # Resolve dtype and quantization
         load_kwargs = {"device_map": "auto"}
@@ -518,10 +520,12 @@ class HuggingFaceLocalChatModel(ChatModel):
                 load_kwargs["dtype"] = torch.float16
 
         # Load model with automatic device placement
+        print(f"[init] Loading model weights ({dtype})...", flush=True)
         self._model = AutoModelForCausalLM.from_pretrained(
             self._model_id,
             **load_kwargs,
         )
+        print(f"[init] Model weights loaded", flush=True)
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
         """Generate a chat completion using local HF model.
@@ -541,7 +545,10 @@ class HuggingFaceLocalChatModel(ChatModel):
         ]
 
         async def _run() -> str:
-            return await asyncio.to_thread(self._generate_sync, messages)
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._generate_sync, messages),
+                timeout=300,  # 5 min per generation call
+            )
 
         if self._semaphore is not None:
             async with self._semaphore:

@@ -139,6 +139,10 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     )
     # Matches e.g. "[3/41] Q123: some answer [OK] (8.2s | ret=0.5s gen=7.7s)"
     _progress_re = re.compile(r"^\[(\d+)/(\d+)\].*\[(?:OK|WRONG)\]\s*\((\d+\.\d+)s")
+    # Matches "[1/282] Q123: processing..." or "[1/282] Q123: TIMEOUT ..."
+    _status_re = re.compile(r"^\[(\d+)/(\d+)\].*(?:processing\.\.\.|TIMEOUT|ERROR)")
+    # Stage prefixes to forward so the user sees loading/run progress
+    _stage_prefixes = ("[init]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
         proc = subprocess.Popen(
@@ -156,9 +160,24 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         elapsed_sum = 0.0
         start_time = time.time()
 
-        for line in proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
             line = line.rstrip("\n")
             all_lines.append(line)
+
+            # Forward key stage lines so the user sees loading progress
+            if any(line.startswith(p) for p in _stage_prefixes):
+                print(f"  {line}", flush=True)
+                continue
+
+            # Forward "processing..." / TIMEOUT / ERROR status lines
+            if _status_re.match(line):
+                elapsed = time.time() - start_time
+                print(f"\r  {line}  [{elapsed:.0f}s elapsed]", end="", flush=True)
+                continue
+
+            # Skip noisy lines early (before progress/report checks)
+            if _noise_re.search(line):
+                continue
 
             # Extract progress from per-question output
             m = _progress_re.match(line)

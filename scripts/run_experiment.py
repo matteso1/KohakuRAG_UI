@@ -104,6 +104,7 @@ class QuestionResult:
     rendered_prompt: str = ""  # The complete prompt sent to the LLM
     retrieved_snippets: list = field(default_factory=list)  # [{node_id, doc_title, text, score, rank}]
     num_snippets: int = 0
+    retry_count: int = 0  # Number of iterative-deepening retries used (0 = answered on first attempt)
 
 
 @dataclass
@@ -136,6 +137,10 @@ class ExperimentSummary:
     config_snapshot: dict = field(default_factory=dict)
     # Run environment (machine label for cross-machine comparison)
     run_environment: str = ""  # e.g. "GB10", "PowerEdge", "Bedrock-us-east-1"
+    # Retry stats
+    total_retries: int = 0  # Sum of retry_count across all questions
+    questions_retried: int = 0  # Number of questions that needed at least 1 retry
+    avg_retries: float = 0.0  # Average retry_count per question
     # Dataset info
     questions_file: str = ""  # path to the questions CSV used for this run
 
@@ -470,15 +475,20 @@ class ExperimentRunner:
         # Reset GPU peak stats before loading (for accurate VRAM measurement)
         reset_gpu_peak_stats()
 
+        dtype = self.config.get("hf_dtype", "4bit") if provider == "hf_local" else "api"
+        print(f"[init] Precision: {dtype}", flush=True)
+
         llm_load_start = time.time()
         self.chat_model = create_chat_model_from_config(self.config, SYSTEM_PROMPT)
         self.llm_load_time = time.time() - llm_load_start
-        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s")
+        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s", flush=True)
 
+        embed_model_type = self.config.get("embedding_model", "jina")
+        print(f"[init] Loading embedder ({embed_model_type})...", flush=True)
         embed_load_start = time.time()
         embedder = create_embedder_from_config(self.config)
         self.embedder_load_time = time.time() - embed_load_start
-        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s")
+        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s", flush=True)
 
         self.model_load_time = self.llm_load_time + self.embedder_load_time
 
@@ -529,6 +539,7 @@ class ExperimentRunner:
         - Stops after max_retries additional attempts or on a non-blank answer.
         """
         async with self.semaphore:
+            print(f"[{index}/{total}] {row['id']}: processing...", flush=True)
             start_time = time.time()
             error_msg = None
             raw_response = ""
@@ -551,6 +562,7 @@ class ExperimentRunner:
                 base_top_k_final = self.config.get("top_k_final", None)
                 result = None
                 answer_is_blank = True
+                retry_count = 0
 
                 # Retry loop: increase retrieval depth on blank answers
                 for attempt in range(self.max_retries + 1):
@@ -575,7 +587,7 @@ class ExperimentRunner:
                         err_msg = str(retry_err).lower()
                         if "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
                             reduced_k = max(current_top_k - 2, 1)
-                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}")
+                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}", flush=True)
                             result = await self.pipeline.run_qa(
                                 question=row["question"],
                                 top_k=reduced_k,
@@ -592,9 +604,13 @@ class ExperimentRunner:
                         or not result.answer.ref_id
                     )
                     if not answer_is_blank:
+                        retry_count = attempt
                         break  # Got a valid answer
                     if attempt < self.max_retries:
-                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...")
+                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...", flush=True)
+                else:
+                    # All retries exhausted — record the full count
+                    retry_count = self.max_retries
 
                 # Store raw model output — normalisation is applied post-hoc
                 # by scripts/posthoc.py (single source of truth).
@@ -660,7 +676,7 @@ class ExperimentRunner:
 
             status = "OK" if bits["val"] else "WRONG"
             preview = str(pred_value)[:40]
-            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)")
+            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)", flush=True)
 
             return QuestionResult(
                 id=row["id"],
@@ -686,6 +702,7 @@ class ExperimentRunner:
                 rendered_prompt=rendered_prompt,
                 retrieved_snippets=snippets_data,
                 num_snippets=len(snippets_data),
+                retry_count=retry_count,
             )
 
     async def run(self, questions_df: pd.DataFrame) -> ExperimentSummary:
@@ -758,9 +775,39 @@ class ExperimentRunner:
             tasks = []
             for i, (_idx, row) in enumerate(batch_rows):
                 done_so_far = len(completed_ids) + batch_start + i + 1
-                tasks.append(self.process_question(row, done_so_far, total))
+                tasks.append(
+                    self.process_question(row, done_so_far, total)
+                )
 
-            batch_results = await asyncio.gather(*tasks)
+            batch_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Convert exceptions to error QuestionResult objects
+            batch_results = []
+            for j, result in enumerate(batch_results_raw):
+                if isinstance(result, Exception):
+                    _idx, row = batch_rows[j]
+                    done_so_far = len(completed_ids) + batch_start + j + 1
+                    print(f"[{done_so_far}/{total}] {row['id']}: ERROR - {str(result)[:80]}", flush=True)
+                    batch_results.append(QuestionResult(
+                        id=row["id"],
+                        question=row["question"],
+                        gt_value=str(row.get("answer_value", "is_blank")),
+                        gt_unit=str(row.get("answer_unit", "")),
+                        gt_ref=str(row.get("ref_id", "is_blank")),
+                        pred_value="is_blank",
+                        pred_unit=str(row.get("answer_unit", "")),
+                        pred_ref="is_blank",
+                        pred_explanation=f"Error: {result!s}",
+                        raw_response="",
+                        value_correct=False,
+                        ref_score=0.0,
+                        na_correct=False,
+                        weighted_score=0.0,
+                        latency_seconds=0.0,
+                        error=str(result),
+                    ))
+                else:
+                    batch_results.append(result)
             self.results.extend(batch_results)
 
             # Flush this batch to its own chunk file
@@ -768,7 +815,7 @@ class ExperimentRunner:
             chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
             with open(chunk_path, "w") as f:
                 json.dump(chunk_data, f, indent=2)
-            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}")
+            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}", flush=True)
             chunk_idx += 1
         total_time = time.time() - start_time
 
@@ -791,6 +838,9 @@ class ExperimentRunner:
         avg_retrieval = sum(r.retrieval_seconds for r in self.results) / total
         avg_generation = sum(r.generation_seconds for r in self.results) / total
         error_count = sum(1 for r in self.results if r.error)
+        total_retries = sum(r.retry_count for r in self.results)
+        questions_retried = sum(1 for r in self.results if r.retry_count > 0)
+        avg_retries = total_retries / total if total else 0.0
 
         # Get token usage from chat model (if supported)
         input_tokens = 0
@@ -844,6 +894,9 @@ class ExperimentRunner:
             estimated_cost_usd=estimated_cost,
             hardware=hw_dict,
             config_snapshot=self.config,
+            total_retries=total_retries,
+            questions_retried=questions_retried,
+            avg_retries=avg_retries,
             run_environment=self.config.get("_run_environment", ""),
             questions_file=self.config.get("_questions_file", ""),
         )
