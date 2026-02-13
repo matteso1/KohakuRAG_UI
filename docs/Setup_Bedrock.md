@@ -320,11 +320,78 @@ python scripts/run_experiment.py \
   --env Bedrock
 ```
 
+**Choosing which dataset to run against:**
+By default both scripts use `data/train_QA.csv`. Use `--questions` / `-q`
+to point at a different file:
+
+```bash
+# Run against the held-out test set
+python scripts/run_experiment.py \
+  --config vendor/KohakuRAG/configs/bedrock_claude_haiku.py \
+  --name claude-haiku-test \
+  --env Bedrock \
+  --questions data/test_solutions.csv
+```
+
+The dataset filename stem (e.g. `train_QA`, `test_solutions`) becomes a
+subfolder under the environment directory, so results stay separated:
+
+```
+artifacts/experiments/Bedrock/train_QA/claude-haiku-bench/
+artifacts/experiments/Bedrock/test_solutions/claude-haiku-test/
+```
+
 ### 16) Full Bedrock benchmark
 
 ```bash
 python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
 ```
+
+**Choosing which models run** — the model registry lives at the top of
+`scripts/run_full_benchmark.py` in two dictionaries:
+
+| Dictionary | Purpose |
+|---|---|
+| `HF_LOCAL_MODELS` | Local HuggingFace models (Qwen, Mistral, Phi, OLMoE, etc.) |
+| `BEDROCK_MODELS` | AWS Bedrock API models (Claude, Llama, Nova, DeepSeek, etc.) |
+
+Each entry maps a **config filename** (without `.py`) to an
+**experiment name**:
+
+```python
+BEDROCK_MODELS = {
+    "bedrock_haiku": "haiku-bench",
+    "bedrock_claude35_haiku": "claude35-haiku-bench",
+    "bedrock_sonnet": "sonnet-bench",
+    ...
+}
+```
+
+To add or remove a model, edit these dictionaries directly.
+Comment out a line to skip it; add a new line to include it.
+The config file must exist in `vendor/KohakuRAG/configs/` — any entries
+without a matching config file are silently skipped.
+
+**Filtering at the command line** (no code changes needed):
+
+```bash
+# Only bedrock models
+python scripts/run_full_benchmark.py --provider bedrock --env Bedrock
+
+# Only local models
+python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge
+
+# A single model (substring match on config name or experiment name)
+python scripts/run_full_benchmark.py --model haiku --env Bedrock
+
+# Different dataset
+python scripts/run_full_benchmark.py --provider bedrock --env Bedrock \
+  --questions data/test_solutions.csv --split test
+```
+
+> **`--split` note:** When running a different question set, pass `--split`
+> so experiment names get a suffix (e.g. `haiku-bench-test`) and don't
+> overwrite existing results.
 
 ### 17) Compare Bedrock vs local results
 
