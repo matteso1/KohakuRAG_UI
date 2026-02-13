@@ -8,21 +8,17 @@
     "pred_value": "0",
     "pred_unit": "is_blank",
     "pred_ref": "[\"han2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0",
       "qwen72b-bench": "0",
-      "qwen32b-bench": "0",
-      "qwen3-30b-a3b-bench": "0",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "0"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"han2024\"]",
       "qwen72b-bench": "[\"han2024\"]",
-      "qwen32b-bench": "[\"han2024\"]",
-      "qwen3-30b-a3b-bench": "[\"han2024\"]",
-      "qwen14b-bench": "[\"han2024\"]"
+      "qwen32b-bench": "[\"han2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -37,21 +33,17 @@
     "pred_value": "1",
     "pred_unit": "is_blank",
     "pred_ref": "[\"wu2021b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1",
       "qwen72b-bench": "1",
-      "qwen32b-bench": "1",
-      "qwen3-30b-a3b-bench": "1",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"wu2021b\"]",
       "qwen72b-bench": "[\"wu2021b\"]",
-      "qwen32b-bench": "[\"wu2021b\"]",
-      "qwen3-30b-a3b-bench": "[\"wu2021b\"]",
-      "qwen14b-bench": "[\"wu2021b\"]"
+      "qwen32b-bench": "[\"wu2021b\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -66,21 +58,17 @@
     "pred_value": "Ollama",
     "pred_unit": "is_blank",
     "pred_ref": "[\"khan2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "Ollama",
       "qwen72b-bench": "Ollama",
-      "qwen32b-bench": "Ollama",
-      "qwen3-30b-a3b-bench": "Ollama",
-      "qwen14b-bench": "Ollama"
+      "qwen32b-bench": "Ollama"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"khan2025\"]",
       "qwen72b-bench": "[\"khan2025\"]",
-      "qwen32b-bench": "[\"khan2025\"]",
-      "qwen3-30b-a3b-bench": "[\"khan2025\"]",
-      "qwen14b-bench": "[\"khan2025\"]"
+      "qwen32b-bench": "[\"khan2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -95,21 +83,17 @@
     "pred_value": "Backblaze (B2)",
     "pred_unit": "is_blank",
     "pred_ref": "[\"erben2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "WebDataset",
       "qwen72b-bench": "Backblaze (B2)",
-      "qwen32b-bench": "Backblaze (B2)",
-      "qwen3-30b-a3b-bench": "Backblaze (B2)",
-      "qwen14b-bench": "Backblaze"
+      "qwen32b-bench": "Backblaze (B2)"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"erben2023\"]",
       "qwen72b-bench": "[\"erben2023\"]",
-      "qwen32b-bench": "[\"erben2023\"]",
-      "qwen3-30b-a3b-bench": "[\"erben2023\"]",
-      "qwen14b-bench": "[\"erben2023\"]"
+      "qwen32b-bench": "[\"erben2023\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -124,21 +108,17 @@
     "pred_value": "1",
     "pred_unit": "is_blank",
     "pred_ref": "[\"zschache2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1",
       "qwen72b-bench": "is_blank",
-      "qwen32b-bench": "1",
-      "qwen3-30b-a3b-bench": "is_blank",
-      "qwen14b-bench": "1"
+      "qwen32b-bench": "1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"zschache2025\"]",
       "qwen72b-bench": "[\"zschache2025\"]",
-      "qwen32b-bench": "[\"zschache2025\"]",
-      "qwen3-30b-a3b-bench": "[\"zschache2025\", \"fernandez2025\"]",
-      "qwen14b-bench": "[\"zschache2025\"]"
+      "qwen32b-bench": "[\"zschache2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -152,25 +132,21 @@
     "gt_ref": "['ebert2024']",
     "pred_value": "Edward J. Markey",
     "pred_unit": "is_blank",
-    "pred_ref": "[\"ebert2024\", \"morrison2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_ref": "[\"ebert2024\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "Edward J. Markey",
       "qwen72b-bench": "Edward J. Markey",
-      "qwen32b-bench": "Edward J. Markey",
-      "qwen3-30b-a3b-bench": "Edward J. Markey",
-      "qwen14b-bench": "Edward J. Markey"
+      "qwen32b-bench": "Edward J. Markey"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"ebert2024\"]",
       "qwen72b-bench": "[\"ebert2024\"]",
-      "qwen32b-bench": "[\"ebert2024\"]",
-      "qwen3-30b-a3b-bench": "[\"ebert2024\", \"morrison2025\"]",
-      "qwen14b-bench": "[\"ebert2024\"]"
+      "qwen32b-bench": "[\"ebert2024\"]"
     },
     "value_correct": true,
-    "ref_score": 0.5,
+    "ref_score": 1.0,
     "na_correct": true
   },
   {
@@ -182,21 +158,17 @@
     "pred_value": "11.06",
     "pred_unit": "USD per hour",
     "pred_ref": "[\"chen2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "11.06",
       "qwen72b-bench": "7.5164",
-      "qwen32b-bench": "11.06",
-      "qwen3-30b-a3b-bench": "11.06",
-      "qwen14b-bench": "11.06"
+      "qwen32b-bench": "11.06"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"chen2024\"]",
       "qwen72b-bench": "[\"griggs2024\"]",
-      "qwen32b-bench": "[\"chen2024\"]",
-      "qwen3-30b-a3b-bench": "[\"chen2024\"]",
-      "qwen14b-bench": "[\"chen2024\"]"
+      "qwen32b-bench": "[\"chen2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -211,21 +183,17 @@
     "pred_value": "6",
     "pred_unit": "years",
     "pred_ref": "[\"amazon2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "6",
       "qwen72b-bench": "6",
-      "qwen32b-bench": "6",
-      "qwen3-30b-a3b-bench": "5",
-      "qwen14b-bench": "6"
+      "qwen32b-bench": "6"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
       "qwen72b-bench": "[\"amazon2023\"]",
-      "qwen32b-bench": "[\"amazon2023\"]",
-      "qwen3-30b-a3b-bench": "[\"amazon2023\"]",
-      "qwen14b-bench": "[\"amazon2023\"]"
+      "qwen32b-bench": "[\"amazon2023\"]"
     },
     "value_correct": true,
     "ref_score": 0.0,
@@ -240,21 +208,17 @@
     "pred_value": "2",
     "pred_unit": "V100_32GB_GPUs",
     "pred_ref": "[\"samsi2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "2",
       "qwen72b-bench": "2",
-      "qwen32b-bench": "2",
-      "qwen3-30b-a3b-bench": "2",
-      "qwen14b-bench": "2"
+      "qwen32b-bench": "2"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"samsi2024\"]",
       "qwen72b-bench": "[\"samsi2024\"]",
-      "qwen32b-bench": "[\"samsi2024\"]",
-      "qwen3-30b-a3b-bench": "[\"samsi2024\"]",
-      "qwen14b-bench": "[\"samsi2024\"]"
+      "qwen32b-bench": "[\"samsi2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -269,21 +233,17 @@
     "pred_value": "1247.61",
     "pred_unit": "tCO2e",
     "pred_ref": "[\"luccioni2025c\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1247.61",
       "qwen72b-bench": "1247.61",
-      "qwen32b-bench": "1247.61",
-      "qwen3-30b-a3b-bench": "1247.61",
-      "qwen14b-bench": "1247.61"
+      "qwen32b-bench": "1247.61"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"luccioni2025c\"]",
       "qwen72b-bench": "[\"luccioni2025c\"]",
-      "qwen32b-bench": "[\"luccioni2025c\"]",
-      "qwen3-30b-a3b-bench": "[\"luccioni2025c\"]",
-      "qwen14b-bench": "[\"luccioni2025c\"]"
+      "qwen32b-bench": "[\"luccioni2025c\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -298,21 +258,17 @@
     "pred_value": "336",
     "pred_unit": "hours",
     "pred_ref": "[\"strubell2019\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "336",
       "qwen72b-bench": "336",
-      "qwen32b-bench": "336",
-      "qwen3-30b-a3b-bench": "336",
-      "qwen14b-bench": "336"
+      "qwen32b-bench": "336"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"strubell2019\"]",
       "qwen72b-bench": "[\"strubell2019\"]",
-      "qwen32b-bench": "[\"strubell2019\"]",
-      "qwen3-30b-a3b-bench": "[\"strubell2019\"]",
-      "qwen14b-bench": "[\"strubell2019\"]"
+      "qwen32b-bench": "[\"strubell2019\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -327,21 +283,17 @@
     "pred_value": "3.1",
     "pred_unit": "L/kWh",
     "pred_ref": "[\"li2025b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "3.1",
       "qwen72b-bench": "3.1",
-      "qwen32b-bench": "3.1",
-      "qwen3-30b-a3b-bench": "3.1",
-      "qwen14b-bench": "3.1"
+      "qwen32b-bench": "3.1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"li2025b\"]",
       "qwen72b-bench": "[\"li2025b\"]",
-      "qwen32b-bench": "[\"li2025b\"]",
-      "qwen3-30b-a3b-bench": "[\"li2025b\"]",
-      "qwen14b-bench": "[\"li2025b\"]"
+      "qwen32b-bench": "[\"li2025b\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -353,27 +305,23 @@
     "gt_value": "1.1",
     "gt_unit": "PUE",
     "gt_ref": "['wu2021b']",
-    "pred_value": "1.10",
+    "pred_value": "1.1",
     "pred_unit": "PUE",
-    "pred_ref": "[\"dodge2022\", \"wu2021b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_ref": "[\"dodge2022\", \"patterson2021\", \"wu2021b\"]",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1.1",
       "qwen72b-bench": "1.1",
-      "qwen32b-bench": "1.10",
-      "qwen3-30b-a3b-bench": "1.10",
-      "qwen14b-bench": "1.10"
+      "qwen32b-bench": "1.10"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"dodge2022\", \"wu2021b\", \"patterson2021\"]",
       "qwen72b-bench": "[\"dodge2022\"]",
-      "qwen32b-bench": "[\"dodge2022\"]",
-      "qwen3-30b-a3b-bench": "[\"dodge2022\", \"wu2021b\"]",
-      "qwen14b-bench": "[\"wu2021b\"]"
+      "qwen32b-bench": "[\"dodge2022\"]"
     },
     "value_correct": true,
-    "ref_score": 0.5,
+    "ref_score": 0.3333333333333333,
     "na_correct": true
   },
   {
@@ -385,21 +333,17 @@
     "pred_value": "96",
     "pred_unit": "percent",
     "pred_ref": "[\"amazon2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "96",
       "qwen72b-bench": "96",
-      "qwen32b-bench": "96",
-      "qwen3-30b-a3b-bench": "96",
-      "qwen14b-bench": "96"
+      "qwen32b-bench": "96"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
       "qwen72b-bench": "[\"amazon2023\"]",
-      "qwen32b-bench": "[\"amazon2023\"]",
-      "qwen3-30b-a3b-bench": "[\"amazon2023\"]",
-      "qwen14b-bench": "[\"amazon2023\"]"
+      "qwen32b-bench": "[\"amazon2023\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -414,21 +358,17 @@
     "pred_value": "3460",
     "pred_unit": "USD",
     "pred_ref": "[\"xia2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "3460",
       "qwen72b-bench": "3460",
-      "qwen32b-bench": "3460",
-      "qwen3-30b-a3b-bench": "3460",
-      "qwen14b-bench": "3460"
+      "qwen32b-bench": "3460"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"xia2024\"]",
       "qwen72b-bench": "[\"xia2024\"]",
-      "qwen32b-bench": "[\"xia2024\"]",
-      "qwen3-30b-a3b-bench": "[\"xia2024\"]",
-      "qwen14b-bench": "[\"xia2024\"]"
+      "qwen32b-bench": "[\"xia2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -443,21 +383,17 @@
     "pred_value": "74",
     "pred_unit": "percent",
     "pred_ref": "[\"dodge2022\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "74",
       "qwen72b-bench": "74",
-      "qwen32b-bench": "75",
-      "qwen3-30b-a3b-bench": "74",
-      "qwen14b-bench": "74"
+      "qwen32b-bench": "75"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"dodge2022\"]",
       "qwen72b-bench": "[\"dodge2022\"]",
-      "qwen32b-bench": "[\"dodge2022\"]",
-      "qwen3-30b-a3b-bench": "[\"dodge2022\"]",
-      "qwen14b-bench": "[\"dodge2022\"]"
+      "qwen32b-bench": "[\"dodge2022\"]"
     },
     "value_correct": false,
     "ref_score": 0.0,
@@ -472,21 +408,17 @@
     "pred_value": "96",
     "pred_unit": "H100 GPUs",
     "pred_ref": "[\"shen2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "96",
       "qwen72b-bench": "96",
-      "qwen32b-bench": "96",
-      "qwen3-30b-a3b-bench": "96",
-      "qwen14b-bench": "96"
+      "qwen32b-bench": "96"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"shen2024\"]",
       "qwen72b-bench": "[\"shen2024\"]",
-      "qwen32b-bench": "[\"shen2024\"]",
-      "qwen3-30b-a3b-bench": "[\"shen2024\"]",
-      "qwen14b-bench": "[\"shen2024\"]"
+      "qwen32b-bench": "[\"shen2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -501,21 +433,17 @@
     "pred_value": "600",
     "pred_unit": "Watts",
     "pred_ref": "[\"morrison2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "600",
       "qwen72b-bench": "600",
-      "qwen32b-bench": "600",
-      "qwen3-30b-a3b-bench": "600",
-      "qwen14b-bench": "600"
+      "qwen32b-bench": "600"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"morrison2025\"]",
       "qwen72b-bench": "[\"morrison2025\"]",
-      "qwen32b-bench": "[\"morrison2025\"]",
-      "qwen3-30b-a3b-bench": "[\"morrison2025\"]",
-      "qwen14b-bench": "[\"morrison2025\"]"
+      "qwen32b-bench": "[\"morrison2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -530,21 +458,17 @@
     "pred_value": "11023",
     "pred_unit": "lbs",
     "pred_ref": "[\"strubell2019\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "11023",
       "qwen72b-bench": "11023",
-      "qwen32b-bench": "11023",
-      "qwen3-30b-a3b-bench": "11023",
-      "qwen14b-bench": "11023"
+      "qwen32b-bench": "11023"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"strubell2019\"]",
       "qwen72b-bench": "[\"strubell2019\"]",
-      "qwen32b-bench": "[\"strubell2019\"]",
-      "qwen3-30b-a3b-bench": "[\"strubell2019\"]",
-      "qwen14b-bench": "[\"strubell2019\"]"
+      "qwen32b-bench": "[\"strubell2019\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -559,21 +483,17 @@
     "pred_value": "1.25",
     "pred_unit": "multiplier",
     "pred_ref": "[\"samsi2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1.25",
       "qwen72b-bench": "1.25",
-      "qwen32b-bench": "1.25",
-      "qwen3-30b-a3b-bench": "1.25",
-      "qwen14b-bench": "1.25"
+      "qwen32b-bench": "1.25"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"samsi2024\"]",
       "qwen72b-bench": "[\"samsi2024\"]",
-      "qwen32b-bench": "[\"samsi2024\"]",
-      "qwen3-30b-a3b-bench": "[\"samsi2024\"]",
-      "qwen14b-bench": "[\"samsi2024\"]"
+      "qwen32b-bench": "[\"samsi2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -588,21 +508,17 @@
     "pred_value": "0.42",
     "pred_unit": "Wh",
     "pred_ref": "[\"jegham2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0.42",
       "qwen72b-bench": "0.42",
-      "qwen32b-bench": "0.42",
-      "qwen3-30b-a3b-bench": "0.42",
-      "qwen14b-bench": "0.42"
+      "qwen32b-bench": "0.42"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"jegham2025\"]",
       "qwen72b-bench": "[\"jegham2025\"]",
-      "qwen32b-bench": "[\"jegham2025\"]",
-      "qwen3-30b-a3b-bench": "[\"jegham2025\"]",
-      "qwen14b-bench": "[\"jegham2025\"]"
+      "qwen32b-bench": "[\"jegham2025\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -617,21 +533,17 @@
     "pred_value": "280",
     "pred_unit": "percent",
     "pred_ref": "[\"kim2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "280",
       "qwen72b-bench": "280",
-      "qwen32b-bench": "280",
-      "qwen3-30b-a3b-bench": "280",
-      "qwen14b-bench": "280"
+      "qwen32b-bench": "280"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"kim2025\"]",
       "qwen72b-bench": "[\"kim2025\"]",
-      "qwen32b-bench": "[\"kim2025\"]",
-      "qwen3-30b-a3b-bench": "[\"kim2025\"]",
-      "qwen14b-bench": "[\"kim2025\"]"
+      "qwen32b-bench": "[\"kim2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -646,21 +558,17 @@
     "pred_value": "V100 or A30",
     "pred_unit": "is_blank",
     "pred_ref": "[\"zschache2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "V100 or A30",
       "qwen72b-bench": "V100 or A30",
-      "qwen32b-bench": "is_blank",
-      "qwen3-30b-a3b-bench": "V100",
-      "qwen14b-bench": "V100"
+      "qwen32b-bench": "is_blank"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"zschache2025\"]",
       "qwen72b-bench": "[\"zschache2025\"]",
-      "qwen32b-bench": "[\"is_blank\"]",
-      "qwen3-30b-a3b-bench": "[\"zschache2025\"]",
-      "qwen14b-bench": "[\"zschache2025\"]"
+      "qwen32b-bench": "[\"is_blank\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -675,21 +583,17 @@
     "pred_value": "0",
     "pred_unit": "is_blank",
     "pred_ref": "[\"schwartz2019\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0",
       "qwen72b-bench": "0",
-      "qwen32b-bench": "0",
-      "qwen3-30b-a3b-bench": "1",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "0"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"schwartz2019\"]",
       "qwen72b-bench": "[\"schwartz2019\"]",
-      "qwen32b-bench": "[\"schwartz2019\"]",
-      "qwen3-30b-a3b-bench": "[\"schwartz2019\"]",
-      "qwen14b-bench": "[\"schwartz2019\"]"
+      "qwen32b-bench": "[\"schwartz2019\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -704,21 +608,17 @@
     "pred_value": "62000000",
     "pred_unit": "metric tons",
     "pred_ref": "[\"luccioni2025a\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "62000000",
       "qwen72b-bench": "62000000",
-      "qwen32b-bench": "62000000",
-      "qwen3-30b-a3b-bench": "62000000",
-      "qwen14b-bench": "62000000"
+      "qwen32b-bench": "62000000"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"luccioni2025a\"]",
       "qwen72b-bench": "[\"luccioni2025a\"]",
-      "qwen32b-bench": "[\"luccioni2025a\"]",
-      "qwen3-30b-a3b-bench": "[\"luccioni2025a\"]",
-      "qwen14b-bench": "[\"luccioni2025a\"]"
+      "qwen32b-bench": "[\"luccioni2025a\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -733,21 +633,17 @@
     "pred_value": "104",
     "pred_unit": "Watts",
     "pred_ref": "[\"patterson2021\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "81",
       "qwen72b-bench": "104",
-      "qwen32b-bench": "104",
-      "qwen3-30b-a3b-bench": "104",
-      "qwen14b-bench": "104"
+      "qwen32b-bench": "104"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"patterson2021\"]",
       "qwen72b-bench": "[\"patterson2021\"]",
-      "qwen32b-bench": "[\"patterson2021\"]",
-      "qwen3-30b-a3b-bench": "[\"patterson2021\"]",
-      "qwen14b-bench": "[\"patterson2021\"]"
+      "qwen32b-bench": "[\"patterson2021\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -762,21 +658,17 @@
     "pred_value": "700000",
     "pred_unit": "liters",
     "pred_ref": "[\"li2025b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "700000",
       "qwen72b-bench": "700000",
-      "qwen32b-bench": "700000",
-      "qwen3-30b-a3b-bench": "700000",
-      "qwen14b-bench": "700000"
+      "qwen32b-bench": "700000"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"li2025b\"]",
       "qwen72b-bench": "[\"li2025b\"]",
-      "qwen32b-bench": "[\"li2025b\"]",
-      "qwen3-30b-a3b-bench": "[\"li2025b\"]",
-      "qwen14b-bench": "[\"li2025b\"]"
+      "qwen32b-bench": "[\"li2025b\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -791,21 +683,17 @@
     "pred_value": "20",
     "pred_unit": "multiplier",
     "pred_ref": "[\"wu2021a\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "20",
       "qwen72b-bench": "20",
-      "qwen32b-bench": "20",
-      "qwen3-30b-a3b-bench": "20",
-      "qwen14b-bench": "20"
+      "qwen32b-bench": "20"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"wu2021a\"]",
       "qwen72b-bench": "[\"wu2021a\"]",
-      "qwen32b-bench": "[\"wu2021a\"]",
-      "qwen3-30b-a3b-bench": "[\"wu2021a\"]",
-      "qwen14b-bench": "[\"wu2021a\"]"
+      "qwen32b-bench": "[\"wu2021a\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -820,21 +708,17 @@
     "pred_value": "o3-mini",
     "pred_unit": "is_blank",
     "pred_ref": "[\"jegham2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "o3-mini",
       "qwen72b-bench": "o3-mini",
-      "qwen32b-bench": "o3-mini",
-      "qwen3-30b-a3b-bench": "o3-mini",
-      "qwen14b-bench": "o3-mini"
+      "qwen32b-bench": "o3-mini"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"jegham2025\"]",
       "qwen72b-bench": "[\"jegham2025\"]",
-      "qwen32b-bench": "[\"jegham2025\"]",
-      "qwen3-30b-a3b-bench": "[\"jegham2025\"]",
-      "qwen14b-bench": "[\"jegham2025\"]"
+      "qwen32b-bench": "[\"jegham2025\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -849,21 +733,17 @@
     "pred_value": "1",
     "pred_unit": "is_blank",
     "pred_ref": "[\"wu2021b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1",
       "qwen72b-bench": "1",
-      "qwen32b-bench": "1",
-      "qwen3-30b-a3b-bench": "1",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"wu2021b\"]",
       "qwen72b-bench": "[\"wu2021b\"]",
-      "qwen32b-bench": "[\"wu2021b\"]",
-      "qwen3-30b-a3b-bench": "[\"wu2021b\"]",
-      "qwen14b-bench": "[\"luccioni2025a\"]"
+      "qwen32b-bench": "[\"wu2021b\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -878,21 +758,17 @@
     "pred_value": "1",
     "pred_unit": "is_blank",
     "pred_ref": "[\"erben2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1",
       "qwen72b-bench": "1",
-      "qwen32b-bench": "1",
-      "qwen3-30b-a3b-bench": "1",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"erben2023\"]",
       "qwen72b-bench": "[\"erben2023\"]",
-      "qwen32b-bench": "[\"erben2023\"]",
-      "qwen3-30b-a3b-bench": "[\"erben2023\"]",
-      "qwen14b-bench": "[\"erben2023\"]"
+      "qwen32b-bench": "[\"erben2023\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -907,21 +783,17 @@
     "pred_value": "2048",
     "pred_unit": "tokens",
     "pred_ref": "[\"li2025a\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "2048",
       "qwen72b-bench": "2048",
-      "qwen32b-bench": "2048",
-      "qwen3-30b-a3b-bench": "2048",
-      "qwen14b-bench": "2048"
+      "qwen32b-bench": "2048"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"li2025a\"]",
       "qwen72b-bench": "[\"li2025a\"]",
-      "qwen32b-bench": "[\"li2025a\"]",
-      "qwen3-30b-a3b-bench": "[\"li2025a\"]",
-      "qwen14b-bench": "[\"li2025a\"]"
+      "qwen32b-bench": "[\"li2025a\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -936,21 +808,17 @@
     "pred_value": "1",
     "pred_unit": "is_blank",
     "pred_ref": "[\"chung2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1",
       "qwen72b-bench": "1",
-      "qwen32b-bench": "1",
-      "qwen3-30b-a3b-bench": "1",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "1"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"chung2025\"]",
       "qwen72b-bench": "[\"chung2025\"]",
-      "qwen32b-bench": "[\"chung2025\"]",
-      "qwen3-30b-a3b-bench": "[\"chung2025\"]",
-      "qwen14b-bench": "[\"chung2025\"]"
+      "qwen32b-bench": "[\"chung2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -965,21 +833,17 @@
     "pred_value": "31.9",
     "pred_unit": "percent",
     "pred_ref": "[\"amazon2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "31.9",
       "qwen72b-bench": "is_blank",
-      "qwen32b-bench": "is_blank",
-      "qwen3-30b-a3b-bench": "47.5",
-      "qwen14b-bench": "56.8"
+      "qwen32b-bench": "is_blank"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
       "qwen72b-bench": "[\"is_blank\"]",
-      "qwen32b-bench": "[\"is_blank\"]",
-      "qwen3-30b-a3b-bench": "[\"amazon2023\"]",
-      "qwen14b-bench": "[\"amazon2023\"]"
+      "qwen32b-bench": "[\"is_blank\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -991,24 +855,20 @@
     "gt_value": "[61,76]",
     "gt_unit": "percent",
     "gt_ref": "['cottier2024']",
-    "pred_value": "[61,76]",
+    "pred_value": "[61, 76]",
     "pred_unit": "percent",
     "pred_ref": "[\"cottier2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "[61, 76]",
       "qwen72b-bench": "[61, 76]",
-      "qwen32b-bench": "[61,76]",
-      "qwen3-30b-a3b-bench": "[61,76]",
-      "qwen14b-bench": "[61,76]"
+      "qwen32b-bench": "[61,76]"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"cottier2024\"]",
       "qwen72b-bench": "[\"cottier2024\"]",
-      "qwen32b-bench": "[\"cottier2024\"]",
-      "qwen3-30b-a3b-bench": "[\"cottier2024\"]",
-      "qwen14b-bench": "[\"cottier2024\"]"
+      "qwen32b-bench": "[\"cottier2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1023,21 +883,17 @@
     "pred_value": "0",
     "pred_unit": "is_blank",
     "pred_ref": "[\"khan2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0",
       "qwen72b-bench": "0",
-      "qwen32b-bench": "0",
-      "qwen3-30b-a3b-bench": "0",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "0"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"khan2025\"]",
       "qwen72b-bench": "[\"khan2025\"]",
-      "qwen32b-bench": "[\"khan2025\"]",
-      "qwen3-30b-a3b-bench": "[\"khan2025\"]",
-      "qwen14b-bench": "[\"khan2025\"]"
+      "qwen32b-bench": "[\"khan2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1052,21 +908,17 @@
     "pred_value": "0.954",
     "pred_unit": "lbs/kWh",
     "pred_ref": "[\"strubell2019\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0.954",
       "qwen72b-bench": "0.954",
-      "qwen32b-bench": "0.932",
-      "qwen3-30b-a3b-bench": "0.954",
-      "qwen14b-bench": "0.954"
+      "qwen32b-bench": "0.932"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"strubell2019\"]",
       "qwen72b-bench": "[\"strubell2019\"]",
-      "qwen32b-bench": "[\"strubell2019\", \"patterson2021\"]",
-      "qwen3-30b-a3b-bench": "[\"strubell2019\"]",
-      "qwen14b-bench": "[\"strubell2019\"]"
+      "qwen32b-bench": "[\"strubell2019\", \"patterson2021\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1078,24 +930,20 @@
     "gt_value": "[85,134]",
     "gt_unit": "TWh",
     "gt_ref": "['li2025b']",
-    "pred_value": "[85,134]",
+    "pred_value": "[85, 134]",
     "pred_unit": "TWh",
     "pred_ref": "[\"li2025b\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "[85, 134]",
       "qwen72b-bench": "[85, 134]",
-      "qwen32b-bench": "[85,134]",
-      "qwen3-30b-a3b-bench": "[85,134]",
-      "qwen14b-bench": "[85,134]"
+      "qwen32b-bench": "[85,134]"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"li2025b\"]",
       "qwen72b-bench": "[\"li2025b\"]",
-      "qwen32b-bench": "[\"li2025b\"]",
-      "qwen3-30b-a3b-bench": "[\"li2025b\"]",
-      "qwen14b-bench": "[\"li2025b\"]"
+      "qwen32b-bench": "[\"li2025b\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1110,21 +958,17 @@
     "pred_value": "150",
     "pred_unit": "packages",
     "pred_ref": "[\"amazon2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "150",
       "qwen72b-bench": "150",
-      "qwen32b-bench": "150",
-      "qwen3-30b-a3b-bench": "150",
-      "qwen14b-bench": "150"
+      "qwen32b-bench": "150"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
       "qwen72b-bench": "[\"amazon2023\"]",
-      "qwen32b-bench": "[\"amazon2023\"]",
-      "qwen3-30b-a3b-bench": "[\"amazon2023\"]",
-      "qwen14b-bench": "[\"amazon2023\"]"
+      "qwen32b-bench": "[\"amazon2023\"]"
     },
     "value_correct": false,
     "ref_score": 1.0,
@@ -1139,21 +983,17 @@
     "pred_value": "1920000",
     "pred_unit": "tokens",
     "pred_ref": "[\"kim2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1920000",
       "qwen72b-bench": "1920000",
-      "qwen32b-bench": "1800000",
-      "qwen3-30b-a3b-bench": "1920000",
-      "qwen14b-bench": "1920000"
+      "qwen32b-bench": "1800000"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"kim2025\"]",
       "qwen72b-bench": "[\"kim2025\"]",
-      "qwen32b-bench": "[\"kim2025\"]",
-      "qwen3-30b-a3b-bench": "[\"kim2025\"]",
-      "qwen14b-bench": "[\"kim2025\"]"
+      "qwen32b-bench": "[\"kim2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1168,21 +1008,17 @@
     "pred_value": "0",
     "pred_unit": "is_blank",
     "pred_ref": "[\"ebert2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0",
       "qwen72b-bench": "0",
-      "qwen32b-bench": "0",
-      "qwen3-30b-a3b-bench": "0",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "0"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"ebert2024\"]",
       "qwen72b-bench": "[\"ebert2024\"]",
-      "qwen32b-bench": "[\"ebert2024\"]",
-      "qwen3-30b-a3b-bench": "[\"ebert2024\", \"ebert2024\", \"ebert2024\"]",
-      "qwen14b-bench": "[\"ebert2024\"]"
+      "qwen32b-bench": "[\"ebert2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1197,21 +1033,17 @@
     "pred_value": "80",
     "pred_unit": "percent",
     "pred_ref": "[\"dodge2022\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "80",
       "qwen72b-bench": "80",
-      "qwen32b-bench": "80",
-      "qwen3-30b-a3b-bench": "80",
-      "qwen14b-bench": "80"
+      "qwen32b-bench": "80"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"dodge2022\"]",
       "qwen72b-bench": "[\"dodge2022\"]",
-      "qwen32b-bench": "[\"dodge2022\"]",
-      "qwen3-30b-a3b-bench": "[\"dodge2022\"]",
-      "qwen14b-bench": "[\"dodge2022\"]"
+      "qwen32b-bench": "[\"dodge2022\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1226,21 +1058,17 @@
     "pred_value": "1450",
     "pred_unit": "times",
     "pred_ref": "[\"luccioni2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "1450",
       "qwen72b-bench": "1450",
-      "qwen32b-bench": "1450",
-      "qwen3-30b-a3b-bench": "1450",
-      "qwen14b-bench": "1450"
+      "qwen32b-bench": "1450"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"luccioni2024\"]",
       "qwen72b-bench": "[\"luccioni2024\"]",
-      "qwen32b-bench": "[\"luccioni2024\"]",
-      "qwen3-30b-a3b-bench": "[\"luccioni2024\"]",
-      "qwen14b-bench": "[\"luccioni2024\"]"
+      "qwen32b-bench": "[\"luccioni2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1255,21 +1083,17 @@
     "pred_value": "0",
     "pred_unit": "is_blank",
     "pred_ref": "[\"zschache2025\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "0",
       "qwen72b-bench": "0",
-      "qwen32b-bench": "0",
-      "qwen3-30b-a3b-bench": "0",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "0"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"zschache2025\"]",
       "qwen72b-bench": "[\"zschache2025\"]",
-      "qwen32b-bench": "[\"zschache2025\"]",
-      "qwen3-30b-a3b-bench": "[\"zschache2025\"]",
-      "qwen14b-bench": "[\"zschache2025\"]"
+      "qwen32b-bench": "[\"zschache2025\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1284,21 +1108,17 @@
     "pred_value": "244",
     "pred_unit": "projects",
     "pred_ref": "[\"amazon2023\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "244",
       "qwen72b-bench": "244",
-      "qwen32b-bench": "244",
-      "qwen3-30b-a3b-bench": "244",
-      "qwen14b-bench": "244"
+      "qwen32b-bench": "244"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"amazon2023\"]",
       "qwen72b-bench": "[\"amazon2023\"]",
-      "qwen32b-bench": "[\"amazon2023\"]",
-      "qwen3-30b-a3b-bench": "[\"amazon2023\"]",
-      "qwen14b-bench": "[\"amazon2023\"]"
+      "qwen32b-bench": "[\"amazon2023\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1313,21 +1133,17 @@
     "pred_value": "17",
     "pred_unit": "percent",
     "pred_ref": "[\"strubell2019\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "is_blank",
       "qwen72b-bench": "17",
-      "qwen32b-bench": "is_blank",
-      "qwen3-30b-a3b-bench": "is_blank",
-      "qwen14b-bench": "is_blank"
+      "qwen32b-bench": "is_blank"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"is_blank\"]",
       "qwen72b-bench": "[\"strubell2019\"]",
-      "qwen32b-bench": "[\"is_blank\"]",
-      "qwen3-30b-a3b-bench": "[\"is_blank\"]",
-      "qwen14b-bench": "[\"is_blank\"]"
+      "qwen32b-bench": "[\"is_blank\"]"
     },
     "value_correct": false,
     "ref_score": 0.0,
@@ -1342,21 +1158,17 @@
     "pred_value": "cumulative server level",
     "pred_unit": "is_blank",
     "pred_ref": "[\"ebert2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "cumulative server level",
       "qwen72b-bench": "cumulative server level",
-      "qwen32b-bench": "Cumulative Server Level",
-      "qwen3-30b-a3b-bench": "cumulative server level",
-      "qwen14b-bench": "cumulative server level"
+      "qwen32b-bench": "Cumulative Server Level"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"ebert2024\"]",
       "qwen72b-bench": "[\"ebert2024\"]",
-      "qwen32b-bench": "[\"ebert2024\"]",
-      "qwen3-30b-a3b-bench": "[\"ebert2024\"]",
-      "qwen14b-bench": "[\"ebert2024\"]"
+      "qwen32b-bench": "[\"ebert2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1371,21 +1183,17 @@
     "pred_value": "74",
     "pred_unit": "percent",
     "pred_ref": "[\"dodge2022\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "74",
       "qwen72b-bench": "74",
-      "qwen32b-bench": "74",
-      "qwen3-30b-a3b-bench": "74",
-      "qwen14b-bench": "74"
+      "qwen32b-bench": "74"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"dodge2022\"]",
       "qwen72b-bench": "[\"dodge2022\"]",
-      "qwen32b-bench": "[\"dodge2022\"]",
-      "qwen3-30b-a3b-bench": "[\"dodge2022\"]",
-      "qwen14b-bench": "[\"dodge2022\"]"
+      "qwen32b-bench": "[\"dodge2022\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1400,21 +1208,17 @@
     "pred_value": "2",
     "pred_unit": "NVIDIA A100-80GB GPUs",
     "pred_ref": "[\"griggs2024\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "2",
       "qwen72b-bench": "2",
-      "qwen32b-bench": "2",
-      "qwen3-30b-a3b-bench": "2",
-      "qwen14b-bench": "2"
+      "qwen32b-bench": "2"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"griggs2024\"]",
       "qwen72b-bench": "[\"griggs2024\"]",
-      "qwen32b-bench": "[\"griggs2024\"]",
-      "qwen3-30b-a3b-bench": "[\"griggs2024\"]",
-      "qwen14b-bench": "[\"griggs2024\"]"
+      "qwen32b-bench": "[\"griggs2024\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
@@ -1429,21 +1233,17 @@
     "pred_value": "28.5",
     "pred_unit": "percent",
     "pred_ref": "[\"wu2021a\"]",
-    "pred_explanation": "Ensemble (majority) of 5 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench, qwen3-30b-a3b-bench, qwen14b-bench",
+    "pred_explanation": "Ensemble (majority) of 3 runs: qwen3-next-80b-a3b-bench, qwen72b-bench, qwen32b-bench",
     "raw_response": "",
     "individual_answers": {
       "qwen3-next-80b-a3b-bench": "28.5",
       "qwen72b-bench": "28.5",
-      "qwen32b-bench": "28.5",
-      "qwen3-30b-a3b-bench": "28.5",
-      "qwen14b-bench": "28.5"
+      "qwen32b-bench": "28.5"
     },
     "individual_refs": {
       "qwen3-next-80b-a3b-bench": "[\"wu2021a\"]",
       "qwen72b-bench": "[\"wu2021a\"]",
-      "qwen32b-bench": "[\"wu2021a\"]",
-      "qwen3-30b-a3b-bench": "[\"wu2021a\"]",
-      "qwen14b-bench": "[\"wu2021a\"]"
+      "qwen32b-bench": "[\"wu2021a\"]"
     },
     "value_correct": true,
     "ref_score": 1.0,
