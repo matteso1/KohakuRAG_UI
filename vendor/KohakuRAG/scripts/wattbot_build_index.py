@@ -25,6 +25,8 @@ from kohakurag import (
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel
 
+BedrockEmbeddingModel = None  # Lazy-loaded in create_embedder()
+
 # ============================================================================
 # GLOBAL CONFIGURATION
 # These defaults can be overridden by KohakuEngine config injection or CLI args
@@ -40,9 +42,11 @@ use_citations = False
 pdf_dir = "../../data/pdfs"  # Where to cache downloaded PDFs
 
 # Embedding settings
-embedding_model = "jina"  # Options: "jina" (v3), "jinav4"
-embedding_dim = None  # For JinaV4: 128, 256, 512, 1024, 2048
+embedding_model = "jina"  # Options: "jina" (v3), "jinav4", "bedrock"
+embedding_dim = None  # For JinaV4: 128, 256, 512, 1024, 2048; For bedrock: 256, 384, 1024
 embedding_task = "retrieval"  # For JinaV4: "retrieval", "text-matching", "code"
+bedrock_profile = None  # AWS SSO profile (for bedrock embeddings)
+bedrock_region = None  # AWS region (for bedrock embeddings)
 
 # Paragraph embedding mode
 # Options:
@@ -250,7 +254,28 @@ async def fetch_and_parse_pdfs(
 
 def create_embedder():
     """Create embedder based on module-level config."""
-    if embedding_model == "jinav4":
+    global BedrockEmbeddingModel
+
+    if embedding_model == "bedrock":
+        if BedrockEmbeddingModel is None:
+            try:
+                from llm_bedrock import BedrockEmbeddingModel as _cls
+                BedrockEmbeddingModel = _cls
+            except ImportError:
+                raise SystemExit(
+                    "bedrock embedding_model requires llm_bedrock.py on the Python path.\n"
+                    "Run from the repo root:\n"
+                    "  python vendor/KohakuRAG/scripts/wattbot_build_index.py "
+                    "--config vendor/KohakuRAG/configs/bedrock_titan_v2/index.py"
+                )
+        dim = embedding_dim or 1024
+        print(f"Using Bedrock Titan V2 embeddings (dim={dim})")
+        return BedrockEmbeddingModel(
+            profile_name=bedrock_profile,
+            region_name=bedrock_region,
+            dimensions=dim,
+        )
+    elif embedding_model == "jinav4":
         print(f"Using JinaV4 embeddings (dim={embedding_dim}, task={embedding_task})")
         return JinaV4EmbeddingModel(
             truncate_dim=embedding_dim or 1024,
@@ -318,33 +343,91 @@ async def main() -> None:
     store: KVaultNodeStore | None = None  # Lazy init after first document
     total_nodes = 0
 
-    # Index each document and upsert nodes
-    for idx, payload in enumerate(documents, start=1):
-        print(f"[{idx}/{total_docs}] indexing {payload.document_id}...", flush=True)
+    # Batch documents for cross-document embedding (keeps GPU saturated)
+    DOC_BATCH_SIZE = 8
+    pending_write: asyncio.Task | None = None
 
-        # Build hierarchical tree and compute embeddings
-        nodes = await indexer.index(payload)
-        if not nodes:
-            print(f"  -> no nodes generated, skipping.", flush=True)
+    for batch_start in range(0, total_docs, DOC_BATCH_SIZE):
+        batch = documents[batch_start : batch_start + DOC_BATCH_SIZE]
+        batch_end = min(batch_start + DOC_BATCH_SIZE, total_docs)
+        print(
+            f"[{batch_start + 1}-{batch_end}/{total_docs}] "
+            f"embedding {len(batch)} documents...",
+            flush=True,
+        )
+
+        # Build trees & embed across the whole batch in one GPU call
+        results = await indexer.index_batch(batch)
+
+        # Wait for the previous DB write to finish before starting the next
+        if pending_write is not None:
+            await pending_write
+
+        # Collect nodes for this batch
+        batch_nodes = []
+        for doc, nodes in results:
+            if not nodes:
+                print(f"  -> {doc.document_id}: no nodes, skipping.", flush=True)
+                continue
+            batch_nodes.extend(nodes)
+            total_nodes += len(nodes)
+            print(f"  -> {doc.document_id}: {len(nodes)} nodes", flush=True)
+
+        if not batch_nodes:
             continue
 
-        # Initialize store on first document (infer dimensions)
+        # Initialize store on first batch (infer dimensions)
         if store is None:
             store = KVaultNodeStore(
                 db_path,
                 table_prefix=table_prefix,
-                dimensions=nodes[0].embedding.shape[0],
+                dimensions=batch_nodes[0].embedding.shape[0],
             )
 
-        # Persist nodes to SQLite + sqlite-vec
-        await store.upsert_nodes(nodes)
-        total_nodes += len(nodes)
-        print(
-            f"  -> added {len(nodes)} nodes (running total {total_nodes})", flush=True
-        )
+        # Pipeline: start DB write while the next batch embeds
+        pending_write = asyncio.create_task(store.upsert_nodes(batch_nodes))
 
-    print(f"Indexed {len(documents)} documents with {total_nodes} nodes into {db_path}")
+    # Flush final write
+    if pending_write is not None:
+        await pending_write
+
+    print(
+        f"Indexed {len(documents)} documents with {total_nodes} nodes into {db_path}"
+    )
 
 
 if __name__ == "__main__":
+    import argparse
+    import importlib.util
+
+    # Ensure scripts/ is on the path so `from llm_bedrock import ...` works
+    # when running from the repo root.
+    # __file__ = vendor/KohakuRAG/scripts/wattbot_build_index.py
+    # .parents[3] = repo root
+    _scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+
+    parser = argparse.ArgumentParser(description="Build KohakuVault index for WattBot")
+    parser.add_argument("--config", "-c", required=True, help="Path to config .py file")
+    args = parser.parse_args()
+
+    # Load config and inject values into this module's globals
+    config_path = Path(args.config)
+    if not config_path.exists():
+        raise SystemExit(f"Config file not found: {config_path}")
+
+    spec = importlib.util.spec_from_file_location("_config", config_path)
+    _config_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_config_mod)
+
+    _this = sys.modules[__name__]
+    for _key in [
+        "metadata", "docs_dir", "db", "table_prefix", "use_citations",
+        "pdf_dir", "embedding_model", "embedding_dim", "embedding_task",
+        "paragraph_embedding_mode", "bedrock_profile", "bedrock_region",
+    ]:
+        if hasattr(_config_mod, _key):
+            setattr(_this, _key, getattr(_config_mod, _key))
+
     asyncio.run(main())

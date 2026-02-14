@@ -399,8 +399,8 @@ def main():
     generate_comparison_csv(summaries, comparison_csv)
 
     comparison_json = output_dir / "qwen_scaling_comparison.json"
-    with open(comparison_json, "w") as f:
-        json.dump(summaries, f, indent=2)
+    with open(comparison_json, "w", encoding="utf-8") as f:
+        json.dump(summaries, f, indent=2, ensure_ascii=False)
     print(f"Comparison JSON saved to: {comparison_json}")
 
     print_comparison_table(summaries)

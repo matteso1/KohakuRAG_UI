@@ -1,0 +1,18 @@
+{
+  "name": "ensemble-top3",
+  "type": "ensemble",
+  "strategy": "majority",
+  "models": [
+    "llama4-maverick-v1",
+    "deepseek-r1-v1",
+    "sonnet-v1"
+  ],
+  "num_models": 3,
+  "num_questions": 41,
+  "value_accuracy": 0.6585365853658537,
+  "ref_overlap": 0.7398373983739837,
+  "na_accuracy": 1.0,
+  "overall_score": 0.7048780487804878,
+  "questions_correct": 27,
+  "questions_wrong": 14
+}

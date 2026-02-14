@@ -74,6 +74,8 @@ MODEL_SIZES = {
     "mixtral-8x7b": ("Mixtral 8x7B", 46.7, False, "46.7B total MoE (12.9B active)"),
     "mixtral-8x22b": ("Mixtral 8x22B", 141, False, "141B total MoE (39B active)"),
     "qwen3-30b-a3b": ("Qwen3 30B-A3B", 30.5, False, "30.5B total MoE (3.3B active)"),
+    "qwen3-next-80b-a3b": ("Qwen3-Next 80B-A3B", 80, False, "80B total MoE (est. ~3B active)"),
+    "qwen1.5-110b": ("Qwen 1.5 110B", 110, False, "Open-source, confirmed 110B"),
     "olmoe-1b-7b": ("OLMoE 1B-7B", 7, False, "7B total MoE (1B active)"),
 }
 
@@ -102,17 +104,23 @@ def match_model_size(model_id: str) -> tuple[str, float, bool] | None:
 
 
 def load_experiments(experiments_dir: Path, name_filter: str | None = None,
-                     datafile: str | None = None) -> list[dict]:
+                     datafile: str | None = None,
+                     system: str | None = None) -> list[dict]:
     """Load experiment summaries, skipping ensembles and duplicates.
 
     When *datafile* is given (e.g. ``"train_QA"``), only experiments
     whose path contains that subfolder are included.
+
+    When *system* is given (e.g. ``"PowerEdge"``, ``"GB10"``), only
+    experiments under that system directory are included.
     """
     experiments = []
     seen_models = {}  # model_id -> best experiment
 
     for summary_path in sorted(experiments_dir.glob("**/summary.json")):
         if datafile is not None and datafile not in summary_path.parts:
+            continue
+        if system is not None and system not in summary_path.parts:
             continue
         try:
             with open(summary_path) as f:
@@ -145,10 +153,12 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None,
 
         size_info = match_model_size(model_id)
         if size_info is None:
-            print(f"  Skipping {name}: no size info for {model_id}")
-            continue
-
-        display_name, size_b, estimated = size_info
+            print(f"  Warning: no size info for {model_id} — including with size=None")
+            display_name = name.replace("-bench", "").replace("-", " ").title()
+            size_b = None
+            estimated = False
+        else:
+            display_name, size_b, estimated = size_info
 
         if latency_suspect:
             print(f"  Warning: {name} has high avg latency ({avg_latency:.0f}s)")
@@ -197,8 +207,77 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None,
             seen_models[model_id] = entry
 
     experiments = list(seen_models.values())
-    experiments.sort(key=lambda x: x["size_b"])
+    experiments.sort(key=lambda x: (x["size_b"] is None, x["size_b"] or 0))
     return experiments
+
+
+def load_ensemble_experiments(experiments_dir: Path, datafile: str | None = None,
+                              system: str | None = None) -> list[dict]:
+    """Load ensemble experiment summaries for the ranking plot.
+
+    Ensembles are identified by ``"type": "ensemble"`` in their summary or by
+    having ``"ensemble"`` in the directory name.
+    """
+    ensembles = []
+
+    for summary_path in sorted(experiments_dir.glob("**/summary.json")):
+        if datafile is not None and datafile not in summary_path.parts:
+            continue
+        if system is not None and system not in summary_path.parts:
+            continue
+        try:
+            with open(summary_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        name = data.get("name", summary_path.parent.name)
+        is_ensemble = data.get("type") == "ensemble" or "ensemble" in name.lower()
+        if not is_ensemble:
+            continue
+
+        score = data.get("overall_score", 0)
+        if score < 0.15:
+            continue
+
+        n_questions = data.get("num_questions", 0)
+        nq = n_questions if n_questions > 0 else 1
+        val_ci = wilson_ci_half(data.get("value_accuracy", 0), nq)
+        ref_ci = wilson_ci_half(data.get("ref_overlap", 0), nq)
+        na_ci = wilson_ci_half(data.get("na_accuracy", 0), nq)
+        overall_ci = np.sqrt((0.75 * val_ci)**2 + (0.15 * ref_ci)**2 + (0.10 * na_ci)**2)
+
+        # Build a readable display name from the experiment name
+        display = name.replace("-", " ").replace("_", " ").title()
+
+        ensembles.append({
+            "experiment": name,
+            "model_id": "",
+            "display_name": display,
+            "llm_provider": "ensemble",
+            "size_b": 0,
+            "size_estimated": False,
+            "overall_score": score,
+            "value_accuracy": data.get("value_accuracy", 0),
+            "ref_overlap": data.get("ref_overlap", 0),
+            "na_accuracy": data.get("na_accuracy", 0),
+            "num_questions": n_questions,
+            "overall_ci": overall_ci,
+            "val_ci": val_ci,
+            "ref_ci": ref_ci,
+            "na_ci": na_ci,
+            "avg_latency": data.get("avg_latency_seconds", 0),
+            "latency_suspect": False,
+            "total_cost": data.get("estimated_cost_usd", 0),
+            "input_tokens": data.get("input_tokens", 0),
+            "output_tokens": data.get("output_tokens", 0),
+            "gpu_energy_wh": data.get("hardware", {}).get("gpu_energy_wh", 0),
+            "is_ensemble": True,
+            "num_models": data.get("num_models", 0),
+            "strategy": data.get("strategy", ""),
+        })
+
+    return ensembles
 
 
 # ============================================================================
@@ -278,15 +357,20 @@ def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
         ("na_accuracy", "NA Recall (10% weight)", axes[1, 1]),
     ]
 
-    sizes = [e["size_b"] for e in experiments]
-    names = [e["display_name"] for e in experiments]
-    est_flags = [e["size_estimated"] for e in experiments]
-    colors = [get_color(e["display_name"]) for e in experiments]
-    markers = [get_marker(e.get("llm_provider", "")) for e in experiments]
+    sized = [e for e in experiments if e["size_b"] is not None]
+    if not sized:
+        print("  No experiments with known model size for size_vs_scores plot")
+        return
+
+    sizes = [e["size_b"] for e in sized]
+    names = [e["display_name"] for e in sized]
+    est_flags = [e["size_estimated"] for e in sized]
+    colors = [get_color(e["display_name"]) for e in sized]
+    markers = [get_marker(e.get("llm_provider", "")) for e in sized]
 
     for metric_key, metric_label, ax in metrics:
-        values = [e[metric_key] for e in experiments]
-        ci_half = [e.get(ci_keys[metric_key], 0) for e in experiments]
+        values = [e[metric_key] for e in sized]
+        ci_half = [e.get(ci_keys[metric_key], 0) for e in sized]
 
         for x, y, ci, c, m in zip(sizes, values, ci_half, colors, markers):
             ax.errorbar(x, y, yerr=ci, fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
@@ -310,9 +394,9 @@ def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
 
 def plot_size_vs_latency(experiments: list[dict], output_dir: Path):
     """Plot 2: Model Size vs. Latency."""
-    clean = [e for e in experiments if not e.get("latency_suspect")]
+    clean = [e for e in experiments if not e.get("latency_suspect") and e["size_b"] is not None]
     if not clean:
-        print("  No clean latency data to plot")
+        print("  No clean latency data (with known sizes) to plot")
         return
 
     fig, ax = plt.subplots(figsize=(11, 7))
@@ -345,9 +429,9 @@ def plot_size_vs_latency(experiments: list[dict], output_dir: Path):
 
 def plot_size_vs_cost(experiments: list[dict], output_dir: Path):
     """Plot 3: Model Size vs. Total Experiment Cost."""
-    with_cost = [e for e in experiments if e["total_cost"] > 0]
+    with_cost = [e for e in experiments if e["total_cost"] > 0 and e["size_b"] is not None]
     if len(with_cost) < 2:
-        print("Not enough experiments with cost data for size_vs_cost plot")
+        print("Not enough experiments with cost data (and known sizes) for size_vs_cost plot")
         return
 
     fig, ax = plt.subplots(figsize=(11, 7))
@@ -379,9 +463,9 @@ def plot_size_vs_cost(experiments: list[dict], output_dir: Path):
 
 def plot_bubble_chart(experiments: list[dict], output_dir: Path):
     """Plot 4: Bubble chart -- Size (x) vs Score (y), bubble size = cost."""
-    with_cost = [e for e in experiments if e["total_cost"] > 0]
+    with_cost = [e for e in experiments if e["total_cost"] > 0 and e["size_b"] is not None]
     if len(with_cost) < 2:
-        print("Not enough cost data for bubble chart")
+        print("Not enough cost data (with known sizes) for bubble chart")
         return
 
     fig, ax = plt.subplots(figsize=(12, 8))
@@ -421,29 +505,56 @@ def plot_bubble_chart(experiments: list[dict], output_dir: Path):
     print(f"Saved {output_dir / 'size_score_cost_bubble.png'}")
 
 
-def plot_overall_ranking(experiments: list[dict], output_dir: Path):
-    """Plot 5: Overall performance ranking (horizontal bar chart)."""
-    fig, ax = plt.subplots(figsize=(12, max(7, len(experiments) * 0.6)))
+ENSEMBLE_COLOR = "#d97706"  # amber – visually distinct from model family colors
 
-    sorted_exp = sorted(experiments, key=lambda x: x["overall_score"])
-    names = [e["display_name"] for e in sorted_exp]
+
+def plot_overall_ranking(experiments: list[dict], output_dir: Path,
+                         ensembles: list[dict] | None = None):
+    """Plot 5: Overall performance ranking (horizontal bar chart).
+
+    When *ensembles* is provided, ensemble entries are merged in and drawn
+    with hatching + amber colour so they stand out from individual models.
+    """
+    all_exp = list(experiments)
+    if ensembles:
+        all_exp.extend(ensembles)
+
+    sorted_exp = sorted(all_exp, key=lambda x: x["overall_score"])
+    n_bars = len(sorted_exp)
+    fig, ax = plt.subplots(figsize=(12, max(7, n_bars * 0.6)))
+
     scores = [e["overall_score"] for e in sorted_exp]
     ci_widths = [e.get("overall_ci", 0) for e in sorted_exp]
-    colors = [get_color(n) for n in names]
-    # Add indicator for local vs API
+
+    # Per-bar colour: ensemble bars get amber, models get family colour
+    colors = []
     labels = []
-    for e in sorted_exp:
-        suffix = " [local]" if e.get("llm_provider") == "hf_local" else ""
-        labels.append(f"{e['display_name']}{suffix}")
+    hatch_indices = []
+    for i, e in enumerate(sorted_exp):
+        if e.get("is_ensemble"):
+            colors.append(ENSEMBLE_COLOR)
+            labels.append(f"{e['display_name']}  [ensemble]")
+            hatch_indices.append(i)
+        else:
+            colors.append(get_color(e["display_name"]))
+            suffix = " [local]" if e.get("llm_provider") == "hf_local" else ""
+            labels.append(f"{e['display_name']}{suffix}")
 
-    bars = ax.barh(range(len(labels)), scores, color=colors, edgecolor="white", linewidth=1.2, height=0.65,
-                   xerr=ci_widths, capsize=3, error_kw={'linewidth': 1.2, 'color': '#333'})
+    bars = ax.barh(range(n_bars), scores, color=colors, edgecolor="white",
+                   linewidth=1.2, height=0.65,
+                   xerr=ci_widths, capsize=3,
+                   error_kw={'linewidth': 1.2, 'color': '#333'})
 
-    for i, (bar, score, ci) in enumerate(zip(bars, scores, ci_widths)):
+    # Apply hatching to ensemble bars
+    for idx in hatch_indices:
+        bars[idx].set_hatch("//")
+        bars[idx].set_edgecolor("#92400e")
+
+    for bar, score, ci in zip(bars, scores, ci_widths):
         ax.text(bar.get_width() + ci + 0.01, bar.get_y() + bar.get_height() / 2,
                 f"{score:.3f}", va="center", fontsize=10, fontweight="bold")
 
-    ax.set_yticks(range(len(labels)))
+    ax.set_yticks(range(n_bars))
     ax.set_yticklabels(labels, fontsize=11)
     ax.set_xlim(0, 1.05)
     ax.set_xlabel("WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)", fontsize=11)
@@ -452,6 +563,15 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path):
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="x", linestyle="--", alpha=0.3)
+
+    # Legend entry for ensemble hatching
+    if hatch_indices:
+        from matplotlib.patches import Patch
+        ax.legend(
+            handles=[Patch(facecolor=ENSEMBLE_COLOR, edgecolor="#92400e",
+                           hatch="//", label="Ensemble")],
+            loc="lower right", fontsize=10,
+        )
 
     plt.tight_layout()
     plt.savefig(output_dir / "overall_ranking.png", dpi=300, bbox_inches="tight")
@@ -593,7 +713,8 @@ def print_summary_table(experiments: list[dict]):
         est = "*" if e["size_estimated"] else ""
         lat_flag = " !!" if e.get("latency_suspect") else ""
         provider = e.get("llm_provider", "?")[:10]
-        size_str = f"{e['size_b']}B" if e['size_b'] >= 1 else f"{e['size_b']:.1f}B"
+        sb = e['size_b']
+        size_str = "?" if sb is None else (f"{sb}B" if sb >= 1 else f"{sb:.1f}B")
         print(
             f"{e['display_name']:<25s} "
             f"{provider:>10s} "
@@ -612,6 +733,61 @@ def print_summary_table(experiments: list[dict]):
 
 
 # ============================================================================
+# Helpers
+# ============================================================================
+
+def discover_systems(experiments_dir: Path) -> list[str]:
+    """Return sorted list of system directory names under experiments_dir."""
+    return sorted(
+        d.name for d in experiments_dir.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    )
+
+
+def generate_plots(experiments_dir: Path, output_dir: Path,
+                   name_filter: str | None, datafile: str | None,
+                   system: str | None):
+    """Load experiments for one system and generate all 8 plots."""
+    label = f"[{system}] " if system else ""
+    print(f"\n{'=' * 60}")
+    print(f"{label}Loading experiment data...")
+    if datafile:
+        print(f"  Filtering to datafile: {datafile}")
+    if system:
+        print(f"  Filtering to system: {system}")
+    if name_filter:
+        print(f"  Filtering to experiments containing: '{name_filter}'")
+
+    experiments = load_experiments(experiments_dir, name_filter=name_filter,
+                                  datafile=datafile, system=system)
+    if not experiments:
+        print(f"{label}No valid experiments found — skipping")
+        return
+
+    print(f"{label}Loaded {len(experiments)} experiments")
+    print_summary_table(experiments)
+
+    ensembles = load_ensemble_experiments(experiments_dir, datafile=datafile,
+                                          system=system)
+    if ensembles:
+        print(f"{label}Loaded {len(ensembles)} ensemble experiment(s) for ranking plot")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"{label}Generating plots...")
+    plot_size_vs_scores(experiments, output_dir)
+    plot_size_vs_latency(experiments, output_dir)
+    plot_size_vs_cost(experiments, output_dir)
+    plot_bubble_chart(experiments, output_dir)
+    plot_overall_ranking(experiments, output_dir, ensembles=ensembles)
+    plot_cost_vs_performance(experiments, output_dir)
+    plot_score_breakdown(experiments, output_dir)
+    plot_energy(experiments, output_dir)
+
+    print(f"{label}All 8 plots saved to {output_dir}/")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -625,43 +801,39 @@ def main():
         help="Filter to experiments from this datafile subfolder "
              "(e.g. 'train_QA', 'test_solutions'). Default: include all.",
     )
+    parser.add_argument(
+        "--system", "-S", default=None,
+        help="Filter to a single system subfolder "
+             "(e.g. 'PowerEdge', 'GB10', 'Bedrock'). "
+             "Default: auto-discover all systems and generate plots for each.",
+    )
     args = parser.parse_args()
 
     experiments_dir = Path(args.experiments)
-    output_dir = Path(args.output)
-    if args.datafile:
-        output_dir = output_dir / args.datafile
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     if not experiments_dir.exists():
         print(f"Error: experiments directory not found: {experiments_dir}")
         sys.exit(1)
 
-    print("Loading experiment data...")
-    if args.datafile:
-        print(f"  Filtering to datafile: {args.datafile}")
-    if args.filter:
-        print(f"  Filtering to experiments containing: '{args.filter}'")
-    experiments = load_experiments(experiments_dir, name_filter=args.filter, datafile=args.datafile)
+    base_output = Path(args.output)
 
-    if not experiments:
-        print("No valid experiments found!")
-        sys.exit(1)
-
-    print(f"Loaded {len(experiments)} experiments")
-    print_summary_table(experiments)
-
-    print("\nGenerating plots...")
-    plot_size_vs_scores(experiments, output_dir)
-    plot_size_vs_latency(experiments, output_dir)
-    plot_size_vs_cost(experiments, output_dir)
-    plot_bubble_chart(experiments, output_dir)
-    plot_overall_ranking(experiments, output_dir)
-    plot_cost_vs_performance(experiments, output_dir)
-    plot_score_breakdown(experiments, output_dir)
-    plot_energy(experiments, output_dir)
-
-    print(f"\nAll 8 plots saved to {output_dir}/")
+    if args.system:
+        # Single system specified — generate one set of plots
+        out = base_output / args.system
+        if args.datafile:
+            out = out / args.datafile
+        generate_plots(experiments_dir, out, args.filter, args.datafile, args.system)
+    else:
+        # Auto-discover systems and generate per-system plots
+        systems = discover_systems(experiments_dir)
+        if not systems:
+            print("No system directories found under experiments dir")
+            sys.exit(1)
+        print(f"Discovered {len(systems)} system(s): {systems}")
+        for system in systems:
+            out = base_output / system
+            if args.datafile:
+                out = out / args.datafile
+            generate_plots(experiments_dir, out, args.filter, args.datafile, system)
 
 
 if __name__ == "__main__":

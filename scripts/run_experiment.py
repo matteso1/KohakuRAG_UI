@@ -17,26 +17,33 @@ Usage:
     python scripts/run_experiment.py --config vendor/KohakuRAG/configs/hf_qwen7b.py --name "qwen7b-test"
 
 Output:
-    - artifacts/experiments/<datafile>/<name>/results.json - Raw per-question results (un-normalised)
-    - artifacts/experiments/<datafile>/<name>/summary.json - Overall metrics and timing
+    - artifacts/experiments/<env>/<datafile>/<name>/results.json - Per-question results
+    - artifacts/experiments/<env>/<datafile>/<name>/summary.json - Overall metrics and timing
+    - artifacts/experiments/<env>/<datafile>/<name>/submission.csv - Kaggle-format predictions
 
-    Where <datafile> is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
+    Where <env> is the system name (e.g. "PowerEdge", "GB10") and <datafile>
+    is the stem of the questions CSV (e.g. "train_QA", "test_solutions").
 
-    results.json stores the raw LLM output.  To produce a normalised submission.csv
-    for Kaggle, run the post-hoc processing step:
-
-        python scripts/posthoc.py artifacts/experiments/<datafile>/<name>/results.json
-
-    See scripts/posthoc.py for the canonical answer normalisation logic.
+    Answer normalisation is applied at scoring time by score.py (inside row_bits),
+    so a separate post-hoc step is not required.
 """
 
 import argparse
 import asyncio
 import csv
 import importlib.util
+import io
 import json
+import os
 import sys
 import time
+
+# Force UTF-8 stdout/stderr on Windows (cp1252 can't handle Unicode in
+# corpus text like "MWh → kWh").  Must run before any print() calls.
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.environ.setdefault("PYTHONUTF8", "1")
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -104,6 +111,7 @@ class QuestionResult:
     rendered_prompt: str = ""  # The complete prompt sent to the LLM
     retrieved_snippets: list = field(default_factory=list)  # [{node_id, doc_title, text, score, rank}]
     num_snippets: int = 0
+    retry_count: int = 0  # Number of iterative-deepening retries used (0 = answered on first attempt)
 
 
 @dataclass
@@ -136,6 +144,10 @@ class ExperimentSummary:
     config_snapshot: dict = field(default_factory=dict)
     # Run environment (machine label for cross-machine comparison)
     run_environment: str = ""  # e.g. "GB10", "PowerEdge", "Bedrock-us-east-1"
+    # Retry stats
+    total_retries: int = 0  # Sum of retry_count across all questions
+    questions_retried: int = 0  # Number of questions that needed at least 1 retry
+    avg_retries: float = 0.0  # Average retry_count per question
     # Dataset info
     questions_file: str = ""  # path to the questions CSV used for this run
 
@@ -185,14 +197,14 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 
 
 # =============================================================================
-# Answer / Ref Normalisation  (canonical logic lives in posthoc.py)
+# Answer / Ref Normalisation
 # =============================================================================
-# Imported here so that callers that historically relied on these names from
-# run_experiment still work (e.g. ensemble scripts).  The experiment runner
-# itself no longer calls them inline — raw model output is saved to
-# results.json, and posthoc.py normalises + scores in a separate step.
+# Imported so that callers that historically relied on these names from
+# run_experiment still work (e.g. ensemble scripts).  Normalisation is
+# applied at scoring time by score.py (inside row_bits).
 
 from posthoc import normalize_answer_value, normalize_ref_id  # noqa: F401
+from results_io import CHUNK_SIZE, load_partial_progress
 
 
 # =============================================================================
@@ -361,7 +373,7 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
         model_id = config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0")
         return BedrockChatModel(
             model_id=model_id,
-            profile_name=config.get("bedrock_profile", "bedrock_nils"),
+            profile_name=config.get("bedrock_profile"),
             region_name=config.get("bedrock_region", "us-east-2"),
             system_prompt=system_prompt,
             max_retries=config.get("max_retries", 3),
@@ -387,10 +399,26 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
 
 
 def create_embedder_from_config(config: dict):
-    """Create an embedding model based on config settings."""
+    """Create an embedding model based on config settings.
+
+    Supported embedding_model values:
+        - "jinav4"  : Local Jina V4 (requires torch + transformers)
+        - "jina"    : Local Jina V3 (requires torch + transformers)
+        - "hf_local": Local sentence-transformers model
+        - "bedrock" : AWS Titan Text Embeddings V2 via Bedrock (no torch needed)
+    """
     model_type = config.get("embedding_model", "jina")
 
-    if model_type == "hf_local":
+    if model_type == "bedrock":
+        from llm_bedrock import BedrockEmbeddingModel
+
+        return BedrockEmbeddingModel(
+            model_id=config.get("bedrock_embedding_model", "amazon.titan-embed-text-v2:0"),
+            profile_name=config.get("bedrock_profile"),
+            region_name=config.get("bedrock_region"),
+            dimensions=config.get("embedding_dim", 1024),
+        )
+    elif model_type == "hf_local":
         model_id = config.get("embedding_model_id", "BAAI/bge-base-en-v1.5")
         return LocalHFEmbeddingModel(model_name=model_id)
     elif model_type == "jinav4":
@@ -469,15 +497,22 @@ class ExperimentRunner:
         # Reset GPU peak stats before loading (for accurate VRAM measurement)
         reset_gpu_peak_stats()
 
+        dtype = self.config.get("hf_dtype", "4bit") if provider == "hf_local" else "api"
+
         llm_load_start = time.time()
         self.chat_model = create_chat_model_from_config(self.config, SYSTEM_PROMPT)
         self.llm_load_time = time.time() - llm_load_start
-        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s")
 
+        effective = getattr(self.chat_model, "effective_dtype", dtype)
+        print(f"[init] Precision: {effective}", flush=True)
+        print(f"[init] LLM loaded in {self.llm_load_time:.1f}s", flush=True)
+
+        embed_model_type = self.config.get("embedding_model", "jina")
+        print(f"[init] Loading embedder ({embed_model_type})...", flush=True)
         embed_load_start = time.time()
         embedder = create_embedder_from_config(self.config)
         self.embedder_load_time = time.time() - embed_load_start
-        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s")
+        print(f"[init] Embedder loaded in {self.embedder_load_time:.1f}s", flush=True)
 
         self.model_load_time = self.llm_load_time + self.embedder_load_time
 
@@ -495,7 +530,7 @@ class ExperimentRunner:
         max_queries = self.config.get("planner_max_queries", 3)
         planner = LLMQueryPlanner(self.chat_model, max_queries=max_queries)
         print(f"[init] Query planner: LLMQueryPlanner (max_queries={max_queries})")
-        prompt_order = "C→Q (reordered)" if self.use_reordered_prompt else "Q→C (default)"
+        prompt_order = "C->Q (reordered)" if self.use_reordered_prompt else "Q->C (default)"
         print(f"[init] Prompt ordering: {prompt_order}")
         print(f"[init] Max retries (iterative deepening): {self.max_retries}")
 
@@ -528,6 +563,7 @@ class ExperimentRunner:
         - Stops after max_retries additional attempts or on a non-blank answer.
         """
         async with self.semaphore:
+            print(f"[{index}/{total}] {row['id']}: processing...", flush=True)
             start_time = time.time()
             error_msg = None
             raw_response = ""
@@ -550,6 +586,7 @@ class ExperimentRunner:
                 base_top_k_final = self.config.get("top_k_final", None)
                 result = None
                 answer_is_blank = True
+                retry_count = 0
 
                 # Retry loop: increase retrieval depth on blank answers
                 for attempt in range(self.max_retries + 1):
@@ -574,7 +611,7 @@ class ExperimentRunner:
                         err_msg = str(retry_err).lower()
                         if "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
                             reduced_k = max(current_top_k - 2, 1)
-                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}")
+                            print(f"  [{row['id']}] Context overflow at top_k={current_top_k}, retrying with {reduced_k}", flush=True)
                             result = await self.pipeline.run_qa(
                                 question=row["question"],
                                 top_k=reduced_k,
@@ -591,12 +628,16 @@ class ExperimentRunner:
                         or not result.answer.ref_id
                     )
                     if not answer_is_blank:
+                        retry_count = attempt
                         break  # Got a valid answer
                     if attempt < self.max_retries:
-                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...")
+                        print(f"  [{row['id']}] Blank answer at top_k={current_top_k}, deepening retrieval...", flush=True)
+                else:
+                    # All retries exhausted — record the full count
+                    retry_count = self.max_retries
 
-                # Store raw model output — normalisation is applied post-hoc
-                # by scripts/posthoc.py (single source of truth).
+                # Store raw model output — normalisation is applied at scoring
+                # time by score.py (inside row_bits).
                 pred_value = str(result.answer.answer_value).strip()
                 pred_ref = result.answer.ref_id  # raw list from pipeline
                 pred_explanation = result.answer.explanation
@@ -659,7 +700,7 @@ class ExperimentRunner:
 
             status = "OK" if bits["val"] else "WRONG"
             preview = str(pred_value)[:40]
-            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)")
+            print(f"[{index}/{total}] {row['id']}: {preview} [{status}] ({latency:.1f}s | ret={retrieval_s:.1f}s gen={generation_s:.1f}s)", flush=True)
 
             return QuestionResult(
                 id=row["id"],
@@ -685,6 +726,7 @@ class ExperimentRunner:
                 rendered_prompt=rendered_prompt,
                 retrieved_snippets=snippets_data,
                 num_snippets=len(snippets_data),
+                retry_count=retry_count,
             )
 
     async def run(self, questions_df: pd.DataFrame) -> ExperimentSummary:
@@ -719,13 +761,86 @@ class ExperimentRunner:
         self.cpu_monitor = CPURSSMonitor(interval=0.5)
         self.cpu_monitor.start()
 
-        # Process all questions
-        tasks = []
-        for idx, row in questions_df.iterrows():
-            task = self.process_question(row, len(tasks) + 1, total)
-            tasks.append(task)
+        # ── Resume from partial progress ────────────────────────────────
+        # If a previous run crashed, chunk files already on disk are loaded
+        # and those question IDs are skipped.
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        prior_dicts, next_chunk_idx = load_partial_progress(self.output_dir)
+        completed_ids: set[str] = set()
 
-        self.results = await asyncio.gather(*tasks)
+        self.results = []
+        if prior_dicts:
+            completed_ids = {r["id"] for r in prior_dicts}
+            # Reconstruct QuestionResult objects so aggregate scoring works
+            for d in prior_dicts:
+                self.results.append(QuestionResult(**{
+                    k: v for k, v in d.items()
+                    if k in QuestionResult.__dataclass_fields__
+                }))
+            print(f"[resume] Loaded {len(prior_dicts)} completed questions "
+                  f"from {next_chunk_idx} chunk(s) — skipping those")
+
+        # Filter to only questions that still need answering
+        remaining_rows = [
+            (_idx, row) for _idx, row in questions_df.iterrows()
+            if row["id"] not in completed_ids
+        ]
+
+        if not remaining_rows:
+            print("[resume] All questions already completed!")
+        else:
+            print(f"[run] {len(remaining_rows)} questions to process")
+
+        # ── Process remaining questions in batches ────────────────────
+        chunk_idx = next_chunk_idx
+        for batch_start in range(0, len(remaining_rows), CHUNK_SIZE):
+            batch_rows = remaining_rows[batch_start : batch_start + CHUNK_SIZE]
+
+            tasks = []
+            for i, (_idx, row) in enumerate(batch_rows):
+                done_so_far = len(completed_ids) + batch_start + i + 1
+                tasks.append(
+                    self.process_question(row, done_so_far, total)
+                )
+
+            batch_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Convert exceptions to error QuestionResult objects
+            batch_results = []
+            for j, result in enumerate(batch_results_raw):
+                if isinstance(result, Exception):
+                    _idx, row = batch_rows[j]
+                    done_so_far = len(completed_ids) + batch_start + j + 1
+                    print(f"[{done_so_far}/{total}] {row['id']}: ERROR - {str(result)[:80]}", flush=True)
+                    batch_results.append(QuestionResult(
+                        id=row["id"],
+                        question=row["question"],
+                        gt_value=str(row.get("answer_value", "is_blank")),
+                        gt_unit=str(row.get("answer_unit", "")),
+                        gt_ref=str(row.get("ref_id", "is_blank")),
+                        pred_value="is_blank",
+                        pred_unit=str(row.get("answer_unit", "")),
+                        pred_ref="is_blank",
+                        pred_explanation=f"Error: {result!s}",
+                        raw_response="",
+                        value_correct=False,
+                        ref_score=0.0,
+                        na_correct=False,
+                        weighted_score=0.0,
+                        latency_seconds=0.0,
+                        error=str(result),
+                    ))
+                else:
+                    batch_results.append(result)
+            self.results.extend(batch_results)
+
+            # Flush this batch to its own chunk file
+            chunk_data = [asdict(r) for r in batch_results]
+            chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
+            with open(chunk_path, "w", encoding="utf-8") as f:
+                json.dump(chunk_data, f, indent=2, ensure_ascii=False)
+            print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}", flush=True)
+            chunk_idx += 1
         total_time = time.time() - start_time
 
         # Stop all monitors
@@ -747,6 +862,9 @@ class ExperimentRunner:
         avg_retrieval = sum(r.retrieval_seconds for r in self.results) / total
         avg_generation = sum(r.generation_seconds for r in self.results) / total
         error_count = sum(1 for r in self.results if r.error)
+        total_retries = sum(r.retry_count for r in self.results)
+        questions_retried = sum(1 for r in self.results if r.retry_count > 0)
+        avg_retries = total_retries / total if total else 0.0
 
         # Get token usage from chat model (if supported)
         input_tokens = 0
@@ -800,12 +918,20 @@ class ExperimentRunner:
             estimated_cost_usd=estimated_cost,
             hardware=hw_dict,
             config_snapshot=self.config,
+            total_retries=total_retries,
+            questions_retried=questions_retried,
+            avg_retries=avg_retries,
             run_environment=self.config.get("_run_environment", ""),
             questions_file=self.config.get("_questions_file", ""),
         )
 
     def save_results(self, summary: ExperimentSummary) -> None:
-        """Save all experiment outputs."""
+        """Save submission CSV and summary JSON.
+
+        Results chunk files (results_chunk_NNN.json) are already written
+        incrementally during :meth:`run`, so this only handles the final
+        artefacts that depend on the complete result set.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save Kaggle-format submission CSV
@@ -828,17 +954,10 @@ class ExperimentRunner:
         sub_df.to_csv(sub_path, index=False, quoting=csv.QUOTE_ALL)
         print(f"\nSaved submission: {sub_path}")
 
-        # Save detailed results JSON
-        results_path = self.output_dir / "results.json"
-        results_data = [asdict(r) for r in self.results]
-        with open(results_path, "w") as f:
-            json.dump(results_data, f, indent=2)
-        print(f"Saved results: {results_path}")
-
         # Save summary JSON
         summary_path = self.output_dir / "summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(asdict(summary), f, indent=2)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(summary), f, indent=2, ensure_ascii=False)
         print(f"Saved summary: {summary_path}")
 
 
@@ -846,11 +965,30 @@ class ExperimentRunner:
 # Main
 # =============================================================================
 
-async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit") -> None:
+async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit", profile: str | None = None) -> None:
     """Run an experiment with the given config."""
+    # Print CUDA status upfront so GPU issues are caught immediately
+    import torch
+    if torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(gpu_count)]
+        gpu_str = ", ".join(f"cuda:{i} {name}" for i, name in enumerate(gpu_names))
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: True | {gpu_count} GPU(s): {gpu_str}")
+    else:
+        print(f"[env] PyTorch {torch.__version__} | CUDA available: False | *** WARNING: running on CPU ***")
+
     config = load_config(config_path)
     config["_config_path"] = config_path
+
+    # Auto-detect environment from provider when not explicitly set
+    if not run_environment and config.get("llm_provider") == "bedrock":
+        run_environment = "Bedrock"
+
     config["_run_environment"] = run_environment
+
+    # CLI --profile overrides config bedrock_profile (only relevant for bedrock)
+    if profile:
+        config["bedrock_profile"] = profile
 
     # CLI --precision overrides any hf_dtype in config (only relevant for hf_local)
     if config.get("llm_provider") == "hf_local":
@@ -980,9 +1118,14 @@ def cli():
         choices=["4bit", "bf16", "fp16", "auto"],
         help="Model precision/quantization (default: 4bit). Only applies to hf_local models."
     )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS profile name for Bedrock (e.g. 'bedrock_endemann'). Falls back to AWS_PROFILE env var."
+    )
 
     args = parser.parse_args()
-    asyncio.run(main(args.config, args.name, args.env, args.questions, args.precision))
+    asyncio.run(main(args.config, args.name, args.env, args.questions, args.precision, args.profile))
 
 
 if __name__ == "__main__":

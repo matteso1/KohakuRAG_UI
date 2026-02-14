@@ -16,30 +16,17 @@ Primary development goal:
 ---
 
 
-### 2) Clone the repo (local branch) and create a working branch
+### 1) Clone the repo (local branch) a
 
-On **GB10**:
+In terminal from Jupyter lab...
 
-```bash
-ls # get oriented
-cd ~/GitHub
-```
-
-Create a folder for your git repos to live (use your name)
-
-```bash
-mkdir -p ~/GitHub/your-name # adjust to your name 
-cd ~/GitHub/your-name
-```
-
-Close the KohakuRAG_UI repo (local branch).
 ```bash
 git clone -b local https://github.com/matteso1/KohakuRAG_UI.git
 cd KohakuRAG_UI
 git branch --show-current   # should print: local
 ```
 
-### 3) Create cache and temp directories on /workspace2 (large disk)
+### 2) Create cache and temp directories on /workspace2 (large disk)
 ```bash
 # create cache and temp directories on /workspace2 (large disk)
 mkdir -p \
@@ -84,17 +71,13 @@ export TORCH_HOME=/workspace2/.cache/torch
 ```
 ### 3) Install `uv` (one‑time per user on GB10)
 
+Install uv and put /workspace2/bin on PATH (for this shell)
+
 ```bash
 # optional: clean the old one
 # rm -f /home/runai-home/.local/bin/uv /home/runai-home/.local/bin/uvx 2>/dev/null || true
 
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/workspace2/bin" sh
-
-```
-
-2) Put /workspace2/bin on PATH (for this shell)
-
-```bash
 export PATH="/workspace2/bin:$PATH"
 uv --version
 ```
@@ -120,24 +103,9 @@ The `local` branch vendors its core dependencies to avoid ARM build issues.
 Install them **editable** so imports resolve locally:
 
 ```bash
-uv pip install -e vendor/KohakuVault # must be run before next line. May take a minute
+uv pip install -e vendor/KohakuVault # Must be run before next line. May take a minute
 uv pip install -e vendor/KohakuRAG #
 ```
-
-Verify imports point into `vendor/`:
-
-```bash
-python -c "import kohakuvault; print(kohakuvault.__file__)"
-python -c "import kohakurag; print(kohakurag.__file__)"
-```
-
-Expected:
-```
-.../KohakuRAG_UI/vendor/...
-```
-
-If imports point into `.venv/site-packages`, stop — you are not using the vendored versions.
-
 
 ### 6) Install **local-only development dependencies**
 
@@ -162,6 +130,17 @@ Confirm imports:
 python -c "import kohakuvault, kohakurag; print('Imports OK')"
 ```
 
+
+### 8) Build the index
+
+```bash
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+cd ../..
+
+# Verify the database was created
+ls -lh data/embeddings/wattbot_jinav4.db
+```
 
 ### 8) Jupyter Lab (headless, remote)
 
@@ -190,15 +169,8 @@ for full details on the proxy architecture.
 
 **Prerequisites:** `jupyter-server-proxy` must be installed in the
 **system** Python (the one running JupyterLab), not just your venv.
-This should already be done by the workspace startup args (see section 6.1
-of the Streamlit guide). If not:
+This should already be done in the runAI workspace configuration.
 
-```bash
-deactivate                               # leave the venv
-python -m pip install jupyter-server-proxy
-```
-
-Then restart JupyterLab.
 
 **Launch** (from inside the venv, in the repo root):
 
@@ -206,8 +178,6 @@ Then restart JupyterLab.
 streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
   --server.enableCORS=false --server.enableXsrfProtection=false
 ```
-
-Do **not** use `--server.baseUrlPath` — the proxy handles it.
 
 **Access** at:
 

@@ -73,6 +73,66 @@ class DocumentIndexer:
         await self._embed_tree(root)
         return [self._to_stored(node) for node in self._flatten(root)]
 
+    async def index_batch(
+        self, documents: list[DocumentPayload]
+    ) -> list[tuple[DocumentPayload, list[StoredNode]]]:
+        """Index multiple documents with cross-document embedding batching.
+
+        Collects all sentences (and paragraphs when needed) across every
+        document in *documents* and embeds them in a single batched call to
+        the GPU.  This keeps the device saturated and avoids the per-document
+        launch overhead that dominates on machines like the GB10.
+        """
+        if not documents:
+            return []
+
+        # 1. Build all trees (CPU-only, fast)
+        trees: list[tuple[DocumentPayload, TreeNode]] = [
+            (doc, self._build_tree(doc)) for doc in documents
+        ]
+
+        # 2. Collect leaves (sentences) across ALL trees
+        all_leaves: list[TreeNode] = []
+        for _doc, root in trees:
+            all_leaves.extend(
+                node for node in self._flatten(root) if not node.children
+            )
+
+        if all_leaves:
+            embeddings = await self._embedding_model.embed(
+                [leaf.text for leaf in all_leaves]
+            )
+            for leaf, vec in zip(all_leaves, embeddings, strict=True):
+                leaf.embedding = vec
+
+        # 3. Full paragraph embeddings (cross-doc) when mode requires it
+        para_full_map: dict[str, np.ndarray] = {}
+        if self._paragraph_embedding_mode in ("full", "both"):
+            all_paras: list[TreeNode] = []
+            for _doc, root in trees:
+                all_paras.extend(
+                    node
+                    for node in self._flatten(root)
+                    if node.kind == NodeKind.PARAGRAPH
+                )
+            if all_paras:
+                para_embeddings = await self._embedding_model.embed(
+                    [p.text for p in all_paras]
+                )
+                para_full_map = {
+                    p.node_id: vec
+                    for p, vec in zip(all_paras, para_embeddings, strict=True)
+                }
+
+        # 4. Propagate & convert per tree (CPU-only, fast)
+        results: list[tuple[DocumentPayload, list[StoredNode]]] = []
+        for doc, root in trees:
+            self._propagate_embeddings(root, para_full_map)
+            nodes = [self._to_stored(node) for node in self._flatten(root)]
+            results.append((doc, nodes))
+
+        return results
+
     def _build_tree(self, document: DocumentPayload) -> TreeNode:
         """Build document → section → paragraph → sentence hierarchy.
 
@@ -217,10 +277,12 @@ class DocumentIndexer:
     def _propagate_embeddings(
         self, node: TreeNode, para_full_map: dict[str, np.ndarray] | None = None
     ) -> np.ndarray:
-        """Recursively compute parent embeddings as length-weighted average of children.
+        """Bottom-up embedding propagation: token-count-weighted average of children.
 
-        Longer child segments contribute proportionally more to the parent's
-        semantic representation, matching the KohakuRAG competition design.
+        Only leaf nodes (sentences) are embedded directly by the encoder.
+        Internal nodes (paragraphs, sections, documents) receive embeddings
+        via weighted aggregation where each child's weight is its token count,
+        so longer, more informative segments contribute proportionally more.
 
         Args:
             node: Current node to process
@@ -239,9 +301,12 @@ class DocumentIndexer:
         if not child_vectors:
             raise ValueError(f"Node {node.node_id} is missing an embedding.")
 
-        # Use text length of each child as weight so longer, more informative
-        # segments contribute more to the parent's semantic representation.
-        child_weights = [float(max(len(child.text), 1)) for child in node.children]
+        # Use token count (word count proxy) of each child as weight so longer,
+        # more informative segments contribute proportionally more to the
+        # parent's semantic representation (bottom-up embedding propagation).
+        child_weights = [
+            float(max(len(child.text.split()), 1)) for child in node.children
+        ]
 
         # Compute length-weighted embedding from children
         averaged_embedding = average_embeddings(child_vectors, weights=child_weights)

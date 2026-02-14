@@ -27,6 +27,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -52,11 +53,14 @@ HF_LOCAL_MODELS = {
     "hf_mistral7b": "mistral7b-bench",
     "hf_phi3_mini": "phi3-mini-bench",
     "hf_qwen72b": "qwen72b-bench",
+    "hf_qwen1_5_110b": "qwen1.5-110b-bench",
     # "hf_gemma2_9b": "gemma2-9b-bench",     # gated — needs HF_TOKEN
     # "hf_gemma2_27b": "gemma2-27b-bench",   # gated — needs HF_TOKEN
     "hf_mixtral_8x7b": "mixtral-8x7b-bench",
     "hf_mixtral_8x22b": "mixtral-8x22b-bench",
     "hf_qwen3_30b_a3b": "qwen3-30b-a3b-bench",
+    "hf_qwen3_next_80b_a3b": "qwen3-next-80b-a3b-bench",
+    "hf_qwen3_next_80b_a3b_thinking": "qwen3-next-80b-a3b-thinking-bench",
     "hf_olmoe_1b7b": "olmoe-1b7b-bench",
 }
 
@@ -109,7 +113,8 @@ def check_existing(experiment_name: str, env: str = "", datafile_stem: str = "tr
 
 def run_experiment(config_name: str, experiment_name: str, env: str = "",
                     questions: str | None = None,
-                    precision: str = "4bit") -> tuple[bool, str]:
+                    precision: str = "4bit",
+                    profile: str | None = None) -> tuple[bool, str]:
     """Run a single experiment. Returns (success, output_summary)."""
     config_path = f"vendor/KohakuRAG/configs/{config_name}.py"
 
@@ -126,6 +131,8 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         cmd.extend(["--env", env])
     if questions:
         cmd.extend(["--questions", questions])
+    if profile:
+        cmd.extend(["--profile", profile])
 
     _noise_re = re.compile(
         r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
@@ -137,13 +144,23 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     )
     # Matches e.g. "[3/41] Q123: some answer [OK] (8.2s | ret=0.5s gen=7.7s)"
     _progress_re = re.compile(r"^\[(\d+)/(\d+)\].*\[(?:OK|WRONG)\]\s*\((\d+\.\d+)s")
+    # Matches "[1/282] Q123: processing..." or "[1/282] Q123: TIMEOUT ..."
+    _status_re = re.compile(r"^\[(\d+)/(\d+)\].*(?:processing\.\.\.|TIMEOUT|ERROR)")
+    # Stage prefixes to forward so the user sees loading/run progress
+    _stage_prefixes = ("[init]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
         )
 
         all_lines = []
@@ -154,9 +171,24 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         elapsed_sum = 0.0
         start_time = time.time()
 
-        for line in proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
             line = line.rstrip("\n")
             all_lines.append(line)
+
+            # Forward key stage lines so the user sees loading progress
+            if any(line.startswith(p) for p in _stage_prefixes):
+                print(f"  {line}", flush=True)
+                continue
+
+            # Forward "processing..." / TIMEOUT / ERROR status lines
+            if _status_re.match(line):
+                elapsed = time.time() - start_time
+                print(f"\r  {line}  [{elapsed:.0f}s elapsed]", end="", flush=True)
+                continue
+
+            # Skip noisy lines early (before progress/report checks)
+            if _noise_re.search(line):
+                continue
 
             # Extract progress from per-question output
             m = _progress_re.match(line)
@@ -195,8 +227,14 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
             full_output = "\n".join(all_lines)
             if "401" in full_output or "Access denied" in full_output:
                 return False, "Gated model — accept license on HuggingFace + set HF_TOKEN"
-            error_lines = [l for l in all_lines if "Error" in l or "error" in l]
-            error_summary = error_lines[-1][:150] if error_lines else "Unknown error"
+            # Look for error/traceback lines; fall back to last non-empty lines
+            error_lines = [l for l in all_lines if "Error" in l or "error" in l or "Traceback" in l]
+            if error_lines:
+                error_summary = error_lines[-1][:200]
+            else:
+                # Show last 3 non-empty lines so we always have context
+                tail = [l.strip() for l in all_lines if l.strip()][-3:]
+                error_summary = " | ".join(tail)[:200] if tail else "Unknown error (no output)"
             # Clear progress bar before error output
             if current_q > 0:
                 print()
@@ -247,8 +285,13 @@ def main():
     )
     parser.add_argument(
         "--split", type=str, default=None,
-        help="Append a suffix to experiment names (e.g. --split test → qwen7b-bench-test). "
+        help="Append a suffix to experiment names (e.g. --split test -> qwen7b-bench-test). "
              "Use this to run on a different question set without overwriting existing results.",
+    )
+    parser.add_argument(
+        "--profile", type=str, default=None,
+        help="AWS profile name for Bedrock models (e.g. 'bedrock_endemann'). "
+             "Falls back to AWS_PROFILE env var.",
     )
     args = parser.parse_args()
 
@@ -326,7 +369,8 @@ def main():
 
         success, summary = run_experiment(config_name, exp_name, env=args.env,
                                            questions=args.questions,
-                                           precision=args.precision)
+                                           precision=args.precision,
+                                           profile=args.profile)
         elapsed = time.time() - start
 
         status = "PASS" if success else "FAIL"

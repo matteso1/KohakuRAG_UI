@@ -1,7 +1,7 @@
 """Simple hierarchical vector store implementations."""
 
 import asyncio
-import sqlite3
+
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal, Sequence
@@ -209,61 +209,6 @@ class KVaultNodeStore(HierarchicalNodeStore):
             if inferred_metric != metric:
                 metric = inferred_metric  # Use stored metric
 
-        # Read the true dimension from sqlite-vec's virtual table definition.
-        vec_table = f"{table_prefix}_vec"
-        vec_table_dim: int | None = None
-        vec_table_count: int = 0
-        try:
-            conn = sqlite3.connect(self._path)
-            try:
-                row = conn.execute(
-                    "SELECT vector_column_size FROM vec_info WHERE table_name = ?",
-                    (vec_table,),
-                ).fetchone()
-                if row and int(row[0]) > 0:
-                    vec_table_dim = int(row[0])
-                # Check how many rows the vec table has
-                cnt = conn.execute(
-                    f"SELECT count(*) FROM [{vec_table}]",
-                ).fetchone()
-                if cnt:
-                    vec_table_count = int(cnt[0])
-            finally:
-                conn.close()
-        except Exception:
-            pass
-
-        # If the caller specifies a dimension and the existing vec table disagrees,
-        # check whether the table is empty (e.g. created by a previous buggy run
-        # with dimensions=1).  If empty, drop it so it gets recreated correctly.
-        if (
-            dimensions is not None
-            and vec_table_dim is not None
-            and vec_table_dim != dimensions
-            and vec_table_count == 0
-        ):
-            try:
-                conn = sqlite3.connect(self._path)
-                try:
-                    conn.execute(f"DROP TABLE IF EXISTS [{vec_table}]")
-                    conn.execute(f"DROP TABLE IF EXISTS [{vec_table}_values]")
-                    conn.commit()
-                finally:
-                    conn.close()
-            except Exception:
-                pass
-            vec_table_dim = None  # table gone, will be recreated below
-
-        # Use vec_table_dim as ground truth when it exists and has data
-        if vec_table_dim is not None:
-            inferred_dimensions = vec_table_dim
-            # Sync metadata to match
-            self._kv[self.META_KEY] = {
-                "dimensions": vec_table_dim,
-                "metric": metric,
-            }
-
-        # Determine final dimensions
         if inferred_dimensions is not None:
             final_dimensions = inferred_dimensions
         elif dimensions is not None:

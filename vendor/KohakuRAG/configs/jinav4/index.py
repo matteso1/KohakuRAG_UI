@@ -23,7 +23,7 @@ embedding_task = "retrieval"  # Options: "retrieval", "text-matching", "code"
 #   - "averaged": Paragraph embedding = average of sentence embeddings
 #   - "full": Paragraph embedding = direct embedding of paragraph text
 #   - "both": Store both averaged (main) and full (separate table) - allows runtime toggle
-paragraph_embedding_mode = "both"
+paragraph_embedding_mode = "averaged"
 
 
 def config_gen():

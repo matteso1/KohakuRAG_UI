@@ -55,11 +55,14 @@ def wilson_ci(successes, n, confidence=0.95):
     spread = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / denom
     return max(0, center - spread), min(1, center + spread)
 
-def load_costs(experiments_dir="artifacts/experiments", datafile=None):
+def load_costs(experiments_dir="artifacts/experiments", datafile=None, system=None):
     """Load cost data from summary.json files.
 
     When *datafile* is given (e.g. ``"train_QA"``), only summaries whose
     path contains that subfolder are included.
+
+    When *system* is given (e.g. ``"PowerEdge"``, ``"GB10"``), only
+    summaries under that system directory are included.
     """
     costs = {} # model_name -> cost_usd
 
@@ -73,6 +76,8 @@ def load_costs(experiments_dir="artifacts/experiments", datafile=None):
         for p in glob.glob(pattern, recursive=True):
             path = Path(p)
             if datafile is not None and datafile not in path.parts:
+                continue
+            if system is not None and system not in path.parts:
                 continue
             try:
                 with open(path, "r") as f:
@@ -112,13 +117,21 @@ def main():
         help="Filter cost data to this datafile subfolder "
              "(e.g. 'train_QA', 'test_solutions'). Default: include all.",
     )
+    parser.add_argument(
+        "--system", "-S",
+        default=None,
+        help="System subfolder for output organisation "
+             "(e.g. 'PowerEdge', 'GB10', 'Bedrock'). Default: no system subfolder.",
+    )
 
     args = parser.parse_args()
 
     # Load Costs
     if args.datafile:
         print(f"Filtering costs to datafile: {args.datafile}")
-    model_costs = load_costs(datafile=args.datafile)
+    if args.system:
+        print(f"Filtering costs to system: {args.system}")
+    model_costs = load_costs(datafile=args.datafile, system=args.system)
     print(f"Loaded costs for {len(model_costs)} models: {list(model_costs.keys())}")
     
     matrix_path = Path(args.matrix)
@@ -151,6 +164,8 @@ def main():
     print(f"Selected {len(models)} models after filtering: {models}")
     
     output_dir = Path(args.output_dir)
+    if args.system:
+        output_dir = output_dir / args.system
     if args.datafile:
         output_dir = output_dir / args.datafile
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,12 @@
+# GB10-specific requirements — extends the base local requirements with
+# CUDA 13.0 PyTorch wheels (the GB10 ships with CUDA 13.0 toolkit).
+#
+# Usage:
+#   uv pip install -r local_requirements_gb10.txt
+#
+# This MUST be used instead of local_requirements.txt on the GB10,
+# otherwise torch installs as CPU-only and the GPU sits idle.
+
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+-r local_requirements.txt

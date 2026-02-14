@@ -51,6 +51,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 from score import row_bits, is_blank, ref_overlap_score
+from results_io import load_results, save_results_chunked
 
 
 # =============================================================================
@@ -58,7 +59,12 @@ from score import row_bits, is_blank, ref_overlap_score
 # =============================================================================
 
 
-def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) -> dict[str, list[dict]]:
+def load_experiment_results(
+    experiments_dir: Path,
+    experiment_names: list[str],
+    env: str = "",
+    datafile: str = "",
+) -> dict[str, list[dict]]:
     """Load results.json from each experiment.
 
     Supports flat, env-nested, and datafile-nested directory layouts.
@@ -75,23 +81,22 @@ def load_experiment_results(experiments_dir: Path, experiment_names: list[str]) 
     if datafile:
         search_root = search_root / datafile
 
-    # Build lookup: experiment name -> results.json path
-    all_results_paths = {
-        p.parent.name: p
-        for p in search_root.glob("**/results.json")
-    }
-
     for name in experiment_names:
-        # Try scoped path first, then fallback to lookup
-        results_path = search_root / name / "results.json"
-        if not results_path.exists():
-            results_path = all_results_paths.get(name)
-        if results_path is None or not results_path.exists():
+        exp_dir = search_root / name
+        if not exp_dir.is_dir():
+            # Fallback: search subdirectories for a matching experiment name
+            candidates = [p.parent for p in search_root.glob(f"**/{name}/summary.json")]
+            if candidates:
+                exp_dir = candidates[0]
+            else:
+                print(f"Warning: No results found for {name} under {search_root}")
+                continue
+
+        try:
+            all_results[name] = load_results(exp_dir)
+        except FileNotFoundError:
             print(f"Warning: No results found for {name} under {search_root}")
             continue
-
-        with open(results_path) as f:
-            all_results[name] = json.load(f)
 
     return all_results
 
@@ -234,7 +239,6 @@ def run_ensemble(
     strategy: str = "majority",
     ignore_blank: bool = False,
     model_weights: dict[str, float] | None = None,
-    ignore_blank: bool = False,
 ) -> list[dict]:
     """Combine results from multiple runs/models.
 
@@ -281,9 +285,13 @@ def run_ensemble(
             final_value = aggregate_first_non_blank(answers)
             final_ref = aggregate_refs_union(refs)
         else:
-            # majority (default)
+            # majority (default) — scope refs to winning voters only
             final_value = aggregate_majority(answers, ignore_blank=ignore_blank)
-            final_ref = aggregate_refs_union(refs)
+            winning_refs = [
+                ref for ans, ref in zip(answers, refs)
+                if ans == final_value
+            ]
+            final_ref = aggregate_refs_union(winning_refs)
 
         # Get metadata from first run's result
         first_result = results_by_id[first_model].get(qid, {})
@@ -376,11 +384,10 @@ def save_ensemble_results(
     """Save ensemble results."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save results JSON
-    results_path = output_dir / "results.json"
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved results: {results_path}")
+    # Save results as chunked JSON
+    chunk_paths = save_results_chunked(results, output_dir)
+    for cp in chunk_paths:
+        print(f"Saved results chunk: {cp}")
 
     # Save summary JSON
     summary = {
@@ -400,8 +407,8 @@ def save_ensemble_results(
         summary["config_path"] = config_path
 
     summary_path = output_dir / "summary.json"
-    with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"Saved summary: {summary_path}")
 
     # Save submission CSV
@@ -566,13 +573,6 @@ Examples:
         default=False,
         help="Disable abstention-aware voting",
     )
-    parser.add_argument(
-        "--ignore-blank",
-        action="store_true",
-        default=False,
-        help="Filter out is_blank/refusal answers before majority voting. "
-             "Prevents weaker models from outvoting stronger ones via refusals."
-    )
 
     args = parser.parse_args()
 
@@ -617,36 +617,40 @@ Examples:
             print(f"Error: Only {len(completed_runs)} runs completed, need at least 2")
             sys.exit(1)
 
-        # Load results from completed runs
-        all_results = load_experiment_results(experiments_dir, completed_runs)
-
-        if len(all_results) < 2:
-            print(f"Error: Only {len(all_results)} results loaded, need at least 2")
-            sys.exit(1)
-
-        # Determine datafile stem
+        # Determine datafile stem (needed to scope the load)
         if args.datafile:
             datafile_stem = args.datafile
         else:
             datafile_stem = infer_datafile_stem(experiments_dir, completed_runs)
+
+        # Load results from completed runs
+        all_results = load_experiment_results(
+            experiments_dir, completed_runs, env=args.env, datafile=datafile_stem,
+        )
+
+        if len(all_results) < 2:
+            print(f"Error: Only {len(all_results)} results loaded, need at least 2")
+            sys.exit(1)
 
         ensemble_type = "same-model"
         config_path = args.config
 
     # ---- Cross-model ensemble ----
     else:
-        # Load results from existing experiments
-        all_results = load_experiment_results(experiments_dir, args.experiments)
-
-        if len(all_results) < 2:
-            print("Error: Need at least 2 experiments for ensemble")
-            sys.exit(1)
-
-        # Determine datafile stem
+        # Determine datafile stem (needed to scope the load)
         if args.datafile:
             datafile_stem = args.datafile
         else:
             datafile_stem = infer_datafile_stem(experiments_dir, args.experiments)
+
+        # Load results from existing experiments (scoped to env/datafile)
+        all_results = load_experiment_results(
+            experiments_dir, args.experiments, env=args.env, datafile=datafile_stem,
+        )
+
+        if len(all_results) < 2:
+            print("Error: Need at least 2 experiments for ensemble")
+            sys.exit(1)
 
         ensemble_type = "cross-model"
         config_path = None

@@ -1,0 +1,20 @@
+{
+  "name": "ensemble-top3-majority",
+  "type": "ensemble",
+  "ensemble_type": "cross-model",
+  "strategy": "majority",
+  "ignore_blank": true,
+  "models": [
+    "qwen72b-bench",
+    "qwen32b-bench",
+    "qwen14b-bench"
+  ],
+  "num_models": 3,
+  "num_questions": 282,
+  "value_accuracy": 0.7588652482269503,
+  "ref_overlap": 0.8992316784869977,
+  "na_accuracy": 0.8125,
+  "overall_score": 0.7852836879432625,
+  "questions_correct": 214,
+  "questions_wrong": 68
+}

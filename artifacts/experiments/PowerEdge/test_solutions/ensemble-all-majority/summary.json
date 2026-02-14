@@ -1,0 +1,24 @@
+{
+  "name": "ensemble-all-majority",
+  "type": "ensemble",
+  "ensemble_type": "cross-model",
+  "strategy": "majority",
+  "ignore_blank": true,
+  "models": [
+    "qwen3-next-80b-a3b-bench",
+    "qwen72b-bench",
+    "qwen32b-bench",
+    "qwen3-30b-a3b-bench",
+    "qwen14b-bench",
+    "qwen7b-bench",
+    "qwen1.5-110b-bench"
+  ],
+  "num_models": 7,
+  "num_questions": 282,
+  "value_accuracy": 0.8297872340425532,
+  "ref_overlap": 0.8492654508611958,
+  "na_accuracy": 0.75,
+  "overall_score": 0.8247302431610943,
+  "questions_correct": 234,
+  "questions_wrong": 48
+}
