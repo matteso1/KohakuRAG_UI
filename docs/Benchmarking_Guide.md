@@ -195,20 +195,15 @@ Results are organized by environment and datafile:
 artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
 ├── results.json     # Per-question details (raw LLM output, latency, scores)
 ├── summary.json     # Aggregate metrics (overall score, timing, dataset info)
-└── submission.csv   # Normalised Kaggle-format predictions (created by posthoc.py)
+└── submission.csv   # Kaggle-format predictions (written by run_experiment.py)
 ```
 
-**Important:** `results.json` stores **raw model output** (un-normalised).
-To produce a normalised `submission.csv` for Kaggle and get the final score,
-run the post-hoc processing step:
-
-```bash
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-```
-
-This applies answer normalisation (comma stripping, range formatting,
-abbreviation expansion, etc.) and re-scores against ground truth.
-See `scripts/posthoc.py` for details.
+**Note:** `score.py` already applies answer normalisation (comma stripping,
+range formatting, magnitude expansion, hedging removal) internally when
+scoring, so a separate post-hoc step is not required for benchmarking.
+`posthoc.py` exists only for re-processing raw results if the normalisation
+rules in `score.py` change and you want to regenerate `submission.csv`
+without re-running the full experiment.
 
 The `<datafile>` subfolder is derived from the questions CSV filename
 (e.g. `train_QA` from `data/train_QA.csv`, `test_solutions` from
@@ -308,20 +303,7 @@ gets right or wrong.
 
 ## 4) Comparing results across runs
 
-### Post-hoc normalisation and scoring (run_full_benchmark will run this automatically)
-
-After an experiment completes, run post-hoc processing to normalise raw
-model output and produce a Kaggle-ready `submission.csv`:
-
-```bash
-# Process a single experiment (auto-finds results.json)
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/PowerEdge/train_QA/qwen7b-v1/ --dry-run
-```
-
-### Score a submission against ground truth (run_full_benchmark will run this automatically)
+### Score a submission against ground truth
 
 ```bash
 python scripts/score.py data/train_QA.csv artifacts/experiments/train_QA/qwen7b-v1/submission.csv
@@ -1012,32 +994,26 @@ size, energy (Wh), and power — ready for plotting.
 
 ---
 
-## 12) Results output for post-processing
+## 12) Results output
 
-Every experiment produces two files immediately, and a third after post-hoc
-processing:
+Every experiment produces three files:
 
 | File               | Format | What's in it                                                  |
 |--------------------|--------|---------------------------------------------------------------|
-| `results.json`     | JSON   | Per-question: **raw** model output, GT, latency, retrieval    |
+| `results.json`     | JSON   | Per-question: raw model output, GT, latency, retrieval        |
 | `summary.json`     | JSON   | Aggregate: overall score, hardware metrics, config snapshot    |
-| `submission.csv`   | CSV    | Normalised Kaggle-format predictions (created by `posthoc.py`)|
+| `submission.csv`   | CSV    | Kaggle-format predictions (written by `run_experiment.py`)    |
 
-`results.json` intentionally stores **raw (un-normalised)** model output so
-you can always re-run normalisation with improved rules without re-running
-expensive LLM inference:
+Answer normalisation (comma stripping, abbreviation expansion, range
+formatting, hedging removal, etc.) is applied **inside `score.py`** at
+scoring time — not as a separate step. This means all scripts that score
+(`run_experiment.py`, `generate_results_matrix.py`, `plot_score_breakdown.py`)
+use the same normalisation rules automatically.
 
-```bash
-# Normalise and re-score (writes submission.csv alongside results.json)
-python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/
-
-# Dry-run: see the score without writing files
-python scripts/posthoc.py artifacts/experiments/train_QA/qwen7b-v1/ --dry-run
-```
-
-All answer normalisation logic (comma stripping, abbreviation expansion,
-range formatting, hedging prefix removal, etc.) lives in **one place**:
-`scripts/posthoc.py`.
+`posthoc.py` exists as an optional tool: if you change normalisation rules
+in `score.py` and want to regenerate `submission.csv` without re-running
+inference, you can use it to re-normalise and re-score from the raw
+`results.json`.
 
 To iterate on post-processing in Python:
 
@@ -1083,8 +1059,8 @@ KohakuRAG_UI/
 ├── scripts/                  # Benchmarking & analysis tools
 │   ├── hardware_metrics.py   # VRAM, disk, energy, CPU RSS, machine ID
 │   ├── run_experiment.py     # Run one experiment (--env for machine label)
-│   ├── posthoc.py            # Post-hoc normalisation & scoring (single source of truth)
-│   ├── score.py              # WattBot scoring metric (used by Kaggle + posthoc)
+│   ├── score.py              # WattBot scoring metric + inline normalisation
+│   ├── posthoc.py            # Optional: re-normalise submission.csv from raw results
 │   ├── run_qwen_scaling.py   # Qwen size scaling experiment
 │   ├── run_full_benchmark.py # Run all models
 │   ├── run_wattbot_eval.py   # Quick eval + score
