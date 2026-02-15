@@ -1,0 +1,26 @@
+{
+  "name": "ensemble-all-majority",
+  "type": "ensemble",
+  "ensemble_type": "cross-model",
+  "strategy": "answer_priority",
+  "ignore_blank": false,
+  "models": [
+    "sonnet-bench",
+    "deepseek-r1-bench",
+    "llama4-maverick-bench",
+    "nova-pro-bench",
+    "llama3-70b-bench",
+    "claude35-haiku-bench",
+    "llama4-scout-bench",
+    "haiku-bench",
+    "claude37-sonnet-bench"
+  ],
+  "num_models": 9,
+  "num_questions": 282,
+  "value_accuracy": 0.8262411347517731,
+  "ref_overlap": 0.8183806146572105,
+  "na_accuracy": 0.875,
+  "overall_score": 0.8299379432624114,
+  "questions_correct": 233,
+  "questions_wrong": 49
+}
