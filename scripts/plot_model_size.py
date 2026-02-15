@@ -145,8 +145,7 @@ def load_experiments(experiments_dir: Path, name_filter: str | None = None,
         n_questions = data.get("num_questions", 0)
         error_count = data.get("error_count", 0)
         if n_questions > 0 and error_count / n_questions > 0.1:
-            print(f"  Skipping {name}: high error rate ({error_count}/{n_questions})")
-            continue
+            print(f"  Warning: {name} has high error rate ({error_count}/{n_questions})")
 
         avg_latency = data.get("avg_latency_seconds", 0)
         latency_suspect = avg_latency > 120  # Higher threshold for local models
