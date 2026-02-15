@@ -264,6 +264,51 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     print(f"{label}Writing matrix to {output}...")
     master_df.to_csv(output)
+
+    # ── Save per-model wrong-question reports ──
+    out_dir = Path(output).parent
+    val_cols = [c for c in master_df.columns if c.endswith("_ValCorrect")]
+    if val_cols:
+        errors_dir = out_dir / "errors"
+        errors_dir.mkdir(parents=True, exist_ok=True)
+
+        for vc in val_cols:
+            model = vc.removesuffix("_ValCorrect")
+            wrong = master_df[master_df[vc] == False]  # noqa: E712
+            if wrong.empty:
+                continue
+            keep = ["question", "GT_Value"]
+            if "answer_unit" in master_df.columns:
+                keep.append("answer_unit")
+            val_col = f"{model}_Value"
+            if val_col in master_df.columns:
+                keep.append(val_col)
+            keep.append(vc)
+            report = wrong[keep].copy()
+            report.rename(columns={val_col: "Model_Value"}, inplace=True)
+            report_path = errors_dir / f"wrong_{model}.csv"
+            report.to_csv(report_path)
+
+        # Also write a compact summary: model, num_wrong, wrong question ids
+        summary_rows = []
+        for vc in val_cols:
+            model = vc.removesuffix("_ValCorrect")
+            wrong_ids = list(master_df.index[master_df[vc] == False])  # noqa: E712
+            total = int(master_df[vc].notna().sum())
+            summary_rows.append({
+                "model": model,
+                "correct": total - len(wrong_ids),
+                "wrong": len(wrong_ids),
+                "total": total,
+                "accuracy": round((total - len(wrong_ids)) / total, 4) if total else 0,
+                "wrong_ids": ";".join(str(qid) for qid in wrong_ids),
+            })
+        summary_df = pd.DataFrame(summary_rows).sort_values("accuracy", ascending=False)
+        summary_path = errors_dir / "error_summary.csv"
+        summary_df.to_csv(summary_path, index=False)
+        print(f"{label}Wrote error reports to {errors_dir}/ "
+              f"({len(val_cols)} models, {len(summary_rows)} summaries)")
+
     print(f"{label}Done!")
 
 def main():

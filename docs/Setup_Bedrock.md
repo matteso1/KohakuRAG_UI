@@ -458,6 +458,37 @@ artifacts/experiments/
         └── qwen7b-bench/
 ```
 
+### 18) Cross-model ensembles (majority vote)
+
+Ensembles aggregate answers from multiple completed experiments via
+majority voting.  No extra API calls — they reuse existing results.
+
+```bash
+# Top-3: Sonnet 3.5 + DeepSeek R1 + Llama4-Maverick
+python scripts/run_ensemble.py \
+  --experiments sonnet-bench deepseek-r1-bench llama4-maverick-bench \
+  --name ensemble-top3-majority --env $ENV --datafile $DS
+
+# Top-5: add Llama3-70B + Nova-Pro
+python scripts/run_ensemble.py \
+  --experiments sonnet-bench deepseek-r1-bench llama4-maverick-bench \
+               llama3-70b-bench nova-pro-bench \
+  --name ensemble-top5-majority --env $ENV --datafile $DS
+
+# Kitchen sink: all 9 models, majority rules
+python scripts/run_ensemble.py \
+  --experiments sonnet-bench deepseek-r1-bench llama4-maverick-bench \
+               nova-pro-bench llama3-70b-bench claude35-haiku-bench \
+               llama4-scout-bench haiku-bench claude37-sonnet-bench \
+  --name ensemble-all-majority --env $ENV --datafile $DS
+```
+
+Options: `--strategy majority` (default) counts votes;
+`--strategy answer_priority` votes on value first, then collects refs
+only from agreeing models (better citation consistency).
+
+Results land in `artifacts/experiments/$ENV/$DS/ensemble-*/`.
+
 ---
 
 ## Phase 5 — Streamlit app
