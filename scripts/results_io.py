@@ -2,12 +2,12 @@
 
 When a results.json file exceeds ~50-100 MB it causes problems with git.
 This module provides helpers to save results in fixed-size chunks
-(e.g. 50 questions per file) and transparently reload them.
+(e.g. 25 questions per file) and transparently reload them.
 
 File layout (inside an experiment directory)::
 
-    results_chunk_000.json   # questions 0-49
-    results_chunk_001.json   # questions 50-99
+    results_chunk_000.json   # questions 0-24
+    results_chunk_001.json   # questions 25-49
     ...
 
 A single ``results.json`` is still supported for backwards compatibility —
@@ -20,7 +20,7 @@ import json
 import re
 from pathlib import Path
 
-CHUNK_SIZE = 50  # default questions per chunk file
+CHUNK_SIZE = 25  # default questions per chunk file
 _CHUNK_GLOB = "results_chunk_*.json"
 _CHUNK_RE = re.compile(r"^results_chunk_(\d+)\.json$")
 
