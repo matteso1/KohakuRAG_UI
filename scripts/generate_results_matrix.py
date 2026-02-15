@@ -201,6 +201,7 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
 
     # Iterate through submissions and merge
     processed_models = set()
+    model_exp_dirs: dict[str, Path] = {}  # model_name -> experiment directory
 
     for sub_path in unique_files:
         # Derive model name
@@ -218,6 +219,7 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
             continue
 
         processed_models.add(model_name)
+        model_exp_dirs[model_name] = sub_path.parent
         print(f"{label}Processing {model_name}...")
 
         sub_df = load_submission(sub_path)
@@ -265,31 +267,10 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
     print(f"{label}Writing matrix to {output}...")
     master_df.to_csv(output)
 
-    # ── Save per-model wrong-question reports ──
-    out_dir = Path(output).parent
+    # ── Save per-model wrong-question reports into each experiment dir ──
     val_cols = [c for c in master_df.columns if c.endswith("_ValCorrect")]
     if val_cols:
-        errors_dir = out_dir / "errors"
-        errors_dir.mkdir(parents=True, exist_ok=True)
-
-        for vc in val_cols:
-            model = vc.removesuffix("_ValCorrect")
-            wrong = master_df[master_df[vc] == False]  # noqa: E712
-            if wrong.empty:
-                continue
-            keep = ["question", "GT_Value"]
-            if "answer_unit" in master_df.columns:
-                keep.append("answer_unit")
-            val_col = f"{model}_Value"
-            if val_col in master_df.columns:
-                keep.append(val_col)
-            keep.append(vc)
-            report = wrong[keep].copy()
-            report.rename(columns={val_col: "Model_Value"}, inplace=True)
-            report_path = errors_dir / f"wrong_{model}.csv"
-            report.to_csv(report_path)
-
-        # Also write a compact summary: model, num_wrong, wrong question ids
+        n_written = 0
         summary_rows = []
         for vc in val_cols:
             model = vc.removesuffix("_ValCorrect")
@@ -303,11 +284,29 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
                 "accuracy": round((total - len(wrong_ids)) / total, 4) if total else 0,
                 "wrong_ids": ";".join(str(qid) for qid in wrong_ids),
             })
+
+            exp_dir = model_exp_dirs.get(model)
+            if not exp_dir or not wrong_ids:
+                continue
+            wrong = master_df.loc[wrong_ids]
+            keep = ["question", "GT_Value"]
+            if "answer_unit" in master_df.columns:
+                keep.append("answer_unit")
+            val_col = f"{model}_Value"
+            if val_col in master_df.columns:
+                keep.append(val_col)
+            report = wrong[keep].copy()
+            if val_col in report.columns:
+                report.rename(columns={val_col: "Model_Value"}, inplace=True)
+            report.to_csv(exp_dir / "wrong_questions.csv")
+            n_written += 1
+
+        # Write compact summary alongside the matrix
         summary_df = pd.DataFrame(summary_rows).sort_values("accuracy", ascending=False)
-        summary_path = errors_dir / "error_summary.csv"
+        summary_path = Path(output).parent / f"{Path(output).stem}_errors.csv"
         summary_df.to_csv(summary_path, index=False)
-        print(f"{label}Wrote error reports to {errors_dir}/ "
-              f"({len(val_cols)} models, {len(summary_rows)} summaries)")
+        print(f"{label}Wrote wrong_questions.csv into {n_written} experiment dirs, "
+              f"summary to {summary_path}")
 
     print(f"{label}Done!")
 

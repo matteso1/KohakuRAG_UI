@@ -44,14 +44,14 @@ def load_results(experiment_dir: Path) -> list[dict]:
     if chunk_files:
         results: list[dict] = []
         for cf in chunk_files:
-            with open(cf) as f:
+            with open(cf, encoding="utf-8") as f:
                 results.extend(json.load(f))
         return results
 
     # Fallback: monolithic results.json
     mono = experiment_dir / "results.json"
     if mono.exists():
-        with open(mono) as f:
+        with open(mono, encoding="utf-8") as f:
             return json.load(f)
 
     raise FileNotFoundError(
@@ -81,7 +81,7 @@ def load_partial_progress(experiment_dir: Path) -> tuple[list[dict], int]:
 
     results: list[dict] = []
     for cf in chunk_files:
-        with open(cf) as f:
+        with open(cf, encoding="utf-8") as f:
             results.extend(json.load(f))
 
     next_idx = int(_CHUNK_RE.match(chunk_files[-1].name).group(1)) + 1
