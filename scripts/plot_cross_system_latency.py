@@ -7,9 +7,9 @@ that have been benchmarked on multiple hardware systems (e.g. GB10,
 PowerEdge, Bedrock).
 
 Generates:
-  1. Grouped bar chart of mean latency per model, split by system
-  2. Box-plot of per-question latency distributions per model & system
-  3. Stacked bar chart showing retrieval vs generation time breakdown
+  1. Horizontal stacked-bar chart of ALL models (retrieval + generation),
+     sorted by latency fastest-first, color-coded by system.
+  2. Box-plot of per-question latency distributions for shared models.
 
 Usage:
     python scripts/plot_cross_system_latency.py
@@ -239,51 +239,86 @@ def style_axis(ax, title, xlabel, ylabel):
 # Plots
 # ============================================================================
 
-def plot_mean_latency_comparison(data: dict, shared_models: list[str],
-                                  systems: list[str], output_dir: Path):
-    """Plot 1: Grouped bar chart of mean total latency per model & system."""
-    n_models = len(shared_models)
-    n_systems = len(systems)
-    if n_models == 0:
-        print("  No shared models for mean latency comparison")
+def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
+    """Horizontal stacked-bar chart: ALL models, ALL systems, sorted by latency.
+
+    Each bar shows retrieval (hatched) + generation (solid) breakdown.
+    Fastest model at the top; slowest at the bottom.  Color = system.
+    """
+    from matplotlib.patches import Patch
+
+    entries = []
+    for system in all_systems:
+        for model, info in data.get(system, {}).items():
+            entries.append({
+                "system": system,
+                "model": model,
+                "avg_latency": info["avg_latency"],
+                "avg_retrieval": info["avg_retrieval"],
+                "avg_generation": info["avg_generation"],
+                "gpu_name": info.get("gpu_name", ""),
+            })
+
+    if not entries:
+        print("  No data for latency overview")
         return
 
-    fig, ax = plt.subplots(figsize=(max(10, n_models * 2.5), 7))
+    # Sort by latency: fastest at top (reversed for barh so top = index 0)
+    entries.sort(key=lambda e: e["avg_latency"])
 
-    x = np.arange(n_models)
-    width = 0.7 / n_systems
+    n = len(entries)
+    fig, ax = plt.subplots(figsize=(13, max(6, n * 0.45)))
 
-    for i, system in enumerate(systems):
-        means = []
-        stds = []
-        for model in shared_models:
-            if model in data.get(system, {}):
-                info = data[system][model]
-                means.append(info["avg_latency"])
-                stds.append(float(np.std(info["latencies"])))
-            else:
-                means.append(0)
-                stds.append(0)
+    labels = []
+    retrievals = []
+    generations = []
+    colors = []
+    for e in entries:
+        label = f"{e['model']}  [{e['system']}]"
+        labels.append(label)
+        retrievals.append(e["avg_retrieval"])
+        generations.append(e["avg_generation"])
+        colors.append(get_system_color(e["system"]))
 
-        offset = (i - (n_systems - 1) / 2) * width
-        gpu = data.get(system, {}).get(shared_models[0], {}).get("gpu_name", system)
-        label = f"{system} ({gpu})" if gpu and gpu != system else system
-        bars = ax.bar(x + offset, means, width, label=label,
-                      color=get_system_color(system), alpha=0.85,
-                      yerr=stds, capsize=3,
-                      error_kw={"linewidth": 1, "color": "#333"})
+    y_pos = np.arange(n)
 
-        for bar, mean in zip(bars, means):
-            if mean > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
-                        f"{mean:.1f}s", ha="center", va="bottom", fontsize=8,
-                        fontweight="bold")
+    # Retrieval (hatched) then generation (solid) stacked horizontally
+    bars_ret = ax.barh(y_pos, retrievals, color=colors, alpha=0.5,
+                       edgecolor="white", linewidth=0.8, height=0.65,
+                       hatch="//", label="Retrieval")
+    bars_gen = ax.barh(y_pos, generations, left=retrievals, color=colors,
+                       alpha=0.9, edgecolor="white", linewidth=0.8,
+                       height=0.65, label="Generation")
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(shared_models, rotation=30, ha="right", fontsize=10)
-    style_axis(ax, "Mean Per-Question Latency by System",
-               "Model", "Latency (seconds)")
-    ax.legend(fontsize=10)
+    # Annotate total latency to the right of each bar
+    max_lat = max(e["avg_latency"] for e in entries) if entries else 1
+    for i, e in enumerate(entries):
+        total = e["avg_latency"]
+        ax.text(total + max_lat * 0.012,
+                y_pos[i],
+                f"{total:.1f}s",
+                va="center", fontsize=9, fontweight="bold")
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.invert_yaxis()  # fastest at top
+    ax.set_xlabel("Average Latency per Question (seconds)", fontsize=11)
+    style_axis(ax, "Per-Question Latency by Model and System", "", "")
+    ax.set_ylabel("")
+
+    # Build legend: system colors + retrieval/generation pattern
+    seen_systems = dict.fromkeys(e["system"] for e in entries)
+    legend_elements = [
+        Patch(facecolor=get_system_color(s), label=s) for s in seen_systems
+    ]
+    legend_elements.append(Patch(facecolor="#999", alpha=0.5, hatch="//",
+                                 label="Retrieval"))
+    legend_elements.append(Patch(facecolor="#999", alpha=0.9,
+                                 label="Generation"))
+    ax.legend(handles=legend_elements, loc="lower right", fontsize=9)
+
+    # Add a bit of right margin for the annotations
+    ax.set_xlim(right=max_lat * 1.12)
 
     plt.tight_layout()
     out_path = output_dir / "cross_system_latency.png"
@@ -294,11 +329,19 @@ def plot_mean_latency_comparison(data: dict, shared_models: list[str],
 
 def plot_latency_distributions(data: dict, shared_models: list[str],
                                 systems: list[str], output_dir: Path):
-    """Plot 2: Box-plot of per-question latency distributions."""
+    """Box-plot of per-question latency distributions for shared models."""
     n_models = len(shared_models)
     if n_models == 0:
         print("  No shared models for distribution plot")
         return
+
+    # Sort shared models by latency (mean across systems)
+    def _mean_latency(model):
+        lats = [data[s][model]["avg_latency"]
+                for s in systems if model in data.get(s, {})]
+        return sum(lats) / len(lats) if lats else 0
+
+    shared_models = sorted(shared_models, key=_mean_latency)
 
     fig, axes = plt.subplots(1, n_models, figsize=(max(6, n_models * 4), 7),
                              sharey=True, squeeze=False)
@@ -340,130 +383,6 @@ def plot_latency_distributions(data: dict, shared_models: list[str],
                  fontsize=14, fontweight="bold", y=1.02)
     plt.tight_layout()
     out_path = output_dir / "cross_system_latency_distribution.png"
-    plt.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close()
-    print(f"Saved {out_path}")
-
-
-def plot_latency_breakdown(data: dict, shared_models: list[str],
-                            systems: list[str], output_dir: Path):
-    """Plot 3: Stacked bar chart showing retrieval vs generation time."""
-    n_models = len(shared_models)
-    n_systems = len(systems)
-    if n_models == 0:
-        print("  No shared models for breakdown plot")
-        return
-
-    fig, ax = plt.subplots(figsize=(max(10, n_models * 2.5), 7))
-
-    x = np.arange(n_models)
-    width = 0.7 / n_systems
-
-    for i, system in enumerate(systems):
-        retrievals = []
-        generations = []
-        for model in shared_models:
-            if model in data.get(system, {}):
-                info = data[system][model]
-                retrievals.append(info["avg_retrieval"])
-                generations.append(info["avg_generation"])
-            else:
-                retrievals.append(0)
-                generations.append(0)
-
-        offset = (i - (n_systems - 1) / 2) * width
-        gpu = data.get(system, {}).get(shared_models[0], {}).get("gpu_name", system)
-        label_base = f"{system} ({gpu})" if gpu and gpu != system else system
-
-        ax.bar(x + offset, retrievals, width, label=f"{label_base} - Retrieval",
-               color=get_system_color(system), alpha=0.6, hatch="//")
-        ax.bar(x + offset, generations, width, bottom=retrievals,
-               label=f"{label_base} - Generation",
-               color=get_system_color(system), alpha=0.9)
-
-        # Label totals
-        for j, (r, g) in enumerate(zip(retrievals, generations)):
-            total = r + g
-            if total > 0:
-                ax.text(x[j] + offset, total + 0.3, f"{total:.1f}s",
-                        ha="center", va="bottom", fontsize=7, fontweight="bold")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(shared_models, rotation=30, ha="right", fontsize=10)
-    style_axis(ax, "Latency Breakdown: Retrieval vs Generation by System",
-               "Model", "Time (seconds)")
-    ax.legend(fontsize=8, loc="upper left")
-
-    plt.tight_layout()
-    out_path = output_dir / "cross_system_latency_breakdown.png"
-    plt.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close()
-    print(f"Saved {out_path}")
-
-
-def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path,
-                              filename: str = "cross_system_latency_all_models.png"):
-    """Bar chart of ALL models across the given systems.
-
-    Useful when systems have mostly different model sets.
-    """
-    # Collect all (system, model, avg_latency) tuples
-    entries = []
-    for system in systems:
-        for model, info in data.get(system, {}).items():
-            entries.append({
-                "system": system,
-                "model": model,
-                "avg_latency": info["avg_latency"],
-                "gpu_name": info.get("gpu_name", ""),
-                "n_questions": info["n_questions"],
-            })
-
-    if not entries:
-        print("  No data for all-models plot")
-        return
-
-    # Sort by active parameter count (smallest at top), then system name
-    entries.sort(key=lambda e: (_active_params(e["model"]), e["system"]))
-
-    fig, ax = plt.subplots(figsize=(12, max(7, len(entries) * 0.5)))
-
-    labels = []
-    latencies = []
-    colors = []
-    for e in entries:
-        ap = _active_params(e["model"])
-        size_tag = f"  {ap:.0f}B" if ap != float("inf") else ""
-        label = f"{e['model']}{size_tag}  [{e['system']}]"
-        labels.append(label)
-        latencies.append(e["avg_latency"])
-        colors.append(get_system_color(e["system"]))
-
-    y_pos = np.arange(len(entries))
-    bars = ax.barh(y_pos, latencies, color=colors, edgecolor="white",
-                   linewidth=1.2, height=0.65)
-
-    for bar, lat in zip(bars, latencies):
-        ax.text(bar.get_width() + max(latencies) * 0.01,
-                bar.get_y() + bar.get_height() / 2,
-                f"{lat:.1f}s", va="center", fontsize=9, fontweight="bold")
-
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(labels, fontsize=10)
-    ax.set_xlabel("Average Latency per Question (seconds)", fontsize=11)
-    style_axis(ax, "Average Per-Question Latency: All Models by System",
-               "", "")
-    ax.set_ylabel("")
-
-    # Legend for system colors
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor=get_system_color(s), label=s) for s in systems
-    ]
-    ax.legend(handles=legend_elements, loc="lower right", fontsize=10)
-
-    plt.tight_layout()
-    out_path = output_dir / filename
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved {out_path}")
@@ -572,23 +491,15 @@ def main():
     print_summary(data, shared_models, systems)
 
     print("Generating plots...")
+
+    # Plot 1: Consolidated overview — all models, all systems, sorted by latency
+    plot_latency_overview(data, all_systems, output_dir)
+
+    # Plot 2: Distribution box-plots for shared models only
     if shared_models:
-        plot_mean_latency_comparison(data, shared_models, systems, output_dir)
         plot_latency_distributions(data, shared_models, systems, output_dir)
-        plot_latency_breakdown(data, shared_models, systems, output_dir)
 
-    # All-models overview — only comparable systems
-    if systems:
-        comparable_data = {s: data[s] for s in systems}
-        plot_all_models_by_system(comparable_data, systems, output_dir)
-
-    # Full overview including all systems (e.g. Bedrock) for absolute latency reference
-    if len(all_systems) > len(systems):
-        plot_all_models_by_system(data, all_systems, output_dir,
-                                  filename="cross_system_latency_all_systems.png")
-
-    n_extra = 1 if len(all_systems) > len(systems) else 0
-    n_plots = (3 if shared_models else 0) + (1 if systems else 0) + n_extra
+    n_plots = 1 + (1 if shared_models else 0)
     print(f"\n{n_plots} plot(s) saved to {output_dir}/")
 
 
