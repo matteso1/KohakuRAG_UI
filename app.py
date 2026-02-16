@@ -736,6 +736,46 @@ def _detect_gpu_available() -> bool:
         return False
 
 
+def _check_aws_credentials(
+    profile_name: str | None, region_name: str,
+) -> tuple[bool, str]:
+    """Verify AWS credentials are valid before using Bedrock.
+
+    Returns (ok, message). If *ok* is False the message explains the
+    problem and what command to run.
+    """
+    try:
+        import boto3
+        session = boto3.Session(
+            profile_name=profile_name,
+            region_name=region_name,
+        )
+        sts = session.client("sts")
+        identity = sts.get_caller_identity()
+        arn = identity.get("Arn", "")
+        # Show a short, friendly confirmation
+        account = identity.get("Account", "")
+        return True, f"AWS OK (account {account})"
+    except Exception as exc:
+        msg = str(exc)
+        if "Token has expired" in msg or "refresh failed" in msg:
+            return False, "AWS SSO session expired — please re-login."
+        if "NoCredentialProviders" in msg or "Unable to locate credentials" in msg:
+            if profile_name:
+                return False, (
+                    f"No valid credentials for profile **{profile_name}**. "
+                    "Please login first."
+                )
+            return False, (
+                "No AWS credentials found. Set the **AWS profile** field above, "
+                "or configure environment variables."
+            )
+        if "InvalidClientTokenId" in msg or "SignatureDoesNotMatch" in msg:
+            return False, "AWS credentials are invalid. Re-configure your SSO profile."
+        # Generic fallback
+        return False, f"AWS credential check failed: {msg}"
+
+
 def main():
     st.set_page_config(page_title="WattBot RAG", page_icon="lightning", layout="wide")
     st.title("WattBot RAG Pipeline")
@@ -798,51 +838,21 @@ def main():
             # Normalize empty string to None for boto3
             aws_profile = aws_profile.strip() or None
 
-            st.caption(
-                "Tip: Run `aws sso login --profile <name>` before launching "
-                "the app to refresh your SSO session."
-            )
+            # --- Validate AWS credentials upfront ---
+            cred_ok, cred_msg = _check_aws_credentials(aws_profile, aws_region)
+            if not cred_ok:
+                st.error(cred_msg)
+                profile_flag = f" --profile {aws_profile}" if aws_profile else ""
+                st.code(f"aws sso login{profile_flag}", language="bash")
+                st.info("Run the command above in your terminal, then **refresh this page**.")
+                return
+            else:
+                st.caption(cred_msg)
 
         st.divider()
         mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
 
-        # Precision only matters for local models
-        precision = "4bit"
-        if not is_bedrock:
-            precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
-
-        top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
-        best_guess = st.toggle("Allow best-guess answers", value=False,
-                               help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
-
-        st.divider()
-        st.subheader("Query planner & retries")
-        use_planner = st.toggle(
-            "Enable query planner", value=False,
-            help=(
-                "Expands each question into multiple diverse search queries "
-                "via the LLM for better retrieval coverage."
-            ),
-        )
-        planner_queries = 3
-        if use_planner:
-            planner_queries = st.slider(
-                "Planner queries", min_value=2, max_value=10, value=3,
-                help="Number of diverse search queries the LLM generates per question.",
-            )
-        max_retries = st.number_input(
-            "Max retries", min_value=0, max_value=10, value=2,
-            help="Maximum retry attempts when the LLM response cannot be parsed.",
-        )
-        st.caption(
-            "Tip: Disabling the query planner skips an extra LLM inference "
-            "call, and lowering retries caps worst-case wait time. Both "
-            "reduce end-to-end latency per question."
-        )
-
-        st.divider()
-
-        # --- Config discovery ---
+        # --- Config discovery + model selection (right after Mode) ---
         configs = discover_configs(provider)
         if not configs:
             prefix = "bedrock_*" if is_bedrock else "hf_*"
@@ -872,6 +882,41 @@ def main():
             ensemble_strategy = st.selectbox(
                 "Aggregation", ["majority", "first_non_blank"],
             )
+
+        # Precision only matters for local models
+        precision = "4bit"
+        if not is_bedrock:
+            precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
+
+        st.divider()
+        top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
+        best_guess = st.toggle("Allow best-guess answers", value=False,
+                               help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
+
+        st.divider()
+        st.subheader("Query planner & retries")
+        use_planner = st.toggle(
+            "Enable query planner", value=False,
+            help=(
+                "Expands each question into multiple diverse search queries "
+                "via the LLM for better retrieval coverage."
+            ),
+        )
+        planner_queries = 3
+        if use_planner:
+            planner_queries = st.slider(
+                "Planner queries", min_value=2, max_value=10, value=3,
+                help="Number of diverse search queries the LLM generates per question.",
+            )
+        max_retries = st.number_input(
+            "Max retries", min_value=0, max_value=10, value=2,
+            help="Maximum retry attempts when the LLM response cannot be parsed.",
+        )
+        st.caption(
+            "Tip: Disabling the query planner skips an extra LLM inference "
+            "call, and lowering retries caps worst-case wait time. Both "
+            "reduce end-to-end latency per question."
+        )
 
         # --- GPU / VRAM info (local mode only) ---
         if not is_bedrock:
