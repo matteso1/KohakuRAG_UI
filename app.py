@@ -23,6 +23,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -158,6 +160,48 @@ VRAM_4BIT_GB = {
 }
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
+
+# Approximate Bedrock pricing ($/M tokens).  Keyed by model-ID prefix so
+# versioned IDs like "...v2:0" still match.  Prices are for cross-region
+# inference profiles (us.*) as of 2025-Q2.
+BEDROCK_PRICING: dict[str, tuple[float, float]] = {
+    # (input $/M tokens, output $/M tokens)
+    "us.anthropic.claude-3-haiku":       (0.25,  1.25),
+    "us.anthropic.claude-3-5-haiku":     (0.80,  4.00),
+    "us.anthropic.claude-3-5-sonnet":    (3.00, 15.00),
+    "us.anthropic.claude-3-7-sonnet":    (3.00, 15.00),
+    "us.meta.llama3-3-70b":              (0.72,  0.72),
+    "us.meta.llama4-scout":              (0.17,  0.17),
+    "us.meta.llama4-maverick":           (0.20,  0.60),
+    "us.amazon.nova-pro":                (0.80,  3.20),
+    "us.deepseek.r1":                    (1.35,  5.40),
+}
+
+
+def _get_bedrock_cost(model_id: str, input_tokens: int, output_tokens: int) -> float | None:
+    """Estimate USD cost for a Bedrock call. Returns None if pricing unknown."""
+    for prefix, (inp_price, out_price) in BEDROCK_PRICING.items():
+        if model_id.startswith(prefix):
+            return (input_tokens * inp_price + output_tokens * out_price) / 1_000_000
+    return None
+
+
+def _get_pipeline_token_usage(pipeline: "RAGPipeline") -> tuple[int, int, str]:
+    """Extract token usage from a pipeline's chat model.
+
+    Returns (input_tokens, output_tokens, model_id).
+    """
+    chat = pipeline._chat
+    if hasattr(chat, "token_usage"):
+        return chat.token_usage.input_tokens, chat.token_usage.output_tokens, getattr(chat, "_model_id", "")
+    return 0, 0, ""
+
+
+def _reset_pipeline_token_usage(pipeline: "RAGPipeline") -> None:
+    """Reset accumulated token counts before a new query."""
+    chat = pipeline._chat
+    if hasattr(chat, "token_usage"):
+        chat.token_usage.reset()
 
 # ---------------------------------------------------------------------------
 # Metadata URL lookup  (ref_id → URL from metadata.csv)
@@ -523,13 +567,20 @@ def run_bedrock_ensemble_sequential_query(
         )
         _apply_planner(pipeline, use_planner, planner_queries)
 
+        _reset_pipeline_token_usage(pipeline)
         t0 = time.time()
         result = _run_qa_sync(
             pipeline, question, top_k,
             best_guess=best_guess, max_retries=max_retries,
         )
         elapsed = time.time() - t0
-        results[name] = {"result": result, "time": elapsed}
+        inp_tok, out_tok, mid = _get_pipeline_token_usage(pipeline)
+        cost = _get_bedrock_cost(mid, inp_tok, out_tok)
+        results[name] = {
+            "result": result, "time": elapsed,
+            "cost_info": {"input_tokens": inp_tok, "output_tokens": out_tok,
+                          "model_id": mid, "cost": cost},
+        }
 
     return results
 
@@ -752,8 +803,6 @@ def _check_aws_credentials(
         )
         sts = session.client("sts")
         identity = sts.get_caller_identity()
-        arn = identity.get("Arn", "")
-        # Show a short, friendly confirmation
         account = identity.get("Account", "")
         return True, f"AWS OK (account {account})"
     except Exception as exc:
@@ -772,8 +821,36 @@ def _check_aws_credentials(
             )
         if "InvalidClientTokenId" in msg or "SignatureDoesNotMatch" in msg:
             return False, "AWS credentials are invalid. Re-configure your SSO profile."
-        # Generic fallback
         return False, f"AWS credential check failed: {msg}"
+
+
+def _run_sso_login(profile_name: str | None) -> tuple[bool, str]:
+    """Run ``aws sso login`` and return (success, output).
+
+    Opens a browser for authentication.  Blocks until the user completes
+    the flow or the 5-minute timeout expires.
+    """
+    if not shutil.which("aws"):
+        return False, (
+            "The `aws` CLI is not installed or not on PATH.\n"
+            "Install it from https://docs.aws.amazon.com/cli/latest/userguide/"
+            "getting-started-install.html"
+        )
+    cmd = ["aws", "sso", "login"]
+    if profile_name:
+        cmd += ["--profile", profile_name]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300,
+        )
+        output = (proc.stdout + "\n" + proc.stderr).strip()
+        if proc.returncode == 0:
+            return True, output
+        return False, output or "Login process exited with an error."
+    except subprocess.TimeoutExpired:
+        return False, "Login timed out after 5 minutes. Please try again."
+    except Exception as exc:
+        return False, str(exc)
 
 
 def main():
@@ -842,9 +919,18 @@ def main():
             cred_ok, cred_msg = _check_aws_credentials(aws_profile, aws_region)
             if not cred_ok:
                 st.error(cred_msg)
-                profile_flag = f" --profile {aws_profile}" if aws_profile else ""
-                st.code(f"aws sso login{profile_flag}", language="bash")
-                st.info("Run the command above in your terminal, then **refresh this page**.")
+                if st.button("Login to AWS SSO"):
+                    with st.spinner(
+                        "Waiting for browser authentication... "
+                        "Complete the login in your browser."
+                    ):
+                        ok, output = _run_sso_login(aws_profile)
+                    if ok:
+                        st.success("Logged in successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(output)
                 return
             else:
                 st.caption(cred_msg)
@@ -863,7 +949,7 @@ def main():
 
         if mode == "Single model":
             if is_bedrock:
-                default_key = "bedrock_haiku"
+                default_key = "bedrock_deepseek_v3"
             else:
                 default_key = "hf_qwen7b"
             default_idx = config_list.index(default_key) if default_key in config_list else 0
@@ -872,7 +958,7 @@ def main():
             ensemble_strategy = None
         else:
             if is_bedrock:
-                default_models = ["bedrock_haiku", "bedrock_sonnet"]
+                default_models = ["bedrock_deepseek_v3", "bedrock_sonnet"]
             else:
                 default_models = ["hf_qwen7b", "hf_llama3_8b"]
             selected_configs = st.multiselect(
@@ -1029,6 +1115,8 @@ def main():
                     "Querying Bedrock..." if is_bedrock
                     else "Retrieving and generating..."
                 )
+                if is_bedrock:
+                    _reset_pipeline_token_usage(pipeline)
                 with st.spinner(spinner_msg):
                     try:
                         result = run_single_query(
@@ -1043,7 +1131,13 @@ def main():
                             st.code(tb, language="python")
                         return
                 elapsed = time.time() - t0
-                _display_single_result(result, elapsed)
+                cost_info = None
+                if is_bedrock:
+                    inp_tok, out_tok, model_id = _get_pipeline_token_usage(pipeline)
+                    cost = _get_bedrock_cost(model_id, inp_tok, out_tok)
+                    cost_info = {"input_tokens": inp_tok, "output_tokens": out_tok,
+                                 "model_id": model_id, "cost": cost}
+                _display_single_result(result, elapsed, cost_info=cost_info)
 
             else:  # Ensemble
                 try:
@@ -1051,6 +1145,10 @@ def main():
                         not is_bedrock
                         and plan["mode"] == "sequential"
                     )
+                    if is_bedrock and not is_sequential:
+                        # Reset token counters on all ensemble pipelines
+                        for _p in ensemble_pipelines.values():
+                            _reset_pipeline_token_usage(_p)
                     if not is_sequential:
                         with st.spinner(
                             f"Querying {len(selected_configs)} models in parallel..."
@@ -1085,8 +1183,22 @@ def main():
                     return
 
                 elapsed = time.time() - t0
+                # Collect per-model cost info for bedrock ensembles
+                ensemble_cost_info = None
+                if is_bedrock and not is_sequential:
+                    ensemble_cost_info = {}
+                    for name, _p in ensemble_pipelines.items():
+                        inp_tok, out_tok, mid = _get_pipeline_token_usage(_p)
+                        cost = _get_bedrock_cost(mid, inp_tok, out_tok)
+                        ensemble_cost_info[name] = {
+                            "input_tokens": inp_tok, "output_tokens": out_tok,
+                            "model_id": mid, "cost": cost,
+                        }
                 agg = build_ensemble_answer(model_results, ensemble_strategy)
-                _display_ensemble_result(agg, model_results, elapsed, ensemble_strategy)
+                _display_ensemble_result(
+                    agg, model_results, elapsed, ensemble_strategy,
+                    cost_info=ensemble_cost_info,
+                )
 
 
 def _extract_confidence(raw_response: str) -> str:
@@ -1168,7 +1280,7 @@ def _linkify_citations(
     return text
 
 
-def _display_single_result(result, elapsed: float):
+def _display_single_result(result, elapsed: float, cost_info: dict | None = None):
     """Display a single-model answer."""
     answer = result.answer
     timing = result.timing
@@ -1218,6 +1330,8 @@ def _display_single_result(result, elapsed: float):
         ],
         "raw_response": result.raw_response,
     }
+    if cost_info:
+        details["cost_info"] = cost_info
     _render_details(details)
 
     if answer.explanation and answer.explanation != "is_blank":
@@ -1233,6 +1347,7 @@ def _display_single_result(result, elapsed: float):
 
 def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
+    cost_info: dict | None = None,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
     linked_explanation = _linkify_citations(
@@ -1252,10 +1367,31 @@ def _display_ensemble_result(
     model_times = [e["time"] for e in model_results.values()]
     total_gen = sum(model_times)
 
-    cols = st.columns(3)
-    cols[0].metric("Models", n_models)
-    cols[1].metric("Aggregation", strategy)
-    cols[2].metric("Total", f"{elapsed:.1f}s")
+    # Merge cost_info from sequential results into the top-level dict
+    if cost_info is None:
+        cost_info = {}
+        for name, entry in model_results.items():
+            if "cost_info" in entry:
+                cost_info[name] = entry["cost_info"]
+
+    # Compute total estimated cost across all models
+    total_cost = None
+    if cost_info:
+        costs = [c["cost"] for c in cost_info.values() if c.get("cost") is not None]
+        if costs:
+            total_cost = sum(costs)
+
+    if total_cost is not None:
+        cols = st.columns(4)
+        cols[0].metric("Models", n_models)
+        cols[1].metric("Aggregation", strategy)
+        cols[2].metric("Total", f"{elapsed:.1f}s")
+        cols[3].metric("Est. cost", f"${total_cost:.4f}")
+    else:
+        cols = st.columns(3)
+        cols[0].metric("Models", n_models)
+        cols[1].metric("Aggregation", strategy)
+        cols[2].metric("Total", f"{elapsed:.1f}s")
 
     # Per-model answers
     with st.expander(f"Individual model answers ({n_models} models)"):
@@ -1264,8 +1400,11 @@ def _display_ensemble_result(
             marker = "+" if agreed else "-"
             val = info["answer_value"] if info["answer_value"] and info["answer_value"] != "is_blank" else "Out-of-scope"
             ans = info["answer"] if info["answer"] and info["answer"] != "is_blank" else "Out-of-scope"
+            cost_str = ""
+            if name in cost_info and cost_info[name].get("cost") is not None:
+                cost_str = f" · ${cost_info[name]['cost']:.4f}"
             st.markdown(
-                f"**{name}** ({info['time']:.1f}s) [{marker}]  \n"
+                f"**{name}** ({info['time']:.1f}s{cost_str}) [{marker}]  \n"
                 f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
@@ -1312,6 +1451,8 @@ def _display_ensemble_result(
         "answer": agg["answer"],
         "answer_value": agg["answer_value"],
     }
+    if total_cost is not None:
+        details["total_cost"] = total_cost
     if agg["explanation"] and agg["explanation"] != "is_blank":
         display_answer = agg["explanation"]
     elif agg["answer"] and agg["answer"] != "is_blank":
@@ -1327,19 +1468,35 @@ def _render_details(details: dict):
     """Render expandable sections for a stored message (history replay)."""
     if details.get("ensemble"):
         # Minimal replay for ensemble messages
-        cols = st.columns(3)
-        cols[0].metric("Models", len(details.get("models", [])))
-        cols[1].metric("Aggregation", details.get("strategy", ""))
-        cols[2].metric("Total", f"{details.get('elapsed', 0):.1f}s")
+        total_cost = details.get("total_cost")
+        if total_cost is not None:
+            cols = st.columns(4)
+            cols[0].metric("Models", len(details.get("models", [])))
+            cols[1].metric("Aggregation", details.get("strategy", ""))
+            cols[2].metric("Total", f"{details.get('elapsed', 0):.1f}s")
+            cols[3].metric("Est. cost", f"${total_cost:.4f}")
+        else:
+            cols = st.columns(3)
+            cols[0].metric("Models", len(details.get("models", [])))
+            cols[1].metric("Aggregation", details.get("strategy", ""))
+            cols[2].metric("Total", f"{details.get('elapsed', 0):.1f}s")
         return
 
     timing = details.get("timing", {})
     elapsed = details.get("elapsed", 0)
+    cost_info = details.get("cost_info")
 
-    cols = st.columns(3)
-    cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
-    cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
-    cols[2].metric("Total", f"{elapsed:.1f}s")
+    if cost_info and cost_info.get("cost") is not None:
+        cols = st.columns(4)
+        cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
+        cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
+        cols[2].metric("Total", f"{elapsed:.1f}s")
+        cols[3].metric("Est. cost", f"${cost_info['cost']:.4f}")
+    else:
+        cols = st.columns(3)
+        cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
+        cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
+        cols[2].metric("Total", f"{elapsed:.1f}s")
 
     ref_ids = details.get("ref_id", [])
     ref_urls = details.get("ref_url", [])
