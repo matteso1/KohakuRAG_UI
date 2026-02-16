@@ -3,7 +3,8 @@
 Model Size vs. Performance/Latency/Cost Plots (Provider-Agnostic)
 
 Generates publication-quality plots:
-  1. Model Size vs. WattBot Component Scores
+  1. Model Size vs. Overall WattBot Score (single-panel, clean)
+  1b. Model Size vs. WattBot Component Scores (2x2 grid)
   2. Model Size vs. Latency
   3. Model Size vs. Total Cost
   4. Model Size vs. Overall Score (bubble chart with cost as size)
@@ -348,6 +349,81 @@ def style_axis(ax, title, xlabel, ylabel):
 # ============================================================================
 # Plots
 # ============================================================================
+
+def plot_size_vs_overall(experiments: list[dict], output_dir: Path):
+    """Plot 1b: Single-panel Model Size vs. Overall WattBot Score (less clutter)."""
+    sized = [e for e in experiments if e["size_b"] is not None]
+    if not sized:
+        print("  No experiments with known model size for size_vs_overall plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    sizes = [e["size_b"] for e in sized]
+    scores = [e["overall_score"] for e in sized]
+    ci_half = [e.get("overall_ci", 0) for e in sized]
+    names = [e["display_name"] for e in sized]
+    est_flags = [e["size_estimated"] for e in sized]
+    colors = [get_color(e["display_name"]) for e in sized]
+    markers = [get_marker(e.get("llm_provider", "")) for e in sized]
+
+    for x, y, ci, c, m in zip(sizes, scores, ci_half, colors, markers):
+        ax.errorbar(x, y, yerr=ci, fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
+        ax.scatter(x, y, c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
+
+    # Build annotation texts and try adjustText for overlap avoidance
+    texts = []
+    for x, y, label, est in zip(sizes, scores, names, est_flags):
+        display = f"{label}*" if est else label
+        t = ax.annotate(
+            display, (x, y),
+            xytext=(8, 6), textcoords="offset points",
+            fontsize=9, ha="left", va="bottom",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"),
+        )
+        texts.append(t)
+
+    try:
+        from adjustText import adjust_text
+        adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="gray", lw=0.5))
+    except ImportError:
+        pass  # labels stay at default offsets
+
+    style_axis(ax, "Model Size vs. Overall WattBot Score",
+               "Model Size (B parameters)", "Overall Score")
+    ax.set_ylim(0, 1.05)
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B" if x >= 1 else f"{x:.1f}B"))
+
+    # Legend for model families present in the data
+    from matplotlib.lines import Line2D
+    seen_families = set()
+    legend_handles = []
+    for e in sized:
+        for family, color in FAMILY_COLORS.items():
+            if family.lower() in e["display_name"].lower() or any(
+                alias in e["display_name"].lower() for alias, fam in _FAMILY_ALIASES.items() if fam == family
+            ):
+                if family not in seen_families:
+                    seen_families.add(family)
+                    legend_handles.append(
+                        Line2D([0], [0], marker="o", color="w", markerfacecolor=color, markersize=9, label=family)
+                    )
+                break
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="lower right", fontsize=9, title="Model Family")
+
+    ax.text(
+        0.02, 0.98,
+        "(*) = estimated size | square = local HF | circle = API\n"
+        "Score = 0.75·ValAcc + 0.15·RefOverlap + 0.10·NA_Recall",
+        transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
+    )
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "size_vs_overall.png", dpi=300, bbox_inches="tight")
+    print(f"Saved {output_dir / 'size_vs_overall.png'}")
+
 
 def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
     """Plot 1: Model Size vs. WattBot Component Scores."""
@@ -809,6 +885,7 @@ def generate_plots(experiments_dir: Path, output_dir: Path,
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"{label}Generating plots...")
+    plot_size_vs_overall(experiments, output_dir)
     plot_size_vs_scores(experiments, output_dir)
     plot_size_vs_latency(experiments, output_dir)
     plot_size_vs_cost(experiments, output_dir)
@@ -818,7 +895,7 @@ def generate_plots(experiments_dir: Path, output_dir: Path,
     plot_score_breakdown(experiments, output_dir)
     plot_energy(experiments, output_dir)
 
-    print(f"{label}All 8 plots saved to {output_dir}/")
+    print(f"{label}All 9 plots saved to {output_dir}/")
 
 
 # ============================================================================
