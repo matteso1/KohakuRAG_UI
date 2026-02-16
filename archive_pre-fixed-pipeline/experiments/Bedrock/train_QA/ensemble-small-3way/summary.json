@@ -1,0 +1,18 @@
+{
+  "name": "ensemble-small-3way",
+  "type": "ensemble",
+  "strategy": "majority",
+  "models": [
+    "llama4-maverick-v1",
+    "claude35-haiku-v1",
+    "llama3-70b-v1"
+  ],
+  "num_models": 3,
+  "num_questions": 41,
+  "value_accuracy": 0.6585365853658537,
+  "ref_overlap": 0.7032520325203252,
+  "na_accuracy": 1.0,
+  "overall_score": 0.699390243902439,
+  "questions_correct": 27,
+  "questions_wrong": 14
+}

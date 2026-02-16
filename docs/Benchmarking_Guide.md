@@ -15,15 +15,14 @@ or `train_QA`). Run each phase in order.
 
 ```bash
 ENV=PowerEdge
-DS=test_solutions
-QS=data/test_solutions.csv   # or data/train_QA.csv
+DS=test_solutions              # or train_QA
 ```
 
 ### Phase 1 — Run all individual models
 
 ```bash
 python scripts/run_full_benchmark.py --provider hf_local --env $ENV \
-    --questions $QS
+    --questions data/$DS.csv
 ```
 
 ### Phase 2 — Generate matrices & plots (individual models)
@@ -242,8 +241,8 @@ full precision (roughly 4× more VRAM).
 | `hf_qwen72b.py`         | Qwen 2.5 72B Instruct       | 72B    | ~40 GB       | hf_local  |
 | `hf_gemma2_27b.py`      | Gemma 2 27B Instruct        | 27B    | ~17 GB       | hf_local  |
 
-Bedrock configs (from the `bedrock` branch) also work if you have
-`llm_bedrock.py` and AWS credentials set up.
+Bedrock configs live in `vendor/KohakuRAG/configs/bedrock_*.py`. Pass
+`--profile <your-aws-profile>` (or set `AWS_PROFILE` env var) to authenticate.
 
 ## 3) Running all models (full benchmark)
 
@@ -263,8 +262,12 @@ python scripts/run_full_benchmark.py --provider hf_local --env PowerEdge \
 # Single model only
 python scripts/run_full_benchmark.py --model qwen7b --env GB10
 
-# All providers (local + bedrock, if bedrock configs exist)
-python scripts/run_full_benchmark.py --env PowerEdge
+# All providers (local + bedrock)
+python scripts/run_full_benchmark.py --env PowerEdge --profile bedrock_endemann
+
+# Bedrock models only
+python scripts/run_full_benchmark.py --provider bedrock --env $ENV \
+    --questions data/$DS.csv --profile bedrock_endemann
 
 # Run all models in bf16 instead of default 4-bit
 python scripts/run_full_benchmark.py --provider hf_local --precision bf16 --env PowerEdge
@@ -822,8 +825,10 @@ embedding_dim = 1024
 embedding_task = "retrieval"
 ```
 
-For Bedrock, ensure `llm_bedrock.py` is on the Python path and AWS credentials
-are configured (see the `bedrock` branch for examples).
+For Bedrock, install `bedrock_requirements.txt` (pins `transformers<5` to avoid
+`SlidingWindowCache` import errors), pass `--profile <your-aws-profile>` when
+running experiments, and ensure your SSO session is active
+(`aws sso login --profile <name>`). See `docs/Setup_Bedrock.md` for full setup.
 
 ---
 

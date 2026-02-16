@@ -1,0 +1,42 @@
+# Bedrock-only requirements — fully torch-free alternative to
+# local_requirements.txt for machines that run the pipeline entirely
+# through AWS Bedrock (LLM + embeddings).
+#
+# Usage:
+#   uv pip install -r bedrock_requirements.txt
+#
+# This setup does NOT install torch, torchvision, or any GPU libraries.
+# Both the LLM (chat) and embedding calls go to Bedrock over the network.
+#
+# To use this path, set `embedding_model = "bedrock"` in your config
+# (see vendor/KohakuRAG/configs/bedrock_*.py).  The default bedrock
+# configs already do this.
+#
+# If you need local Jina V4 embeddings instead (e.g. for index-building),
+# install local_requirements.txt on a machine with a GPU.
+
+# AWS SDK
+boto3
+
+# Data handling (used by run_experiment.py / scoring)
+numpy>=2.3
+pandas
+
+# HTTP client (kohakurag internals)
+httpx>=0.27.0
+
+# RAG engine (installed editable separately, but pin version here too)
+kohakuvault>=0.7.1
+
+# KohakuEngine (config runner for indexing scripts)
+kohaku-engine==0.0.2
+
+# openai is a hard import in kohakurag.llm (required at package init)
+openai>=2.8.0
+
+# Image handling (kohakurag.embeddings imports PIL at module level)
+Pillow>=12.0.0
+
+# App
+streamlit
+python-dotenv

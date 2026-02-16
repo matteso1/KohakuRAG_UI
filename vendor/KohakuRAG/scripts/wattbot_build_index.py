@@ -25,6 +25,8 @@ from kohakurag import (
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel
 
+BedrockEmbeddingModel = None  # Lazy-loaded in create_embedder()
+
 # ============================================================================
 # GLOBAL CONFIGURATION
 # These defaults can be overridden by KohakuEngine config injection or CLI args
@@ -40,9 +42,11 @@ use_citations = False
 pdf_dir = "../../data/pdfs"  # Where to cache downloaded PDFs
 
 # Embedding settings
-embedding_model = "jina"  # Options: "jina" (v3), "jinav4"
-embedding_dim = None  # For JinaV4: 128, 256, 512, 1024, 2048
+embedding_model = "jina"  # Options: "jina" (v3), "jinav4", "bedrock"
+embedding_dim = None  # For JinaV4: 128, 256, 512, 1024, 2048; For bedrock: 256, 384, 1024
 embedding_task = "retrieval"  # For JinaV4: "retrieval", "text-matching", "code"
+bedrock_profile = None  # AWS SSO profile (for bedrock embeddings)
+bedrock_region = None  # AWS region (for bedrock embeddings)
 
 # Paragraph embedding mode
 # Options:
@@ -250,7 +254,28 @@ async def fetch_and_parse_pdfs(
 
 def create_embedder():
     """Create embedder based on module-level config."""
-    if embedding_model == "jinav4":
+    global BedrockEmbeddingModel
+
+    if embedding_model == "bedrock":
+        if BedrockEmbeddingModel is None:
+            try:
+                from llm_bedrock import BedrockEmbeddingModel as _cls
+                BedrockEmbeddingModel = _cls
+            except ImportError:
+                raise SystemExit(
+                    "bedrock embedding_model requires llm_bedrock.py on the Python path.\n"
+                    "Run from the repo root:\n"
+                    "  python vendor/KohakuRAG/scripts/wattbot_build_index.py "
+                    "--config vendor/KohakuRAG/configs/bedrock_titan_v2/index.py"
+                )
+        dim = embedding_dim or 1024
+        print(f"Using Bedrock Titan V2 embeddings (dim={dim})")
+        return BedrockEmbeddingModel(
+            profile_name=bedrock_profile,
+            region_name=bedrock_region,
+            dimensions=dim,
+        )
+    elif embedding_model == "jinav4":
         print(f"Using JinaV4 embeddings (dim={embedding_dim}, task={embedding_task})")
         return JinaV4EmbeddingModel(
             truncate_dim=embedding_dim or 1024,
@@ -372,4 +397,37 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+    import importlib.util
+
+    # Ensure scripts/ is on the path so `from llm_bedrock import ...` works
+    # when running from the repo root.
+    # __file__ = vendor/KohakuRAG/scripts/wattbot_build_index.py
+    # .parents[3] = repo root
+    _scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+
+    parser = argparse.ArgumentParser(description="Build KohakuVault index for WattBot")
+    parser.add_argument("--config", "-c", required=True, help="Path to config .py file")
+    args = parser.parse_args()
+
+    # Load config and inject values into this module's globals
+    config_path = Path(args.config)
+    if not config_path.exists():
+        raise SystemExit(f"Config file not found: {config_path}")
+
+    spec = importlib.util.spec_from_file_location("_config", config_path)
+    _config_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_config_mod)
+
+    _this = sys.modules[__name__]
+    for _key in [
+        "metadata", "docs_dir", "db", "table_prefix", "use_citations",
+        "pdf_dir", "embedding_model", "embedding_dim", "embedding_task",
+        "paragraph_embedding_mode", "bedrock_profile", "bedrock_region",
+    ]:
+        if hasattr(_config_mod, _key):
+            setattr(_this, _key, getattr(_config_mod, _key))
+
     asyncio.run(main())

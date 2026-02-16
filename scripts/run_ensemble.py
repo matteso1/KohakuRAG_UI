@@ -407,8 +407,8 @@ def save_ensemble_results(
         summary["config_path"] = config_path
 
     summary_path = output_dir / "summary.json"
-    with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"Saved summary: {summary_path}")
 
     # Save submission CSV

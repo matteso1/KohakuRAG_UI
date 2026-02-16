@@ -2,12 +2,12 @@
 
 When a results.json file exceeds ~50-100 MB it causes problems with git.
 This module provides helpers to save results in fixed-size chunks
-(e.g. 50 questions per file) and transparently reload them.
+(e.g. 25 questions per file) and transparently reload them.
 
 File layout (inside an experiment directory)::
 
-    results_chunk_000.json   # questions 0-49
-    results_chunk_001.json   # questions 50-99
+    results_chunk_000.json   # questions 0-24
+    results_chunk_001.json   # questions 25-49
     ...
 
 A single ``results.json`` is still supported for backwards compatibility —
@@ -20,7 +20,7 @@ import json
 import re
 from pathlib import Path
 
-CHUNK_SIZE = 50  # default questions per chunk file
+CHUNK_SIZE = 25  # default questions per chunk file
 _CHUNK_GLOB = "results_chunk_*.json"
 _CHUNK_RE = re.compile(r"^results_chunk_(\d+)\.json$")
 
@@ -44,14 +44,14 @@ def load_results(experiment_dir: Path) -> list[dict]:
     if chunk_files:
         results: list[dict] = []
         for cf in chunk_files:
-            with open(cf) as f:
+            with open(cf, encoding="utf-8") as f:
                 results.extend(json.load(f))
         return results
 
     # Fallback: monolithic results.json
     mono = experiment_dir / "results.json"
     if mono.exists():
-        with open(mono) as f:
+        with open(mono, encoding="utf-8") as f:
             return json.load(f)
 
     raise FileNotFoundError(
@@ -81,7 +81,7 @@ def load_partial_progress(experiment_dir: Path) -> tuple[list[dict], int]:
 
     results: list[dict] = []
     for cf in chunk_files:
-        with open(cf) as f:
+        with open(cf, encoding="utf-8") as f:
             results.extend(json.load(f))
 
     next_idx = int(_CHUNK_RE.match(chunk_files[-1].name).group(1)) + 1
@@ -106,8 +106,8 @@ def save_results_chunked(
     for i in range(0, len(results), chunk_size):
         chunk = results[i : i + chunk_size]
         chunk_path = output_dir / f"results_chunk_{i // chunk_size:03d}.json"
-        with open(chunk_path, "w") as f:
-            json.dump(chunk, f, indent=2)
+        with open(chunk_path, "w", encoding="utf-8") as f:
+            json.dump(chunk, f, indent=2, ensure_ascii=False)
         written.append(chunk_path)
 
     return written

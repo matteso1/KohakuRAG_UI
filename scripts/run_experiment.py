@@ -32,9 +32,18 @@ import argparse
 import asyncio
 import csv
 import importlib.util
+import io
 import json
+import os
 import sys
 import time
+
+# Force UTF-8 stdout/stderr on Windows (cp1252 can't handle Unicode in
+# corpus text like "MWh → kWh").  Must run before any print() calls.
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.environ.setdefault("PYTHONUTF8", "1")
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -364,7 +373,7 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
         model_id = config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0")
         return BedrockChatModel(
             model_id=model_id,
-            profile_name=config.get("bedrock_profile", "bedrock_nils"),
+            profile_name=config.get("bedrock_profile"),
             region_name=config.get("bedrock_region", "us-east-2"),
             system_prompt=system_prompt,
             max_retries=config.get("max_retries", 3),
@@ -390,10 +399,26 @@ def create_chat_model_from_config(config: dict, system_prompt: str):
 
 
 def create_embedder_from_config(config: dict):
-    """Create an embedding model based on config settings."""
+    """Create an embedding model based on config settings.
+
+    Supported embedding_model values:
+        - "jinav4"  : Local Jina V4 (requires torch + transformers)
+        - "jina"    : Local Jina V3 (requires torch + transformers)
+        - "hf_local": Local sentence-transformers model
+        - "bedrock" : AWS Titan Text Embeddings V2 via Bedrock (no torch needed)
+    """
     model_type = config.get("embedding_model", "jina")
 
-    if model_type == "hf_local":
+    if model_type == "bedrock":
+        from llm_bedrock import BedrockEmbeddingModel
+
+        return BedrockEmbeddingModel(
+            model_id=config.get("bedrock_embedding_model", "amazon.titan-embed-text-v2:0"),
+            profile_name=config.get("bedrock_profile"),
+            region_name=config.get("bedrock_region"),
+            dimensions=config.get("embedding_dim", 1024),
+        )
+    elif model_type == "hf_local":
         model_id = config.get("embedding_model_id", "BAAI/bge-base-en-v1.5")
         return LocalHFEmbeddingModel(model_name=model_id)
     elif model_type == "jinav4":
@@ -505,7 +530,7 @@ class ExperimentRunner:
         max_queries = self.config.get("planner_max_queries", 3)
         planner = LLMQueryPlanner(self.chat_model, max_queries=max_queries)
         print(f"[init] Query planner: LLMQueryPlanner (max_queries={max_queries})")
-        prompt_order = "C→Q (reordered)" if self.use_reordered_prompt else "Q→C (default)"
+        prompt_order = "C->Q (reordered)" if self.use_reordered_prompt else "Q->C (default)"
         print(f"[init] Prompt ordering: {prompt_order}")
         print(f"[init] Max retries (iterative deepening): {self.max_retries}")
 
@@ -812,8 +837,8 @@ class ExperimentRunner:
             # Flush this batch to its own chunk file
             chunk_data = [asdict(r) for r in batch_results]
             chunk_path = self.output_dir / f"results_chunk_{chunk_idx:03d}.json"
-            with open(chunk_path, "w") as f:
-                json.dump(chunk_data, f, indent=2)
+            with open(chunk_path, "w", encoding="utf-8") as f:
+                json.dump(chunk_data, f, indent=2, ensure_ascii=False)
             print(f"[checkpoint] Saved {len(chunk_data)} results to {chunk_path.name}", flush=True)
             chunk_idx += 1
         total_time = time.time() - start_time
@@ -931,8 +956,8 @@ class ExperimentRunner:
 
         # Save summary JSON
         summary_path = self.output_dir / "summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(asdict(summary), f, indent=2)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(summary), f, indent=2, ensure_ascii=False)
         print(f"Saved summary: {summary_path}")
 
 
@@ -940,7 +965,7 @@ class ExperimentRunner:
 # Main
 # =============================================================================
 
-async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit") -> None:
+async def main(config_path: str, experiment_name: str | None = None, run_environment: str = "", questions_override: str | None = None, precision: str = "4bit", profile: str | None = None) -> None:
     """Run an experiment with the given config."""
     # Print CUDA status upfront so GPU issues are caught immediately
     import torch
@@ -962,7 +987,16 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
             "On GB10: uv pip install -r local_requirements_gb10.txt"
         )
     config["_config_path"] = config_path
+
+    # Auto-detect environment from provider when not explicitly set
+    if not run_environment and config.get("llm_provider") == "bedrock":
+        run_environment = "Bedrock"
+
     config["_run_environment"] = run_environment
+
+    # CLI --profile overrides config bedrock_profile (only relevant for bedrock)
+    if profile:
+        config["bedrock_profile"] = profile
 
     # CLI --precision overrides any hf_dtype in config (only relevant for hf_local)
     if config.get("llm_provider") == "hf_local":
@@ -1093,9 +1127,14 @@ def cli():
         choices=["4bit", "bf16", "fp16", "auto"],
         help="Model precision/quantization (default: 4bit). Only applies to hf_local models."
     )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS profile name for Bedrock (e.g. 'bedrock_endemann'). Falls back to AWS_PROFILE env var."
+    )
 
     args = parser.parse_args()
-    asyncio.run(main(args.config, args.name, args.env, args.questions, args.precision))
+    asyncio.run(main(args.config, args.name, args.env, args.questions, args.precision, args.profile))
 
 
 if __name__ == "__main__":

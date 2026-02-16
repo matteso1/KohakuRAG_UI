@@ -12,6 +12,8 @@ accelerate
 huggingface_hub
 safetensors
 sentence-transformers # local embedding
+einops              # Jina V4 model (trust_remote_code)
+peft                # adapter support
 
 # Tokenizers / model-specific utilities (common)
 sentencepiece
@@ -27,7 +29,12 @@ bitsandbytes
 
 # PDF download and parsing (for auto-fetching corpus from metadata URLs)
 httpx
+pypdf>=6.2.0
 pymupdf
+
+# Plotting / analysis
+matplotlib
+scikit-learn
 
 # KohakuEngine (config runner for indexing scripts)
 kohaku-engine==0.0.2

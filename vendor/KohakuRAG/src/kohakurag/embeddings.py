@@ -6,9 +6,21 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, Sequence
 
 import numpy as np
-import torch
-from PIL import Image
-from transformers import AutoModel
+
+try:
+    import torch
+    from transformers import AutoModel
+
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+try:
+    from PIL import Image
+
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -66,7 +78,13 @@ def average_embeddings(
 
 
 def _detect_device() -> Any:
-    """Auto-detect best available device (CUDA > MPS > CPU)."""
+    """Auto-detect best available device (CUDA > MPS > CPU).
+
+    Requires torch; raises ImportError if torch is not installed.
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("torch is required for local embedding models")
+
     if torch.cuda.is_available():
         return torch.device("cuda")
 

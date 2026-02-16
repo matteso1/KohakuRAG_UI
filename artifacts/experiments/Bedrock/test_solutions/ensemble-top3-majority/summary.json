@@ -1,0 +1,20 @@
+{
+  "name": "ensemble-top3-majority",
+  "type": "ensemble",
+  "ensemble_type": "cross-model",
+  "strategy": "answer_priority",
+  "ignore_blank": false,
+  "models": [
+    "sonnet-bench",
+    "deepseek-r1-bench",
+    "llama4-maverick-bench"
+  ],
+  "num_models": 3,
+  "num_questions": 282,
+  "value_accuracy": 0.8226950354609929,
+  "ref_overlap": 0.9034869976359338,
+  "na_accuracy": 0.875,
+  "overall_score": 0.8400443262411348,
+  "questions_correct": 232,
+  "questions_wrong": 50
+}

@@ -27,6 +27,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -112,7 +113,8 @@ def check_existing(experiment_name: str, env: str = "", datafile_stem: str = "tr
 
 def run_experiment(config_name: str, experiment_name: str, env: str = "",
                     questions: str | None = None,
-                    precision: str = "4bit") -> tuple[bool, str]:
+                    precision: str = "4bit",
+                    profile: str | None = None) -> tuple[bool, str]:
     """Run a single experiment. Returns (success, output_summary)."""
     config_path = f"vendor/KohakuRAG/configs/{config_name}.py"
 
@@ -129,6 +131,8 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
         cmd.extend(["--env", env])
     if questions:
         cmd.extend(["--questions", questions])
+    if profile:
+        cmd.extend(["--profile", profile])
 
     _noise_re = re.compile(
         r"Loading checkpoint shards|Fetching \d+ files|Encoding texts"
@@ -146,11 +150,17 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     _stage_prefixes = ("[init]", "[env]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
         )
 
         all_lines = []
@@ -217,8 +227,14 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
             full_output = "\n".join(all_lines)
             if "401" in full_output or "Access denied" in full_output:
                 return False, "Gated model — accept license on HuggingFace + set HF_TOKEN"
-            error_lines = [l for l in all_lines if "Error" in l or "error" in l]
-            error_summary = error_lines[-1][:150] if error_lines else "Unknown error"
+            # Look for error/traceback lines; fall back to last non-empty lines
+            error_lines = [l for l in all_lines if "Error" in l or "error" in l or "Traceback" in l]
+            if error_lines:
+                error_summary = error_lines[-1][:200]
+            else:
+                # Show last 3 non-empty lines so we always have context
+                tail = [l.strip() for l in all_lines if l.strip()][-3:]
+                error_summary = " | ".join(tail)[:200] if tail else "Unknown error (no output)"
             # Clear progress bar before error output
             if current_q > 0:
                 print()
@@ -269,8 +285,13 @@ def main():
     )
     parser.add_argument(
         "--split", type=str, default=None,
-        help="Append a suffix to experiment names (e.g. --split test → qwen7b-bench-test). "
+        help="Append a suffix to experiment names (e.g. --split test -> qwen7b-bench-test). "
              "Use this to run on a different question set without overwriting existing results.",
+    )
+    parser.add_argument(
+        "--profile", type=str, default=None,
+        help="AWS profile name for Bedrock models (e.g. 'bedrock_endemann'). "
+             "Falls back to AWS_PROFILE env var.",
     )
     args = parser.parse_args()
 
@@ -348,7 +369,8 @@ def main():
 
         success, summary = run_experiment(config_name, exp_name, env=args.env,
                                            questions=args.questions,
-                                           precision=args.precision)
+                                           precision=args.precision,
+                                           profile=args.profile)
         elapsed = time.time() - start
 
         status = "PASS" if success else "FAIL"
