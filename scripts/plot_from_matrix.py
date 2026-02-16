@@ -236,7 +236,11 @@ def main():
         model_map[norm] = m
         
     models = sorted(list(model_map.values()))
+    # Individual models only (no ensembles) — used for most detail plots
+    individual_models = [m for m in models if _get_family(m) != "Ensemble"]
     print(f"Selected {len(models)} models after filtering: {models}")
+    if len(individual_models) < len(models):
+        print(f"  ({len(models) - len(individual_models)} ensemble(s) excluded from detail plots)")
     
     output_dir = Path(args.output_dir)
     if args.system:
@@ -382,8 +386,8 @@ def main():
         df["Derived_Types"] = df.apply(get_types, axis=1)
         
         all_types = ["Table", "Figure", "Quote", "Math", "is_NA"]
-        type_scores = {m: {} for m in models}
-        type_ci = {m: {} for m in models}  # Store confidence intervals
+        type_scores = {m: {} for m in individual_models}
+        type_ci = {m: {} for m in individual_models}  # Store confidence intervals
         type_counts = {}  # Store N per type
 
         for qtype in all_types:
@@ -396,7 +400,7 @@ def main():
             if n_type == 0:
                 continue
 
-            for model in models:
+            for model in individual_models:
                 # For NA questions, use NACorrect (ValCorrect is always True
                 # when GT is blank, so it's meaningless for NA detection)
                 if qtype == "is_NA":
@@ -416,10 +420,10 @@ def main():
         fig, ax = plt.subplots(figsize=(14, 7))
 
         x = np.arange(len(all_types))
-        width = 0.8 / len(models)
-        type_bar_colors = assign_family_colors(models)
+        width = 0.8 / len(individual_models)
+        type_bar_colors = assign_family_colors(individual_models)
 
-        for i, model in enumerate(models):
+        for i, model in enumerate(individual_models):
             scores = [type_scores[model].get(t, 0) for t in all_types]
             # Calculate error bar sizes (distance from mean to CI bounds)
             yerr_lower = []
@@ -444,7 +448,7 @@ def main():
             warning = " (!)" if count < 10 else ""  # Flag small samples
             labels_with_counts.append(f"{t}\n(n={count}{warning})")
 
-        ax.set_xticks(x + width * (len(models) - 1) / 2)
+        ax.set_xticks(x + width * (len(individual_models) - 1) / 2)
         ax.set_xticklabels(labels_with_counts)
         
         setup_plot(ax, "Performance by Question Type (95% CI error bars)", "Value Accuracy")
@@ -466,12 +470,12 @@ def main():
     print("Generating agreement heatmap...")
     # Calculate agreement (Jaccard or simple Overlap)
     # We'll use simple agreement on "ValCorrect" status
-    
-    n_models = len(models)
+
+    n_models = len(individual_models)
     agreement_matrix = np.zeros((n_models, n_models))
-    
-    for i, m1 in enumerate(models):
-        for j, m2 in enumerate(models):
+
+    for i, m1 in enumerate(individual_models):
+        for j, m2 in enumerate(individual_models):
             if i == j:
                 agreement_matrix[i, j] = 1.0
             else:
@@ -488,8 +492,8 @@ def main():
 
     ax.set_xticks(np.arange(n_models))
     ax.set_yticks(np.arange(n_models))
-    ax.set_xticklabels(models, rotation=45, ha="right")
-    ax.set_yticklabels(models)
+    ax.set_xticklabels(individual_models, rotation=45, ha="right")
+    ax.set_yticklabels(individual_models)
 
     for i in range(n_models):
         for j in range(n_models):
@@ -511,13 +515,13 @@ def main():
     print("Generating unique wins analysis...")
     unique_wins = {}
     
-    for m_target in models:
+    for m_target in individual_models:
         # Check correct for target
         target_col = f"{m_target}_ValCorrect"
         if target_col not in df.columns: continue
-        
-        # Check correct for ALL others
-        other_cols = [f"{m}_ValCorrect" for m in models if m != m_target and f"{m}_ValCorrect" in df.columns]
+
+        # Check correct for ALL other individual models
+        other_cols = [f"{m}_ValCorrect" for m in individual_models if m != m_target and f"{m}_ValCorrect" in df.columns]
         if not other_cols: continue
         
         # Rows where Target is True AND All Others are False
@@ -549,8 +553,8 @@ def main():
     # -------------------------------------------------------------------------
     print("Generating refusal rate comparison...")
     refusal_rates = {}
-    
-    for model in models:
+
+    for model in individual_models:
         val_col = f"{model}_Value"
         if val_col in df.columns:
             # Check for strings like "is_blank" or "unable"
