@@ -329,11 +329,11 @@ python -c "import kohakuvault, kohakurag; print('Imports OK')"
 python -c "import transformers, sentence_transformers; print('HF deps OK')"
 ```
 
-Then run Streamlit (use the actual entrypoint you have):
+Then run Streamlit in local mode (use the actual entrypoint you have):
 
 ```bash
 find . -maxdepth 3 -type f -name "*.py" | grep -i -E "app|streamlit|ui|main"
-streamlit run app.py   # adjust path to match repo
+streamlit run app.py -- --mode local   # adjust path to match repo
 ```
 
 ---

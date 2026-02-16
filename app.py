@@ -1,19 +1,27 @@
 """
 WattBot RAG — Streamlit App
 
-Interactive UI for querying the WattBot RAG pipeline with local HF models.
-Supports single-model and live multi-model ensemble modes.
+Interactive UI for querying the WattBot RAG pipeline.
+Supports both local HuggingFace models (GPU) and AWS Bedrock models (API).
 
-Launch:
-    streamlit run app.py
+Launch (Bedrock — no GPU required):
+    streamlit run app.py -- --mode bedrock
+
+Launch (Local — requires GPU):
+    streamlit run app.py -- --mode local
+
+If no --mode is given, defaults to "bedrock".
+When a GPU is detected, the sidebar offers a toggle to switch modes at runtime.
 """
 
+import argparse
 import asyncio
 import csv
 import gc
 import importlib.util
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -26,6 +34,18 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# CLI argument parsing (works with `streamlit run app.py -- --mode bedrock`)
+# ---------------------------------------------------------------------------
+def _parse_run_mode() -> str:
+    """Parse --mode from CLI args. Returns 'bedrock' or 'local'."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--mode", choices=["bedrock", "local"], default="bedrock")
+    args, _ = parser.parse_known_args()
+    return args.mode
+
+_CLI_MODE = _parse_run_mode()
+
+# ---------------------------------------------------------------------------
 # Path setup
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parent
@@ -34,9 +54,25 @@ sys.path.insert(0, str(_repo_root / "scripts"))
 
 from kohakurag import RAGPipeline
 from kohakurag.datastore import KVaultNodeStore
-from kohakurag.embeddings import JinaV4EmbeddingModel
-from kohakurag.llm import HuggingFaceLocalChatModel
 from kohakurag.pipeline import LLMQueryPlanner, SimpleQueryPlanner
+
+# Conditional imports — local-mode deps may not be installed in bedrock envs
+_HAS_LOCAL_DEPS = False
+try:
+    from kohakurag.embeddings import JinaV4EmbeddingModel
+    from kohakurag.llm import HuggingFaceLocalChatModel
+    _HAS_LOCAL_DEPS = True
+except ImportError:
+    JinaV4EmbeddingModel = None  # type: ignore[assignment,misc]
+    HuggingFaceLocalChatModel = None  # type: ignore[assignment,misc]
+
+_HAS_BEDROCK_DEPS = False
+try:
+    from llm_bedrock import BedrockChatModel, BedrockEmbeddingModel
+    _HAS_BEDROCK_DEPS = True
+except ImportError:
+    BedrockChatModel = None  # type: ignore[assignment,misc]
+    BedrockEmbeddingModel = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Prompts (shared with run_experiment.py)
@@ -153,9 +189,20 @@ def _debug(msg: str) -> None:
     print(f"[DEBUG] {msg}", flush=True)
 
 
-def discover_configs() -> dict[str, Path]:
-    """Find all hf_*.py config files and return {display_name: path}."""
-    return {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
+def discover_configs(provider: str = "local") -> dict[str, Path]:
+    """Find config files and return {display_name: path}.
+
+    Args:
+        provider: "local" for hf_*.py, "bedrock" for bedrock_*.py, "all" for both.
+    """
+    if provider == "bedrock":
+        return {p.stem: p for p in sorted(CONFIGS_DIR.glob("bedrock_*.py"))}
+    elif provider == "all":
+        hf = {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
+        br = {p.stem: p for p in sorted(CONFIGS_DIR.glob("bedrock_*.py"))}
+        return {**hf, **br}
+    else:
+        return {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
 
 
 def load_config(config_path: Path) -> dict:
@@ -171,6 +218,9 @@ def load_config(config_path: Path) -> dict:
         "max_retries", "max_concurrent",
         "embedding_model", "embedding_dim", "embedding_task", "embedding_model_id",
         "hf_model_id", "hf_dtype", "hf_max_new_tokens", "hf_temperature",
+        # Bedrock-specific keys
+        "bedrock_model", "bedrock_region", "bedrock_profile",
+        "bedrock_embedding_model",
     ]:
         if hasattr(module, key):
             config[key] = getattr(module, key)
@@ -341,10 +391,147 @@ def init_ensemble_parallel(config_names: tuple[str, ...], precision: str) -> dic
 
 
 @st.cache_resource(show_spinner="Loading embedder and vector store...")
-def init_shared_only() -> tuple[JinaV4EmbeddingModel, KVaultNodeStore]:
+def init_shared_only() -> tuple:
     """Load only the embedder + store (for sequential ensemble). Cached."""
     ref_config = load_config(next(CONFIGS_DIR.glob("hf_*.py")))
     return _load_shared_resources(ref_config)
+
+
+# ---------------------------------------------------------------------------
+# Bedrock pipeline init
+# ---------------------------------------------------------------------------
+def _load_bedrock_shared_resources(
+    config: dict, aws_profile: str | None = None, aws_region: str = "us-east-2",
+) -> tuple:
+    """Load embedder and vector store for a Bedrock config."""
+    embedding_dim = config.get("embedding_dim", 1024)
+    db_raw = config.get("db", "data/embeddings/wattbot_titan_v2.db")
+    db_path = _repo_root / db_raw.removeprefix("../").removeprefix("../")
+    table_prefix = config.get("table_prefix", "wattbot_tv2")
+
+    emb_model = config.get("embedding_model", "bedrock")
+    if emb_model == "bedrock":
+        embedder = BedrockEmbeddingModel(
+            model_id=config.get("bedrock_embedding_model", "amazon.titan-embed-text-v2:0"),
+            profile_name=aws_profile,
+            region_name=aws_region,
+            dimensions=embedding_dim,
+        )
+    else:
+        # Bedrock LLM but local Jina V4 embeddings (GPU server scenario)
+        embedder = JinaV4EmbeddingModel(
+            task=config.get("embedding_task", "retrieval"),
+            truncate_dim=embedding_dim,
+        )
+
+    _debug(
+        f"Loading Bedrock shared resources:\n"
+        f"  db_path       = {db_path} (exists={db_path.exists()})\n"
+        f"  table_prefix  = {table_prefix}\n"
+        f"  embedding_dim = {embedding_dim}\n"
+        f"  embedding     = {emb_model}"
+    )
+
+    store = KVaultNodeStore(
+        db_path,
+        table_prefix=table_prefix,
+        dimensions=embedding_dim,
+        paragraph_search_mode="averaged",
+    )
+    return embedder, store
+
+
+def _load_bedrock_chat_model(
+    config: dict, aws_profile: str | None = None, aws_region: str = "us-east-2",
+) -> "BedrockChatModel":
+    """Create a BedrockChatModel from config."""
+    return BedrockChatModel(
+        model_id=config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0"),
+        profile_name=aws_profile,
+        region_name=aws_region,
+        system_prompt=SYSTEM_PROMPT,
+        max_tokens=config.get("hf_max_new_tokens", 4096),
+        max_retries=config.get("max_retries", 5),
+        max_concurrent=config.get("max_concurrent", 5),
+    )
+
+
+@st.cache_resource(show_spinner="Connecting to AWS Bedrock...")
+def init_bedrock_pipeline(
+    config_name: str, aws_profile: str | None = None, aws_region: str = "us-east-2",
+) -> RAGPipeline:
+    """Load a single Bedrock-backed pipeline. Cached across reruns."""
+    config = load_config(CONFIGS_DIR / f"{config_name}.py")
+    embedder, store = _load_bedrock_shared_resources(config, aws_profile, aws_region)
+    chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
+    return RAGPipeline(store=store, embedder=embedder, chat_model=chat_model, planner=None)
+
+
+@st.cache_resource(show_spinner="Connecting ensemble models to Bedrock...")
+def init_bedrock_ensemble_parallel(
+    config_names: tuple[str, ...],
+    aws_profile: str | None = None,
+    aws_region: str = "us-east-2",
+) -> dict[str, RAGPipeline]:
+    """Load all Bedrock ensemble models. Cached."""
+    ref_config = load_config(CONFIGS_DIR / f"{config_names[0]}.py")
+    embedder, store = _load_bedrock_shared_resources(ref_config, aws_profile, aws_region)
+
+    pipelines = {}
+    for name in config_names:
+        config = load_config(CONFIGS_DIR / f"{name}.py")
+        chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
+        pipelines[name] = RAGPipeline(
+            store=store, embedder=embedder, chat_model=chat_model, planner=None,
+        )
+    return pipelines
+
+
+@st.cache_resource(show_spinner="Loading Bedrock embedder and vector store...")
+def init_bedrock_shared_only(
+    aws_profile: str | None = None, aws_region: str = "us-east-2",
+) -> tuple:
+    """Load only embedder + store for sequential Bedrock ensemble. Cached."""
+    ref_config = load_config(next(CONFIGS_DIR.glob("bedrock_*.py")))
+    return _load_bedrock_shared_resources(ref_config, aws_profile, aws_region)
+
+
+def run_bedrock_ensemble_sequential_query(
+    config_names: list[str],
+    question: str,
+    top_k: int,
+    aws_profile: str | None = None,
+    aws_region: str = "us-east-2",
+    progress_callback=None,
+    best_guess: bool = False,
+    max_retries: int = 0,
+    use_planner: bool = False,
+    planner_queries: int = 3,
+) -> dict[str, object]:
+    """Query Bedrock models one at a time (sequential ensemble)."""
+    embedder, store = init_bedrock_shared_only(aws_profile, aws_region)
+    results = {}
+
+    for i, name in enumerate(config_names):
+        if progress_callback:
+            progress_callback(i, len(config_names), name)
+
+        config = load_config(CONFIGS_DIR / f"{name}.py")
+        chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
+        pipeline = RAGPipeline(
+            store=store, embedder=embedder, chat_model=chat_model, planner=None,
+        )
+        _apply_planner(pipeline, use_planner, planner_queries)
+
+        t0 = time.time()
+        result = _run_qa_sync(
+            pipeline, question, top_k,
+            best_guess=best_guess, max_retries=max_retries,
+        )
+        elapsed = time.time() - t0
+        results[name] = {"result": result, "time": elapsed}
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -540,20 +727,90 @@ def build_ensemble_answer(
 # ---------------------------------------------------------------------------
 # Streamlit UI
 # ---------------------------------------------------------------------------
+def _detect_gpu_available() -> bool:
+    """Return True if at least one CUDA GPU is available."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+
 def main():
     st.set_page_config(page_title="WattBot RAG", page_icon="lightning", layout="wide")
     st.title("WattBot RAG Pipeline")
 
-    configs = discover_configs()
-    if not configs:
-        st.error("No HF config files found in vendor/KohakuRAG/configs/")
-        return
+    # Determine effective run mode (CLI default + optional sidebar toggle)
+    gpu_available = _detect_gpu_available()
 
     # ---- Sidebar ----
     with st.sidebar:
         st.header("Settings")
+
+        # --- Provider mode selection ---
+        # Show toggle only when both backends are possible
+        can_toggle = gpu_available and _HAS_LOCAL_DEPS and _HAS_BEDROCK_DEPS
+        if can_toggle:
+            use_local = st.toggle(
+                "Use local GPU models",
+                value=(_CLI_MODE == "local"),
+                help=(
+                    "GPU detected on this machine. Toggle ON to use local "
+                    "HuggingFace models; toggle OFF for AWS Bedrock API models."
+                ),
+            )
+            provider = "local" if use_local else "bedrock"
+        elif _CLI_MODE == "local" and _HAS_LOCAL_DEPS:
+            provider = "local"
+        else:
+            provider = "bedrock"
+
+        is_bedrock = provider == "bedrock"
+
+        if is_bedrock:
+            st.caption("Backend: **AWS Bedrock** (API)")
+        else:
+            st.caption("Backend: **Local HuggingFace** (GPU)")
+
+        # --- Setup Bedrock section (bedrock mode only) ---
+        if is_bedrock:
+            st.divider()
+            st.subheader("Setup Bedrock")
+            if not _HAS_BEDROCK_DEPS:
+                st.error(
+                    "Bedrock dependencies not installed. Run:\n\n"
+                    "```\npip install -r bedrock_requirements.txt\n```"
+                )
+                return
+            aws_profile = st.text_input(
+                "AWS profile",
+                value=os.environ.get("AWS_PROFILE", ""),
+                help=(
+                    "Your AWS SSO profile name (e.g. bedrock_yourname). "
+                    "Leave blank to use environment variables or instance role."
+                ),
+            )
+            aws_region = st.text_input(
+                "AWS region",
+                value=os.environ.get("AWS_REGION", "us-east-2"),
+                help="AWS region where Bedrock models are enabled.",
+            )
+            # Normalize empty string to None for boto3
+            aws_profile = aws_profile.strip() or None
+
+            st.caption(
+                "Tip: Run `aws sso login --profile <name>` before launching "
+                "the app to refresh your SSO session."
+            )
+
+        st.divider()
         mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
-        precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
+
+        # Precision only matters for local models
+        precision = "4bit"
+        if not is_bedrock:
+            precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
+
         top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
         best_guess = st.toggle("Allow best-guess answers", value=False,
                                help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
@@ -584,47 +841,68 @@ def main():
         )
 
         st.divider()
+
+        # --- Config discovery ---
+        configs = discover_configs(provider)
+        if not configs:
+            prefix = "bedrock_*" if is_bedrock else "hf_*"
+            st.error(f"No {prefix}.py config files found in vendor/KohakuRAG/configs/")
+            return
+
         config_list = list(configs.keys())
 
         if mode == "Single model":
-            default_idx = config_list.index("hf_qwen7b") if "hf_qwen7b" in config_list else 0
+            if is_bedrock:
+                default_key = "bedrock_haiku"
+            else:
+                default_key = "hf_qwen7b"
+            default_idx = config_list.index(default_key) if default_key in config_list else 0
             selected_config = st.selectbox("Model config", config_list, index=default_idx)
             selected_configs = [selected_config]
             ensemble_strategy = None
         else:
+            if is_bedrock:
+                default_models = ["bedrock_haiku", "bedrock_sonnet"]
+            else:
+                default_models = ["hf_qwen7b", "hf_llama3_8b"]
             selected_configs = st.multiselect(
                 "Ensemble models (pick 2+)", config_list,
-                default=["hf_qwen7b", "hf_llama3_8b"] if all(
-                    c in config_list for c in ["hf_qwen7b", "hf_llama3_8b"]
-                ) else config_list[:2],
+                default=[m for m in default_models if m in config_list] or config_list[:2],
             )
             ensemble_strategy = st.selectbox(
                 "Aggregation", ["majority", "first_non_blank"],
             )
 
-        # GPU info
-        st.divider()
-        gpu_info = get_gpu_info()
-        if gpu_info["gpu_count"] > 0:
-            st.caption(f"**{gpu_info['gpu_count']} GPU(s)** detected")
-            for g in gpu_info["gpus"]:
-                st.caption(f"  GPU {g['index']}: {g['name']} — "
-                           f"{g['free_gb']:.1f} / {g['total_gb']:.1f} GB free")
-        else:
-            st.caption("No GPU detected")
-
-        # Ensemble VRAM plan
-        if mode == "Ensemble" and len(selected_configs) >= 2:
-            plan = plan_ensemble(selected_configs, precision, gpu_info)
-            vram_list = [f"{n}: ~{v:.0f}GB" for n, v in
-                         zip(selected_configs, plan["model_vrams"])]
-            st.caption(f"VRAM: {', '.join(vram_list)}")
-            if plan["mode"] == "parallel":
-                st.caption("Strategy: **parallel** (all models in memory)")
-            elif plan["mode"] == "sequential":
-                st.caption("Strategy: **sequential** (load one at a time)")
+        # --- GPU / VRAM info (local mode only) ---
+        if not is_bedrock:
+            st.divider()
+            gpu_info = get_gpu_info()
+            if gpu_info["gpu_count"] > 0:
+                st.caption(f"**{gpu_info['gpu_count']} GPU(s)** detected")
+                for g in gpu_info["gpus"]:
+                    st.caption(f"  GPU {g['index']}: {g['name']} — "
+                               f"{g['free_gb']:.1f} / {g['total_gb']:.1f} GB free")
             else:
-                st.warning(plan["reason"])
+                st.caption("No GPU detected")
+
+            # Ensemble VRAM plan
+            if mode == "Ensemble" and len(selected_configs) >= 2:
+                plan = plan_ensemble(selected_configs, precision, gpu_info)
+                vram_list = [f"{n}: ~{v:.0f}GB" for n, v in
+                             zip(selected_configs, plan["model_vrams"])]
+                st.caption(f"VRAM: {', '.join(vram_list)}")
+                if plan["mode"] == "parallel":
+                    st.caption("Strategy: **parallel** (all models in memory)")
+                elif plan["mode"] == "sequential":
+                    st.caption("Strategy: **sequential** (load one at a time)")
+                else:
+                    st.warning(plan["reason"])
+        else:
+            # Bedrock ensemble always runs parallel (API-based, no VRAM constraint)
+            gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
+            if mode == "Ensemble" and len(selected_configs) >= 2:
+                st.divider()
+                st.caption("Strategy: **parallel** (API mode — no GPU needed)")
 
     # ---- Validate ensemble selection ----
     if mode == "Ensemble" and len(selected_configs) < 2:
@@ -633,21 +911,37 @@ def main():
 
     # ---- Load pipelines ----
     try:
-        if mode == "Single model":
-            pipeline = init_single_pipeline(selected_configs[0], precision)
-            _apply_planner(pipeline, use_planner, planner_queries)
-        elif mode == "Ensemble":
-            plan = plan_ensemble(selected_configs, precision, gpu_info)
-            if plan["mode"] == "error":
-                st.error(f"Cannot run ensemble: {plan['reason']}")
-                return
-            if plan["mode"] == "parallel":
-                ensemble_pipelines = init_ensemble_parallel(
-                    tuple(selected_configs), precision,
+        if is_bedrock:
+            # Bedrock pipelines
+            if mode == "Single model":
+                pipeline = init_bedrock_pipeline(
+                    selected_configs[0], aws_profile, aws_region,
+                )
+                _apply_planner(pipeline, use_planner, planner_queries)
+            elif mode == "Ensemble":
+                # Bedrock ensembles always run parallel (no VRAM constraint)
+                ensemble_pipelines = init_bedrock_ensemble_parallel(
+                    tuple(selected_configs), aws_profile, aws_region,
                 )
                 for _p in ensemble_pipelines.values():
                     _apply_planner(_p, use_planner, planner_queries)
-            # sequential doesn't pre-load models (planner set inside query fn)
+        else:
+            # Local pipelines
+            if mode == "Single model":
+                pipeline = init_single_pipeline(selected_configs[0], precision)
+                _apply_planner(pipeline, use_planner, planner_queries)
+            elif mode == "Ensemble":
+                plan = plan_ensemble(selected_configs, precision, gpu_info)
+                if plan["mode"] == "error":
+                    st.error(f"Cannot run ensemble: {plan['reason']}")
+                    return
+                if plan["mode"] == "parallel":
+                    ensemble_pipelines = init_ensemble_parallel(
+                        tuple(selected_configs), precision,
+                    )
+                    for _p in ensemble_pipelines.values():
+                        _apply_planner(_p, use_planner, planner_queries)
+                # sequential doesn't pre-load models (planner set inside query fn)
     except Exception as e:
         st.error(f"Failed to load pipeline: {e}")
         tb = traceback.format_exc()
@@ -686,7 +980,11 @@ def main():
             t0 = time.time()
 
             if mode == "Single model":
-                with st.spinner("Retrieving and generating..."):
+                spinner_msg = (
+                    "Querying Bedrock..." if is_bedrock
+                    else "Retrieving and generating..."
+                )
+                with st.spinner(spinner_msg):
                     try:
                         result = run_single_query(
                             pipeline, question, top_k,
@@ -704,7 +1002,11 @@ def main():
 
             else:  # Ensemble
                 try:
-                    if plan["mode"] == "parallel":
+                    is_sequential = (
+                        not is_bedrock
+                        and plan["mode"] == "sequential"
+                    )
+                    if not is_sequential:
                         with st.spinner(
                             f"Querying {len(selected_configs)} models in parallel..."
                         ):
