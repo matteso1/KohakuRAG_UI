@@ -538,10 +538,26 @@ class HuggingFaceLocalChatModel(ChatModel):
                     flush=True,
                 )
                 load_kwargs.pop("quantization_config")
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    self._model_id,
-                    **load_kwargs,
-                )
+                try:
+                    self._model = AutoModelForCausalLM.from_pretrained(
+                        self._model_id,
+                        **load_kwargs,
+                    )
+                except (ValueError, Exception) as inner_exc:
+                    if "offload" in str(inner_exc).lower() or "disk" in str(inner_exc).lower():
+                        raise ValueError(
+                            f"Model {self._model_id} is pre-quantized and too large "
+                            f"for available GPU+CPU memory. The native quantization "
+                            f"(e.g. FP8) requires more memory than is available. "
+                            f"Options: (1) use a smaller model, (2) add more GPU/RAM, "
+                            f"or (3) use a GPTQ/AWQ quantized variant of this model."
+                        ) from inner_exc
+                    raise
+            elif "offload" in str(exc).lower() or "disk" in str(exc).lower():
+                raise ValueError(
+                    f"Model {self._model_id} is too large for available GPU+CPU "
+                    f"memory (dtype={dtype}). Reduce model size or add more memory."
+                ) from exc
             else:
                 raise
         self.effective_dtype = effective_dtype

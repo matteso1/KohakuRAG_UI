@@ -30,6 +30,112 @@ except ImportError:
 
 import json
 import glob
+from colorsys import rgb_to_hls, hls_to_rgb
+
+# ---------------------------------------------------------------------------
+# Model-family colour palette (matches plot_model_size.py)
+# ---------------------------------------------------------------------------
+FAMILY_COLORS = {
+    "Claude":   "#6366f1",
+    "Llama":    "#f59e0b",
+    "Mistral":  "#10b981",
+    "DeepSeek": "#ef4444",
+    "Nova":     "#ec4899",
+    "Qwen":     "#3b82f6",
+    "Phi":      "#8b5cf6",
+    "Gemma":    "#14b8a6",
+    "Ensemble": "#888888",  # base gray; actual shade set by model count
+}
+_FALLBACK_COLOR = "#6b7280"
+
+# Aliases for short model names that don't contain the family keyword
+_FAMILY_ALIASES = {
+    "sonnet": "Claude",
+    "haiku":  "Claude",
+    "opus":   "Claude",
+}
+
+
+def _hex_to_rgb(h: str):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+
+def _rgb_to_hex(r, g, b):
+    return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+
+
+def _get_family(name: str) -> str:
+    low = name.lower()
+    for family in FAMILY_COLORS:
+        if family.lower() in low:
+            return family
+    # Check aliases (e.g. "sonnet" → Claude, "haiku" → Claude)
+    for alias, family in _FAMILY_ALIASES.items():
+        if alias in low:
+            return family
+    return "Other"
+
+
+def _ensemble_model_count(name: str) -> int:
+    """Extract the number of constituent models from an ensemble name.
+
+    Examples: ensemble-top3-majority → 3, ensemble-top5 → 5,
+    ensemble-all-majority → 99 (treated as largest).
+    """
+    import re
+    low = name.lower()
+    m = re.search(r"top(\d+)", low)
+    if m:
+        return int(m.group(1))
+    if "all" in low:
+        return 99  # sentinel for "all models"
+    return 1
+
+
+def _ensemble_gray(model_count: int) -> str:
+    """Return a gray hex color: more models → darker."""
+    # Near-white (#d0d0d0) for few models, medium gray (#707070) for many
+    t = min(model_count / 12.0, 1.0)  # normalize; 12+ models → darkest
+    level = int(208 - 96 * t)  # 208 (0xd0) → 112 (0x70)
+    return f"#{level:02x}{level:02x}{level:02x}"
+
+
+def assign_family_colors(model_names: list[str]) -> list[str]:
+    """Return one colour per model, shaded within each family."""
+    # Group models by family (preserving order)
+    family_members: dict[str, list[int]] = {}
+    for idx, name in enumerate(model_names):
+        fam = _get_family(name)
+        family_members.setdefault(fam, []).append(idx)
+
+    colors = [""] * len(model_names)
+    for fam, indices in family_members.items():
+        # Ensembles: gray shades based on constituent model count
+        if fam == "Ensemble":
+            for idx in indices:
+                count = _ensemble_model_count(model_names[idx])
+                colors[idx] = _ensemble_gray(count)
+            continue
+
+        base_hex = FAMILY_COLORS.get(fam, _FALLBACK_COLOR)
+        r, g, b = _hex_to_rgb(base_hex)
+        h, l, s = rgb_to_hls(r, g, b)  # noqa: E741
+        n = len(indices)
+        if n == 1:
+            shades = [base_hex]
+        else:
+            # Vary lightness: brightest → darkest within family
+            shades = []
+            for i in range(n):
+                t = i / (n - 1)  # 0..1
+                new_l = l + 0.18 * (1 - t) - 0.10 * t  # lighter→darker
+                new_l = max(0.25, min(0.80, new_l))
+                rr, gg, bb = hls_to_rgb(h, new_l, s)
+                shades.append(_rgb_to_hex(rr, gg, bb))
+        for rank, idx in enumerate(indices):
+            colors[idx] = shades[rank]
+    return colors
 
 
 def wilson_ci(successes, n, confidence=0.95):
@@ -161,7 +267,11 @@ def main():
         model_map[norm] = m
         
     models = sorted(list(model_map.values()))
+    # Individual models only (no ensembles) — used for most detail plots
+    individual_models = [m for m in models if _get_family(m) != "Ensemble"]
     print(f"Selected {len(models)} models after filtering: {models}")
+    if len(individual_models) < len(models):
+        print(f"  ({len(models) - len(individual_models)} ensemble(s) excluded from detail plots)")
     
     output_dir = Path(args.output_dir)
     if args.system:
@@ -241,71 +351,47 @@ def main():
         else:
             print(f"Warning: Score columns missing for {model}")
 
-    # Plot Overall
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    model_names = list(overall_scores.keys())
-    scores = [overall_scores[m]["Overall"] for m in model_names]
-    
-    # Sort by score descending
-    sorted_pairs = sorted(zip(model_names, scores), key=lambda x: x[1], reverse=True)
-    model_names = [p[0] for p in sorted_pairs]
-    scores = [p[1] for p in sorted_pairs]
-    
-    ci_widths = [overall_scores[m]["overall_ci"] for m in model_names]
-    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(models)))
-    bars = ax.bar(model_names, scores, color=colors, width=0.6,
-                  yerr=ci_widths, capsize=4, error_kw={'linewidth': 1.5, 'color': '#333'})
+    # (overall_scores plot removed – redundant with ranking plot in plot_model_size)
 
-    ax.set_ylim(0, 1.15)
-    n_questions = len(df)
-    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions}, 95% CI)", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)")
-    
-    # Add value labels
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(f'{height:.3f}',
-                    xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 5),
-                    textcoords="offset points",
-                    ha='center', va='bottom', fontsize=9, fontweight='bold')
-                    
-    plt.tight_layout()
-    plt.savefig(output_dir / "overall_scores.png", dpi=300)
-    print(f"Saved {output_dir / 'overall_scores.png'}")
-    
     # -------------------------------------------------------------------------
     # 2. Question Type Breakdown
     # -------------------------------------------------------------------------
-    # Derive types if explanation exists (logic from plot_results.py)
-    if "GT_Explanation" in df.columns:
-        print("Generating question type breakdown...")
-        
-        def get_types(row):
-            expl = str(row.get("GT_Explanation", "")).lower()
-            types = []
-            if "table" in expl: types.append("Table")
-            if "figure" in expl or "fig" in expl: types.append("Figure")
-            if "quote" in expl: types.append("Quote")
-            if "math" in expl or "calculation" in expl: types.append("Math")
-            
-            # Check GT Value for NA
-            gt_val = str(row.get("GT_Value", "")).lower()
-            if "unable" in gt_val or "is_blank" in gt_val:
-                types.append("is_NA")
-                
-            return types
+    all_types = ["Table", "Figure", "Quote", "Math", "is_NA"]
+    # Check for direct binary type columns first, then fall back to GT_Explanation
+    has_binary_type_cols = any(t in df.columns for t in all_types)
 
-        df["Derived_Types"] = df.apply(get_types, axis=1)
-        
-        all_types = ["Table", "Figure", "Quote", "Math", "is_NA"]
-        type_scores = {m: {} for m in models}
-        type_ci = {m: {} for m in models}  # Store confidence intervals
-        type_counts = {}  # Store N per type
+    if has_binary_type_cols or "GT_Explanation" in df.columns:
+        print("Generating question type breakdown...")
+
+        if has_binary_type_cols:
+            # Use binary columns directly (0/1 flags in the CSV)
+            for t in all_types:
+                if t not in df.columns:
+                    df[t] = 0
+        else:
+            # Derive from GT_Explanation text
+            def get_types(row):
+                expl = str(row.get("GT_Explanation", "")).lower()
+                types = []
+                if "table" in expl: types.append("Table")
+                if "figure" in expl or "fig" in expl: types.append("Figure")
+                if "quote" in expl: types.append("Quote")
+                if "math" in expl or "calculation" in expl: types.append("Math")
+                gt_val = str(row.get("GT_Value", "")).lower()
+                if "unable" in gt_val or "is_blank" in gt_val:
+                    types.append("is_NA")
+                return types
+
+            derived = df.apply(get_types, axis=1)
+            for t in all_types:
+                df[t] = derived.apply(lambda lst: int(t in lst))
+
+        type_scores = {m: {} for m in individual_models}
+        type_ci = {m: {} for m in individual_models}
+        type_counts = {}
 
         for qtype in all_types:
-            # Filter rows having this type
-            mask = df["Derived_Types"].apply(lambda t: qtype in t)
+            mask = df[qtype].astype(bool)
             subset = df[mask]
             n_type = len(subset)
             type_counts[qtype] = n_type
@@ -313,9 +399,7 @@ def main():
             if n_type == 0:
                 continue
 
-            for model in models:
-                # For NA questions, use NACorrect (ValCorrect is always True
-                # when GT is blank, so it's meaningless for NA detection)
+            for model in individual_models:
                 if qtype == "is_NA":
                     score_col = f"{model}_NACorrect"
                 else:
@@ -324,8 +408,6 @@ def main():
                     successes = subset[score_col].sum()
                     acc = successes / n_type if n_type > 0 else 0
                     type_scores[model][qtype] = acc
-
-                    # Calculate confidence interval
                     ci_low, ci_high = wilson_ci(successes, n_type, confidence=0.95)
                     type_ci[model][qtype] = (ci_low, ci_high)
         
@@ -333,9 +415,10 @@ def main():
         fig, ax = plt.subplots(figsize=(14, 7))
 
         x = np.arange(len(all_types))
-        width = 0.8 / len(models)
+        width = 0.8 / len(individual_models)
+        type_bar_colors = assign_family_colors(individual_models)
 
-        for i, model in enumerate(models):
+        for i, model in enumerate(individual_models):
             scores = [type_scores[model].get(t, 0) for t in all_types]
             # Calculate error bar sizes (distance from mean to CI bounds)
             yerr_lower = []
@@ -350,7 +433,7 @@ def main():
                     yerr_lower.append(0)
                     yerr_upper.append(0)
 
-            ax.bar(x + i*width, scores, width, label=model, color=colors[i],
+            ax.bar(x + i*width, scores, width, label=model, color=type_bar_colors[i],
                    yerr=[yerr_lower, yerr_upper], capsize=2, error_kw={'linewidth': 1})
 
         # Add N counts to labels with warning for small samples
@@ -360,7 +443,7 @@ def main():
             warning = " (!)" if count < 10 else ""  # Flag small samples
             labels_with_counts.append(f"{t}\n(n={count}{warning})")
 
-        ax.set_xticks(x + width * (len(models) - 1) / 2)
+        ax.set_xticks(x + width * (len(individual_models) - 1) / 2)
         ax.set_xticklabels(labels_with_counts)
         
         setup_plot(ax, "Performance by Question Type (95% CI error bars)", "Value Accuracy")
@@ -382,12 +465,12 @@ def main():
     print("Generating agreement heatmap...")
     # Calculate agreement (Jaccard or simple Overlap)
     # We'll use simple agreement on "ValCorrect" status
-    
-    n_models = len(models)
+
+    n_models = len(individual_models)
     agreement_matrix = np.zeros((n_models, n_models))
-    
-    for i, m1 in enumerate(models):
-        for j, m2 in enumerate(models):
+
+    for i, m1 in enumerate(individual_models):
+        for j, m2 in enumerate(individual_models):
             if i == j:
                 agreement_matrix[i, j] = 1.0
             else:
@@ -399,24 +482,26 @@ def main():
                      agreement_matrix[i, j] = matches / len(df)
     
     fig, ax = plt.subplots(figsize=(10, 8))
-    im = ax.imshow(agreement_matrix, cmap="YlGnBu", vmin=0, vmax=1)
-    
-    # We want to show all ticks...
+    # Purple→white→yellow: low agreement = purple, high = yellow
+    im = ax.imshow(agreement_matrix, cmap="PuOr", vmin=0.5, vmax=1.0)
+
     ax.set_xticks(np.arange(n_models))
     ax.set_yticks(np.arange(n_models))
-    # ... and label them with the respective list entries
-    ax.set_xticklabels(models, rotation=45, ha="right")
-    ax.set_yticklabels(models)
-    
-    # Loop over data dimensions and create text annotations.
+    ax.set_xticklabels(individual_models, rotation=45, ha="right")
+    ax.set_yticklabels(individual_models)
+
     for i in range(n_models):
         for j in range(n_models):
-            text = ax.text(j, i, f"{agreement_matrix[i, j]:.2f}",
-                           ha="center", va="center", color="black")
-                           
+            val = agreement_matrix[i, j]
+            # Dark text on light cells, white on dark cells
+            txt_color = "white" if val < 0.65 else "black"
+            ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                    color=txt_color, fontweight="bold" if i == j else "normal")
+
+    fig.colorbar(im, ax=ax, label="Agreement", shrink=0.8)
     ax.set_title("Model Agreement (Correctness Correlation)")
     fig.tight_layout()
-    plt.savefig(output_dir / "agreement_heatmap.png")
+    plt.savefig(output_dir / "agreement_heatmap.png", dpi=300)
     print(f"Saved {output_dir / 'agreement_heatmap.png'}")
 
     # -------------------------------------------------------------------------
@@ -425,13 +510,13 @@ def main():
     print("Generating unique wins analysis...")
     unique_wins = {}
     
-    for m_target in models:
+    for m_target in individual_models:
         # Check correct for target
         target_col = f"{m_target}_ValCorrect"
         if target_col not in df.columns: continue
-        
-        # Check correct for ALL others
-        other_cols = [f"{m}_ValCorrect" for m in models if m != m_target and f"{m}_ValCorrect" in df.columns]
+
+        # Check correct for ALL other individual models
+        other_cols = [f"{m}_ValCorrect" for m in individual_models if m != m_target and f"{m}_ValCorrect" in df.columns]
         if not other_cols: continue
         
         # Rows where Target is True AND All Others are False
@@ -463,8 +548,8 @@ def main():
     # -------------------------------------------------------------------------
     print("Generating refusal rate comparison...")
     refusal_rates = {}
-    
-    for model in models:
+
+    for model in individual_models:
         val_col = f"{model}_Value"
         if val_col in df.columns:
             # Check for strings like "is_blank" or "unable"
