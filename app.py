@@ -1237,14 +1237,15 @@ def _linkify_citations(
     ref_ids=None,
     ref_urls=None,
 ) -> str:
-    """Replace ``[ref_id]`` citations in *text* with clickable markdown links.
+    """Replace citation references in *text* with clickable markdown links.
 
-    * Converts raw ids to human-readable labels (``Luccioni et al., 2025``).
-    * Inserts comma separators between adjacent citations so they don't
-      render as a single run-on string.
-    * Looks up each ``[...]`` token against METADATA_URLS (primary) and the
-      answer's own ref_url list (fallback).  Already-linked references
-      (``[id](url)``) are left untouched.
+    Handles two citation styles:
+    * Bracket-style:  ``[luccioni2025]`` — raw ref_id in brackets
+    * Parenthetical:  ``(Luccioni et al., 2025)`` — humanized form in parens
+
+    Converts raw ids to human-readable labels, inserts comma separators
+    between adjacent citations, and looks up URLs from METADATA_URLS
+    (primary) and the answer's own ref_url list (fallback).
     """
     if not text:
         return text
@@ -1260,22 +1261,53 @@ def _linkify_citations(
                 if u and u != "is_blank":
                     answer_urls[rid] = u
 
-    def _replace(match: re.Match) -> str:
+    # Build reverse map: "Luccioni et al., 2025" → first matching ref_id
+    # so we can resolve parenthetical citations like (Luccioni et al., 2025)
+    humanized_to_rid: dict[str, str] = {}
+    all_rids = list(METADATA_URLS.keys()) + list(answer_urls.keys())
+    if ref_ids and ref_ids != "is_blank":
+        rids = ref_ids if isinstance(ref_ids, list) else [ref_ids]
+        for rid in rids:
+            if rid not in all_rids:
+                all_rids.append(rid)
+    for rid in all_rids:
+        label = _humanize_ref_id(rid)
+        if label != rid and label not in humanized_to_rid:
+            humanized_to_rid[label] = rid
+
+    def _replace_bracket(match: re.Match) -> str:
         rid = match.group(1)
         url = METADATA_URLS.get(rid) or answer_urls.get(rid)
         label = _humanize_ref_id(rid)
         if url:
             return f"[{label}]({url})"
-        # No URL — still humanize if it looks like a ref_id
         if label != rid:
             return f"({label})"
         return match.group(0)
 
     # Match [something] NOT already followed by '(' (avoids double-linking)
-    text = re.sub(r"\[([^\]]+)\](?!\()", _replace, text)
+    text = re.sub(r"\[([^\]]+)\](?!\()", _replace_bracket, text)
 
     # Insert ", " between adjacent markdown links: ...](url)[... → ...](url), [...
     text = re.sub(r"\]\(([^)]+)\)\[", r"](\1), [", text)
+
+    # Match parenthetical citations: (Author et al., Year)
+    # Pattern: (Capitalized-word et al., 4-digit-year)
+    def _replace_paren(match: re.Match) -> str:
+        full = match.group(0)  # e.g. "(Luccioni et al., 2025)"
+        inner = match.group(1)  # e.g. "Luccioni et al., 2025"
+        rid = humanized_to_rid.get(inner)
+        if rid:
+            url = METADATA_URLS.get(rid) or answer_urls.get(rid)
+            if url:
+                return f"[{inner}]({url})"
+        return full
+
+    text = re.sub(
+        r"\(([A-Z][a-z]+ et al\., \d{4})\)",
+        _replace_paren,
+        text,
+    )
 
     return text
 
@@ -1301,22 +1333,6 @@ def _display_single_result(result, elapsed: float, cost_info: dict | None = None
         st.markdown("**Out-of-scope** — the provided documents do not contain enough information to answer this question.")
     if answer.answer_value and answer.answer_value != "is_blank":
         st.markdown(f"Value: `{answer.answer_value}`")
-
-    # Clickable reference links (shown directly, not inside an expander)
-    ref_ids = answer.ref_id
-    ref_urls = answer.ref_url
-    if ref_ids and ref_ids != "is_blank":
-        links = []
-        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
-            url = METADATA_URLS.get(rid)
-            if not url:
-                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
-            label = _humanize_ref_id(rid)
-            if url and url != "is_blank":
-                links.append(f"[{label}]({url})")
-            else:
-                links.append(label)
-        st.markdown("Sources: " + " · ".join(links))
 
     details = {
         "timing": timing,
