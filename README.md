@@ -12,6 +12,29 @@ The project uses [KohakuRAG](https://github.com/KohakuBlueleaf/KohakuRAG), the t
 2. Deploying the system on AWS using Bedrock for LLM inference
 3. Comparing managed cloud deployment against self-hosted alternatives
 
+## Quick Start
+
+### Bedrock mode (no GPU required)
+
+```bash
+pip install -r bedrock_requirements.txt
+pip install -e vendor/KohakuVault -e vendor/KohakuRAG
+streamlit run app.py -- --mode bedrock
+```
+
+### Local mode (requires CUDA GPU)
+
+```bash
+pip install -r local_requirements.txt
+pip install -e vendor/KohakuVault -e vendor/KohakuRAG
+streamlit run app.py -- --mode local
+```
+
+When both backends are installed and a GPU is detected, the sidebar shows a
+toggle to switch between local and Bedrock models at runtime.
+
+See [Setup Bedrock](docs/Setup_Bedrock.md) for full AWS configuration instructions.
+
 ## Architecture
 
 The system follows a standard RAG (Retrieval-Augmented Generation) architecture:
@@ -20,22 +43,27 @@ The system follows a standard RAG (Retrieval-Augmented Generation) architecture:
 flowchart TB
     U[User Query] --> S[Streamlit UI]
     S --> P[RAG Pipeline]
-    P --> E[Jina Embeddings]
+    P --> E[Embeddings]
     P --> V[(Vector Store<br/>SQLite)]
     P --> L[LLM Backend]
     L --> B[AWS Bedrock]
-    L --> Local[Local Models]
+    L --> Local[Local HF Models]
+    E --> JE[Jina V4<br/>Local GPU]
+    E --> TE[Titan V2<br/>Bedrock API]
 ```
 
 ### Deployment Options
 
-| Approach | LLM Backend | Use Case |
-|----------|-------------|----------|
-| AWS Bedrock | Managed foundation models via API | Production, on-demand usage |
-| Local | Small models under 1B params | Development, on-prem deployment |
+| Approach | LLM Backend | Embeddings | Launch command |
+|----------|-------------|------------|----------------|
+| AWS Bedrock | Managed foundation models via API | Titan V2 (API) | `streamlit run app.py -- --mode bedrock` |
+| Local GPU | HuggingFace models (Qwen, Llama, etc.) | Jina V4 (local) | `streamlit run app.py -- --mode local` |
+
+If `--mode` is omitted, the app defaults to **bedrock**.
 
 ## Documentation
 
+- [Bedrock Setup Guide](docs/Setup_Bedrock.md) - Full AWS Bedrock setup and usage instructions
 - [Bedrock Integration Proposal](docs/bedrock-integration-proposal.md) - AWS Bedrock design and implementation plan
 - [Meeting Notes](docs/meeting-notes.md) - Team discussions and decisions
 
@@ -43,11 +71,18 @@ flowchart TB
 
 ```
 .
-├── docs/
-│   ├── bedrock-integration-proposal.md   # AWS Bedrock design document
-│   └── meeting-notes.md                  # Team meeting notes
-├── src/                                  # Application source code
-├── vendor/KohakuRAG/configs/              # Pipeline & experiment configs
+├── app.py                                # Streamlit app (supports --mode bedrock|local)
+├── bedrock_requirements.txt              # Torch-free Bedrock dependencies
+├── local_requirements.txt                # GPU/local model dependencies
+├── scripts/
+│   ├── llm_bedrock.py                    # BedrockChatModel & BedrockEmbeddingModel
+│   ├── run_experiment.py                 # Batch experiment runner
+│   └── demo_bedrock_rag.py              # Bedrock RAG demo
+├── vendor/KohakuRAG/configs/             # Pipeline & experiment configs
+│   ├── hf_*.py                           # Local HuggingFace model configs
+│   └── bedrock_*.py                      # AWS Bedrock model configs
+├── data/embeddings/                      # Vector databases
+├── docs/                                 # Documentation
 ├── .env.example                          # Environment template
 └── README.md
 ```

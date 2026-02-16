@@ -495,16 +495,46 @@ Results land in `artifacts/experiments/$ENV/$DS/ensemble-*/`.
 
 ### 19) Launch the app
 
+The app accepts a `--mode` argument to select the backend. Use `--` before
+`--mode` so Streamlit passes it through to the app:
+
 ```bash
-streamlit run app.py
+# Bedrock mode (default — no GPU required)
+streamlit run app.py -- --mode bedrock
+
+# Local mode (requires CUDA GPU + local_requirements.txt)
+streamlit run app.py -- --mode local
 ```
 
-In the sidebar you'll see both `bedrock_*` and `hf_*` model configs.
-Bedrock models don't require a GPU — when only bedrock models are selected,
-the app skips VRAM estimation and shows "API mode".
+If `--mode` is omitted the app defaults to **bedrock**.
 
-You can create ensembles mixing bedrock and local models (e.g.,
-`bedrock_claude_sonnet` + `hf_qwen7b`).
+#### Sidebar: Setup Bedrock
+
+When running in Bedrock mode the sidebar shows a **Setup Bedrock** section
+where you can configure:
+
+- **AWS profile** — your SSO profile name (or leave blank for env vars / instance role)
+- **AWS region** — the region where Bedrock models are enabled (default `us-east-2`)
+
+These values are read from `.env` / environment variables on first load and
+can be overridden in the sidebar without restarting the app.
+
+#### GPU auto-detection toggle
+
+If both backends are installed (`bedrock_requirements.txt` **and**
+`local_requirements.txt`) and a CUDA GPU is detected, the sidebar shows a
+**"Use local GPU models"** toggle. This lets you switch between Bedrock API
+models and local HuggingFace models without restarting.
+
+When local mode is active, the sidebar shows the standard precision selector
+and VRAM planning. When Bedrock mode is active, GPU/VRAM sections are hidden
+since inference happens via the API.
+
+#### Ensemble support
+
+You can create ensembles of Bedrock models (e.g., `bedrock_haiku` +
+`bedrock_sonnet`). Bedrock ensembles always run in **parallel** since there
+are no local memory constraints.
 
 ---
 
@@ -559,9 +589,11 @@ async def answer_question(question: str) -> dict:
 
 | File | Purpose |
 |------|---------|
-| `src/llm_bedrock.py` | Bedrock integration (BedrockChatModel) |
+| `app.py` | Streamlit app (launch with `--mode bedrock` or `--mode local`) |
+| `scripts/llm_bedrock.py` | Bedrock integration (BedrockChatModel, BedrockEmbeddingModel) |
 | `scripts/demo_bedrock_rag.py` | Full working RAG example |
-| `data/embeddings/wattbot_jinav4.db` | JinaV4 vector index |
+| `data/embeddings/wattbot_titan_v2.db` | Titan V2 vector index (torch-free) |
+| `data/embeddings/wattbot_jinav4.db` | JinaV4 vector index (GPU servers) |
 
 ---
 
