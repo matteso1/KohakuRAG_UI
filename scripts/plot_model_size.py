@@ -292,7 +292,7 @@ FAMILY_COLORS = {
     "Qwen": "#3b82f6",
     "Phi": "#8b5cf6",
     "Gemma": "#14b8a6",
-    "Ensemble": "#d97706",
+    "Ensemble": "#888888",  # base gray; actual shade set by model count
 }
 
 # Aliases for short model names that don't contain the family keyword
@@ -516,7 +516,26 @@ def plot_bubble_chart(experiments: list[dict], output_dir: Path):
     print(f"Saved {output_dir / 'size_score_cost_bubble.png'}")
 
 
-ENSEMBLE_COLOR = "#d97706"  # amber – visually distinct from model family colors
+def _ensemble_model_count(name: str) -> int:
+    """Extract constituent model count from an ensemble name.
+
+    ensemble-top3-majority → 3, ensemble-all-majority → 99.
+    """
+    import re
+    low = name.lower()
+    m = re.search(r"top(\d+)", low)
+    if m:
+        return int(m.group(1))
+    if "all" in low:
+        return 99
+    return 1
+
+
+def _ensemble_gray(model_count: int) -> str:
+    """Return a gray hex: more models → darker."""
+    t = min(model_count / 12.0, 1.0)
+    level = int(176 - 112 * t)  # #b0b0b0 → #404040
+    return f"#{level:02x}{level:02x}{level:02x}"
 
 
 def plot_overall_ranking(experiments: list[dict], output_dir: Path,
@@ -537,13 +556,14 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path,
     scores = [e["overall_score"] for e in sorted_exp]
     ci_widths = [e.get("overall_ci", 0) for e in sorted_exp]
 
-    # Per-bar colour: ensemble bars get amber, models get family colour
+    # Per-bar colour: ensemble bars get gray shades, models get family colour
     colors = []
     labels = []
     hatch_indices = []
     for i, e in enumerate(sorted_exp):
         if e.get("is_ensemble"):
-            colors.append(ENSEMBLE_COLOR)
+            count = _ensemble_model_count(e.get("experiment", e["display_name"]))
+            colors.append(_ensemble_gray(count))
             labels.append(f"{e['display_name']}  [ensemble]")
             hatch_indices.append(i)
         else:
@@ -559,7 +579,7 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path,
     # Apply hatching to ensemble bars
     for idx in hatch_indices:
         bars[idx].set_hatch("//")
-        bars[idx].set_edgecolor("#92400e")
+        bars[idx].set_edgecolor("#444")
 
     for bar, score, ci in zip(bars, scores, ci_widths):
         ax.text(bar.get_width() + ci + 0.01, bar.get_y() + bar.get_height() / 2,
@@ -579,8 +599,8 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path,
     if hatch_indices:
         from matplotlib.patches import Patch
         ax.legend(
-            handles=[Patch(facecolor=ENSEMBLE_COLOR, edgecolor="#92400e",
-                           hatch="//", label="Ensemble")],
+            handles=[Patch(facecolor="#888888", edgecolor="#444",
+                           hatch="//", label="Ensemble (darker = more models)")],
             loc="lower right", fontsize=10,
         )
 
@@ -671,7 +691,10 @@ def plot_score_breakdown(experiments: list[dict], output_dir: Path):
 
 def plot_energy(experiments: list[dict], output_dir: Path):
     """Plot 8: Total GPU energy consumed per experiment (horizontal bar chart)."""
-    with_energy = [e for e in experiments if e.get("gpu_energy_wh", 0) > 0]
+    # Exclude API-only providers — their energy readings are just local idle noise
+    with_energy = [e for e in experiments
+                   if e.get("gpu_energy_wh", 0) > 0
+                   and e.get("llm_provider") not in ("bedrock", "openai", "anthropic")]
     if len(with_energy) < 2:
         print("Not enough experiments with energy data for energy plot")
         return

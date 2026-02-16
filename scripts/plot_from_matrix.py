@@ -44,7 +44,7 @@ FAMILY_COLORS = {
     "Qwen":     "#3b82f6",
     "Phi":      "#8b5cf6",
     "Gemma":    "#14b8a6",
-    "Ensemble": "#d97706",
+    "Ensemble": "#888888",  # base gray; actual shade set by model count
 }
 _FALLBACK_COLOR = "#6b7280"
 
@@ -77,6 +77,30 @@ def _get_family(name: str) -> str:
     return "Other"
 
 
+def _ensemble_model_count(name: str) -> int:
+    """Extract the number of constituent models from an ensemble name.
+
+    Examples: ensemble-top3-majority → 3, ensemble-top5 → 5,
+    ensemble-all-majority → 99 (treated as largest).
+    """
+    import re
+    low = name.lower()
+    m = re.search(r"top(\d+)", low)
+    if m:
+        return int(m.group(1))
+    if "all" in low:
+        return 99  # sentinel for "all models"
+    return 1
+
+
+def _ensemble_gray(model_count: int) -> str:
+    """Return a gray hex color: more models → darker."""
+    # Light gray (#b0b0b0) for few models, dark gray (#404040) for many
+    t = min(model_count / 12.0, 1.0)  # normalize; 12+ models → darkest
+    level = int(176 - 112 * t)  # 176 (0xb0) → 64 (0x40)
+    return f"#{level:02x}{level:02x}{level:02x}"
+
+
 def assign_family_colors(model_names: list[str]) -> list[str]:
     """Return one colour per model, shaded within each family."""
     # Group models by family (preserving order)
@@ -87,6 +111,13 @@ def assign_family_colors(model_names: list[str]) -> list[str]:
 
     colors = [""] * len(model_names)
     for fam, indices in family_members.items():
+        # Ensembles: gray shades based on constituent model count
+        if fam == "Ensemble":
+            for idx in indices:
+                count = _ensemble_model_count(model_names[idx])
+                colors[idx] = _ensemble_gray(count)
+            continue
+
         base_hex = FAMILY_COLORS.get(fam, _FALLBACK_COLOR)
         r, g, b = _hex_to_rgb(base_hex)
         h, l, s = rgb_to_hls(r, g, b)  # noqa: E741
