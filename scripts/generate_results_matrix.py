@@ -167,11 +167,16 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
                 # Try results.json for better ID coverage, merge CSV explanations
                 json_gt = build_gt_from_results_json(unique_files)
                 if json_gt is not None:
-                    if "explanation" in csv_gt_df.columns:
+                    # Merge metadata columns from CSV GT into JSON GT
+                    merge_cols = [c for c in ["explanation", "Quote", "Table",
+                                              "Figure", "Math", "is_NA"]
+                                  if c in csv_gt_df.columns]
+                    if merge_cols:
                         common = json_gt.index.intersection(csv_gt_df.index)
                         if len(common) > 0:
-                            json_gt.loc[common, "explanation"] = csv_gt_df.loc[common, "explanation"]
-                            print(f"{label}Merged explanations for {len(common)} questions from CSV ground truth.")
+                            for c in merge_cols:
+                                json_gt.loc[common, c] = csv_gt_df.loc[common, c]
+                            print(f"{label}Merged {merge_cols} for {len(common)} questions from CSV ground truth.")
                     gt_df = json_gt
                     print(f"{label}Using results.json ground truth ({len(json_gt)} questions).")
                 else:
