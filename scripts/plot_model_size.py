@@ -671,7 +671,10 @@ def plot_score_breakdown(experiments: list[dict], output_dir: Path):
 
 def plot_energy(experiments: list[dict], output_dir: Path):
     """Plot 8: Total GPU energy consumed per experiment (horizontal bar chart)."""
-    with_energy = [e for e in experiments if e.get("gpu_energy_wh", 0) > 0]
+    # Exclude API-only providers — their energy readings are just local idle noise
+    with_energy = [e for e in experiments
+                   if e.get("gpu_energy_wh", 0) > 0
+                   and e.get("llm_provider") not in ("bedrock", "openai", "anthropic")]
     if len(with_energy) < 2:
         print("Not enough experiments with energy data for energy plot")
         return
