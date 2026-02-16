@@ -265,7 +265,7 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
     # Output
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     print(f"{label}Writing matrix to {output}...")
-    master_df.to_csv(output)
+    master_df.to_csv(output, encoding="utf-8")
 
     # ── Save per-model wrong-question reports into each experiment dir ──
     val_cols = [c for c in master_df.columns if c.endswith("_ValCorrect")]
@@ -298,13 +298,18 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
             report = wrong[keep].copy()
             if val_col in report.columns:
                 report.rename(columns={val_col: "Model_Value"}, inplace=True)
-            report.to_csv(exp_dir / "wrong_questions.csv")
+            try:
+                report.to_csv(exp_dir / "wrong_questions.csv", encoding="utf-8")
+            except PermissionError:
+                print(f"{label}WARNING: cannot write {exp_dir / 'wrong_questions.csv'} "
+                      "(file locked or read-only) — skipping")
+                continue
             n_written += 1
 
         # Write compact summary alongside the matrix
         summary_df = pd.DataFrame(summary_rows).sort_values("accuracy", ascending=False)
         summary_path = Path(output).parent / f"{Path(output).stem}_errors.csv"
-        summary_df.to_csv(summary_path, index=False)
+        summary_df.to_csv(summary_path, index=False, encoding="utf-8")
         print(f"{label}Wrote wrong_questions.csv into {n_written} experiment dirs, "
               f"summary to {summary_path}")
 
