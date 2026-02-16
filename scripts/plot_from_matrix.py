@@ -30,6 +30,68 @@ except ImportError:
 
 import json
 import glob
+from colorsys import rgb_to_hls, hls_to_rgb
+
+# ---------------------------------------------------------------------------
+# Model-family colour palette (matches plot_model_size.py)
+# ---------------------------------------------------------------------------
+FAMILY_COLORS = {
+    "Claude":   "#6366f1",
+    "Llama":    "#f59e0b",
+    "Mistral":  "#10b981",
+    "DeepSeek": "#ef4444",
+    "Nova":     "#ec4899",
+    "Qwen":     "#3b82f6",
+    "Phi":      "#8b5cf6",
+    "Gemma":    "#14b8a6",
+}
+_FALLBACK_COLOR = "#6b7280"
+
+
+def _hex_to_rgb(h: str):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+
+def _rgb_to_hex(r, g, b):
+    return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+
+
+def _get_family(name: str) -> str:
+    for family in FAMILY_COLORS:
+        if family.lower() in name.lower():
+            return family
+    return "Other"
+
+
+def assign_family_colors(model_names: list[str]) -> list[str]:
+    """Return one colour per model, shaded within each family."""
+    # Group models by family (preserving order)
+    family_members: dict[str, list[int]] = {}
+    for idx, name in enumerate(model_names):
+        fam = _get_family(name)
+        family_members.setdefault(fam, []).append(idx)
+
+    colors = [""] * len(model_names)
+    for fam, indices in family_members.items():
+        base_hex = FAMILY_COLORS.get(fam, _FALLBACK_COLOR)
+        r, g, b = _hex_to_rgb(base_hex)
+        h, l, s = rgb_to_hls(r, g, b)  # noqa: E741
+        n = len(indices)
+        if n == 1:
+            shades = [base_hex]
+        else:
+            # Vary lightness: brightest → darkest within family
+            shades = []
+            for i in range(n):
+                t = i / (n - 1)  # 0..1
+                new_l = l + 0.18 * (1 - t) - 0.10 * t  # lighter→darker
+                new_l = max(0.25, min(0.80, new_l))
+                rr, gg, bb = hls_to_rgb(h, new_l, s)
+                shades.append(_rgb_to_hex(rr, gg, bb))
+        for rank, idx in enumerate(indices):
+            colors[idx] = shades[rank]
+    return colors
 
 
 def wilson_ci(successes, n, confidence=0.95):
@@ -253,8 +315,8 @@ def main():
     scores = [p[1] for p in sorted_pairs]
     
     ci_widths = [overall_scores[m]["overall_ci"] for m in model_names]
-    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(models)))
-    bars = ax.bar(model_names, scores, color=colors, width=0.6,
+    bar_colors = assign_family_colors(model_names)
+    bars = ax.bar(model_names, scores, color=bar_colors, width=0.6,
                   yerr=ci_widths, capsize=4, error_kw={'linewidth': 1.5, 'color': '#333'})
 
     ax.set_ylim(0, 1.15)
@@ -269,7 +331,15 @@ def main():
                     xytext=(0, 5),
                     textcoords="offset points",
                     ha='center', va='bottom', fontsize=9, fontweight='bold')
-                    
+
+    # Family legend
+    present_families = sorted({_get_family(m) for m in model_names})
+    legend_patches = [
+        mpatches.Patch(color=FAMILY_COLORS.get(f, _FALLBACK_COLOR), label=f)
+        for f in present_families
+    ]
+    ax.legend(handles=legend_patches, loc='upper right', fontsize=9, title="Model Family")
+
     plt.tight_layout()
     plt.savefig(output_dir / "overall_scores.png", dpi=300)
     print(f"Saved {output_dir / 'overall_scores.png'}")
@@ -334,6 +404,7 @@ def main():
 
         x = np.arange(len(all_types))
         width = 0.8 / len(models)
+        type_bar_colors = assign_family_colors(models)
 
         for i, model in enumerate(models):
             scores = [type_scores[model].get(t, 0) for t in all_types]
@@ -350,7 +421,7 @@ def main():
                     yerr_lower.append(0)
                     yerr_upper.append(0)
 
-            ax.bar(x + i*width, scores, width, label=model, color=colors[i],
+            ax.bar(x + i*width, scores, width, label=model, color=type_bar_colors[i],
                    yerr=[yerr_lower, yerr_upper], capsize=2, error_kw={'linewidth': 1})
 
         # Add N counts to labels with warning for small samples
@@ -399,24 +470,26 @@ def main():
                      agreement_matrix[i, j] = matches / len(df)
     
     fig, ax = plt.subplots(figsize=(10, 8))
-    im = ax.imshow(agreement_matrix, cmap="YlGnBu", vmin=0, vmax=1)
-    
-    # We want to show all ticks...
+    # Purple→white→yellow: low agreement = purple, high = yellow
+    im = ax.imshow(agreement_matrix, cmap="PuOr", vmin=0.5, vmax=1.0)
+
     ax.set_xticks(np.arange(n_models))
     ax.set_yticks(np.arange(n_models))
-    # ... and label them with the respective list entries
     ax.set_xticklabels(models, rotation=45, ha="right")
     ax.set_yticklabels(models)
-    
-    # Loop over data dimensions and create text annotations.
+
     for i in range(n_models):
         for j in range(n_models):
-            text = ax.text(j, i, f"{agreement_matrix[i, j]:.2f}",
-                           ha="center", va="center", color="black")
-                           
+            val = agreement_matrix[i, j]
+            # Dark text on light cells, white on dark cells
+            txt_color = "white" if val < 0.65 else "black"
+            ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                    color=txt_color, fontweight="bold" if i == j else "normal")
+
+    fig.colorbar(im, ax=ax, label="Agreement", shrink=0.8)
     ax.set_title("Model Agreement (Correctness Correlation)")
     fig.tight_layout()
-    plt.savefig(output_dir / "agreement_heatmap.png")
+    plt.savefig(output_dir / "agreement_heatmap.png", dpi=300)
     print(f"Saved {output_dir / 'agreement_heatmap.png'}")
 
     # -------------------------------------------------------------------------
