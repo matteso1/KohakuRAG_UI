@@ -296,6 +296,46 @@ FAMILY_COLORS = {
     "Ensemble": "#888888",  # base gray; actual shade set by model count
 }
 
+# More specific family colors for legend-only plots where text labels are removed.
+# Order matters: more specific keys must come before broader ones.
+DETAILED_FAMILY_COLORS = {
+    "Qwen 2.5":    "#3b82f6",  # blue
+    "Qwen 1.5":    "#1e3a5f",  # dark navy
+    "Qwen3-Next":  "#06b6d4",  # cyan
+    "Qwen3":       "#60a5fa",  # light blue
+    "Llama 4":     "#dc2626",  # red-orange
+    "Llama 3":     "#f59e0b",  # amber
+    "Mixtral":     "#059669",  # emerald
+    "Mistral":     "#10b981",  # green
+    "Claude":      "#6366f1",  # indigo
+    "DeepSeek":    "#ef4444",  # red
+    "Nova":        "#ec4899",  # pink
+    "Phi":         "#8b5cf6",  # purple
+    "Gemma":       "#14b8a6",  # teal
+    "OLMoE":       "#a3a3a3",  # gray
+    "Ensemble":    "#888888",
+}
+
+
+def get_detailed_family(display_name: str) -> str:
+    """Return the most specific family key for a display name."""
+    low = display_name.lower()
+    for family in DETAILED_FAMILY_COLORS:
+        if family.lower() in low:
+            return family
+    # Alias fallback
+    for alias, family in _FAMILY_ALIASES.items():
+        if alias in low:
+            return family
+    return "Other"
+
+
+def get_detailed_color(display_name: str) -> str:
+    """Return color using the detailed family map."""
+    family = get_detailed_family(display_name)
+    return DETAILED_FAMILY_COLORS.get(family, "#6b7280")
+
+
 # Aliases for short model names that don't contain the family keyword
 _FAMILY_ALIASES = {
     "sonnet": "Claude",
@@ -350,8 +390,29 @@ def style_axis(ax, title, xlabel, ylabel):
 # Plots
 # ============================================================================
 
+def _build_detailed_legend(ax, experiments: list[dict], loc: str = "lower right"):
+    """Add a legend with one entry per detailed model family present in data."""
+    from matplotlib.lines import Line2D
+    seen = set()
+    handles = []
+    for e in experiments:
+        family = get_detailed_family(e["display_name"])
+        if family not in seen:
+            seen.add(family)
+            color = DETAILED_FAMILY_COLORS.get(family, "#6b7280")
+            marker = get_marker(e.get("llm_provider", ""))
+            handles.append(
+                Line2D([0], [0], marker=marker, color="w",
+                       markerfacecolor=color, markeredgecolor="white",
+                       markersize=9, label=family)
+            )
+    if handles:
+        ax.legend(handles=handles, loc=loc, fontsize=9, title="Model Family",
+                  framealpha=0.9)
+
+
 def plot_size_vs_overall(experiments: list[dict], output_dir: Path):
-    """Plot 1b: Single-panel Model Size vs. Overall WattBot Score (less clutter)."""
+    """Plot 1b: Single-panel Model Size vs. Overall WattBot Score (legend-only, no text labels)."""
     sized = [e for e in experiments if e["size_b"] is not None]
     if not sized:
         print("  No experiments with known model size for size_vs_overall plot")
@@ -359,35 +420,14 @@ def plot_size_vs_overall(experiments: list[dict], output_dir: Path):
 
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    sizes = [e["size_b"] for e in sized]
-    scores = [e["overall_score"] for e in sized]
-    ci_half = [e.get("overall_ci", 0) for e in sized]
-    names = [e["display_name"] for e in sized]
-    est_flags = [e["size_estimated"] for e in sized]
-    colors = [get_color(e["display_name"]) for e in sized]
-    markers = [get_marker(e.get("llm_provider", "")) for e in sized]
-
-    for x, y, ci, c, m in zip(sizes, scores, ci_half, colors, markers):
-        ax.errorbar(x, y, yerr=ci, fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
-        ax.scatter(x, y, c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
-
-    # Build annotation texts and try adjustText for overlap avoidance
-    texts = []
-    for x, y, label, est in zip(sizes, scores, names, est_flags):
-        display = f"{label}*" if est else label
-        t = ax.annotate(
-            display, (x, y),
-            xytext=(8, 6), textcoords="offset points",
-            fontsize=9, ha="left", va="bottom",
-            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"),
-        )
-        texts.append(t)
-
-    try:
-        from adjustText import adjust_text
-        adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="gray", lw=0.5))
-    except ImportError:
-        pass  # labels stay at default offsets
+    for e in sized:
+        c = get_detailed_color(e["display_name"])
+        m = get_marker(e.get("llm_provider", ""))
+        ax.errorbar(e["size_b"], e["overall_score"],
+                    yerr=e.get("overall_ci", 0),
+                    fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
+        ax.scatter(e["size_b"], e["overall_score"],
+                   c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
 
     style_axis(ax, "Model Size vs. Overall WattBot Score",
                "Model Size (B parameters)", "Overall Score")
@@ -395,27 +435,11 @@ def plot_size_vs_overall(experiments: list[dict], output_dir: Path):
     ax.set_xscale("log")
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B" if x >= 1 else f"{x:.1f}B"))
 
-    # Legend for model families present in the data
-    from matplotlib.lines import Line2D
-    seen_families = set()
-    legend_handles = []
-    for e in sized:
-        for family, color in FAMILY_COLORS.items():
-            if family.lower() in e["display_name"].lower() or any(
-                alias in e["display_name"].lower() for alias, fam in _FAMILY_ALIASES.items() if fam == family
-            ):
-                if family not in seen_families:
-                    seen_families.add(family)
-                    legend_handles.append(
-                        Line2D([0], [0], marker="o", color="w", markerfacecolor=color, markersize=9, label=family)
-                    )
-                break
-    if legend_handles:
-        ax.legend(handles=legend_handles, loc="lower right", fontsize=9, title="Model Family")
+    _build_detailed_legend(ax, sized)
 
     ax.text(
         0.02, 0.98,
-        "(*) = estimated size | square = local HF | circle = API\n"
+        "square = local HF | circle = API\n"
         "Score = 0.75·ValAcc + 0.15·RefOverlap + 0.10·NA_Recall",
         transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
     )
@@ -814,6 +838,42 @@ def plot_energy(experiments: list[dict], output_dir: Path):
     print(f"Saved {output_dir / 'energy_per_experiment.png'}")
 
 
+def plot_size_vs_energy(experiments: list[dict], output_dir: Path):
+    """Plot 9: Model Size vs. Total GPU Energy scatter (legend-only, no text labels)."""
+    with_energy = [e for e in experiments
+                   if e.get("gpu_energy_wh", 0) > 0
+                   and e.get("size_b") is not None
+                   and e.get("llm_provider") not in ("bedrock", "openai", "anthropic")]
+    if len(with_energy) < 2:
+        print("Not enough experiments with energy + size data for size_vs_energy plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    for e in with_energy:
+        c = get_detailed_color(e["display_name"])
+        m = get_marker(e.get("llm_provider", ""))
+        ax.scatter(e["size_b"], e["gpu_energy_wh"],
+                   c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
+
+    style_axis(ax, "Model Size vs. Total GPU Energy per Experiment",
+               "Model Size (B parameters)", "GPU Energy (Wh)")
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B" if x >= 1 else f"{x:.1f}B"))
+
+    _build_detailed_legend(ax, with_energy)
+
+    ax.text(
+        0.02, 0.98,
+        "Energy measured via NVML / nvidia-smi\nAPI models excluded (no local GPU usage)",
+        transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
+    )
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "size_vs_energy.png", dpi=300, bbox_inches="tight")
+    print(f"Saved {output_dir / 'size_vs_energy.png'}")
+
+
 def print_summary_table(experiments: list[dict]):
     """Print formatted summary table."""
     print(f"\n{'='*110}")
@@ -857,7 +917,7 @@ def discover_systems(experiments_dir: Path) -> list[str]:
 def generate_plots(experiments_dir: Path, output_dir: Path,
                    name_filter: str | None, datafile: str | None,
                    system: str | None):
-    """Load experiments for one system and generate all 8 plots."""
+    """Load experiments for one system and generate all 10 plots."""
     label = f"[{system}] " if system else ""
     print(f"\n{'=' * 60}")
     print(f"{label}Loading experiment data...")
@@ -894,8 +954,9 @@ def generate_plots(experiments_dir: Path, output_dir: Path,
     plot_cost_vs_performance(experiments, output_dir)
     plot_score_breakdown(experiments, output_dir)
     plot_energy(experiments, output_dir)
+    plot_size_vs_energy(experiments, output_dir)
 
-    print(f"{label}All 9 plots saved to {output_dir}/")
+    print(f"{label}All 10 plots saved to {output_dir}/")
 
 
 # ============================================================================
