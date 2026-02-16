@@ -175,9 +175,15 @@ This should already be done in the runAI workspace configuration.
 **Launch** (from inside the venv, in the repo root):
 
 ```bash
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
+streamlit run app.py -- --mode local \
+  --server.port 8501 --server.address 0.0.0.0 \
   --server.enableCORS=false --server.enableXsrfProtection=false
 ```
+
+The `--mode local` flag tells the app to use local HuggingFace models and
+GPU detection. Use `--mode bedrock` instead if you want to use AWS Bedrock
+API models (no GPU required). If `--mode` is omitted the app defaults to
+bedrock.
 
 **Access** at:
 
