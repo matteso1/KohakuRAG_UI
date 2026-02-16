@@ -368,8 +368,9 @@ def plot_latency_breakdown(data: dict, shared_models: list[str],
     print(f"Saved {out_path}")
 
 
-def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path):
-    """Plot 4: Bar chart of ALL models across all systems (not just shared).
+def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path,
+                              filename: str = "cross_system_latency_all_models.png"):
+    """Bar chart of ALL models across the given systems.
 
     Useful when systems have mostly different model sets.
     """
@@ -427,7 +428,7 @@ def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path):
     ax.legend(handles=legend_elements, loc="lower right", fontsize=10)
 
     plt.tight_layout()
-    out_path = output_dir / "cross_system_latency_all_models.png"
+    out_path = output_dir / filename
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved {out_path}")
@@ -546,7 +547,13 @@ def main():
         comparable_data = {s: data[s] for s in systems}
         plot_all_models_by_system(comparable_data, systems, output_dir)
 
-    n_plots = (3 if shared_models else 0) + (1 if systems else 0)
+    # Full overview including all systems (e.g. Bedrock) for absolute latency reference
+    if len(all_systems) > len(systems):
+        plot_all_models_by_system(data, all_systems, output_dir,
+                                  filename="cross_system_latency_all_systems.png")
+
+    n_extra = 1 if len(all_systems) > len(systems) else 0
+    n_plots = (3 if shared_models else 0) + (1 if systems else 0) + n_extra
     print(f"\n{n_plots} plot(s) saved to {output_dir}/")
 
 
