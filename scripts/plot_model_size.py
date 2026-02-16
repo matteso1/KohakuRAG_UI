@@ -534,7 +534,7 @@ def _ensemble_model_count(name: str) -> int:
 def _ensemble_gray(model_count: int) -> str:
     """Return a gray hex: more models → darker."""
     t = min(model_count / 12.0, 1.0)
-    level = int(176 - 112 * t)  # #b0b0b0 → #404040
+    level = int(208 - 96 * t)  # #d0d0d0 → #707070
     return f"#{level:02x}{level:02x}{level:02x}"
 
 
@@ -600,7 +600,7 @@ def plot_overall_ranking(experiments: list[dict], output_dir: Path,
         from matplotlib.patches import Patch
         ax.legend(
             handles=[Patch(facecolor="#888888", edgecolor="#444",
-                           hatch="//", label="Ensemble (darker = more models)")],
+                           hatch="//", label="Ensemble")],
             loc="lower right", fontsize=10,
         )
 
