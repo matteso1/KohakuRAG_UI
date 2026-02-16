@@ -7,10 +7,17 @@ and how to deploy it on the PowerEdge via Run:ai.
 
 ## 1) Quick start
 
+The app supports two backends, selected via `--mode`:
+
 ```bash
-# From the repo root, with venv active
-streamlit run app.py
+# Bedrock mode (default — no GPU required, uses AWS API)
+streamlit run app.py -- --mode bedrock
+
+# Local mode (requires CUDA GPU + local_requirements.txt)
+streamlit run app.py -- --mode local
 ```
+
+If `--mode` is omitted the app defaults to **bedrock**.
 
 The app opens at `http://localhost:8501` (or the next free port).
 On a remote server, forward the port:
@@ -22,13 +29,21 @@ ssh -L 8501:localhost:8501 user@poweredge
 
 ### Prerequisites
 
-Everything in `local_requirements.txt` must be installed — the same deps
-used for benchmarking. The key additions for the app are `streamlit` and
-`python-dotenv` (both already listed).
+**For local mode:** everything in `local_requirements.txt` must be
+installed — the same deps used for benchmarking.
 
 ```bash
 uv pip install -r local_requirements.txt
 ```
+
+**For Bedrock mode:** install the torch-free dependencies instead:
+
+```bash
+uv pip install -r bedrock_requirements.txt
+```
+
+If both requirement files are installed and a GPU is detected, the sidebar
+shows a toggle to switch between local and Bedrock models at runtime.
 
 You also need the vector database built (same as for experiments):
 
@@ -108,26 +123,41 @@ References are scoped to runs that agree with the winning answer, then unioned.
 ## 3) Architecture and key files
 
 ```
-app.py                                   # Streamlit app entry point
+app.py                                   # Streamlit app entry point (--mode bedrock|local)
+scripts/llm_bedrock.py                   # BedrockChatModel & BedrockEmbeddingModel
 vendor/KohakuRAG/src/kohakurag/
 ├── pipeline.py                          # RAGPipeline — retrieval + structured QA
 ├── llm.py                               # HuggingFaceLocalChatModel (4-bit, bf16, etc.)
 ├── embeddings.py                        # JinaV4EmbeddingModel (1024-dim)
 ├── datastore.py                         # KVaultNodeStore (SQLite vector DB)
 └── types.py                             # ContextSnippet, RetrievalMatch, etc.
-vendor/KohakuRAG/configs/hf_*.py         # Model configs (model ID, retrieval params)
-data/embeddings/wattbot_jinav4.db        # Vector index (built locally, gitignored)
-local_requirements.txt                   # Python dependencies
+vendor/KohakuRAG/configs/hf_*.py         # Local HuggingFace model configs
+vendor/KohakuRAG/configs/bedrock_*.py    # AWS Bedrock model configs
+data/embeddings/wattbot_jinav4.db        # Jina V4 vector index (GPU, local mode)
+data/embeddings/wattbot_titan_v2.db      # Titan V2 vector index (torch-free, bedrock mode)
+local_requirements.txt                   # Local GPU dependencies
+bedrock_requirements.txt                 # Torch-free Bedrock dependencies
 ```
 
-### Data flow per question
+### Data flow per question (local mode)
 
 ```
 User question
-  → JinaV4EmbeddingModel.embed()         # embed the query
+  → JinaV4EmbeddingModel.embed()         # embed the query (local GPU)
   → KVaultNodeStore.search()              # vector search in jinav4.db
   → RAGPipeline.run_qa()                  # build prompt with retrieved context
   → HuggingFaceLocalChatModel.complete()  # local LLM inference
+  → StructuredAnswer                      # parsed JSON answer
+```
+
+### Data flow per question (Bedrock mode)
+
+```
+User question
+  → BedrockEmbeddingModel.embed()         # embed the query (Titan V2 API)
+  → KVaultNodeStore.search()              # vector search in titan_v2.db
+  → RAGPipeline.run_qa()                  # build prompt with retrieved context
+  → BedrockChatModel.complete()           # AWS Bedrock API inference
   → StructuredAnswer                      # parsed JSON answer
 ```
 
@@ -200,7 +230,7 @@ Some models (Llama 3.1, Gemma 2) are gated on HuggingFace and require:
 
 ```bash
 export HF_TOKEN="hf_your_token_here"
-streamlit run app.py
+streamlit run app.py -- --mode local
 ```
 
 If you see a 401 error when selecting a gated model, this is why.
@@ -248,9 +278,14 @@ After completing the environment setup (see `docs/Setup_PowerEdge.md`),
 start Streamlit **without** `--server.baseUrlPath`:
 
 ```bash
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0 \
+streamlit run app.py -- --mode local \
+  --server.port 8501 --server.address 0.0.0.0 \
   --server.enableCORS=false --server.enableXsrfProtection=false
 ```
+
+Use `--mode local` on the PowerEdge (GPU server). For Bedrock mode replace
+with `--mode bedrock`. The `--` separator ensures `--mode` is passed to
+`app.py` rather than consumed by Streamlit.
 
 Do **not** pass `--server.baseUrlPath`. The proxy handles path
 rewriting transparently — Streamlit should think it is serving from `/`.
