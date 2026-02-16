@@ -240,31 +240,56 @@ def style_axis(ax, title, xlabel, ylabel):
 # ============================================================================
 
 def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
-    """Horizontal stacked-bar chart: ALL models, ALL systems, sorted by latency.
+    """Horizontal stacked-bar chart: ALL models, ALL systems.
 
-    Each bar shows retrieval (hatched) + generation (solid) breakdown.
-    Fastest model at the top; slowest at the bottom.  Color = system.
+    Layout (top to bottom):
+      - Bedrock models sorted by latency (fastest first)
+      - Local models grouped by model name (smallest first), with
+        systems side-by-side (e.g. PowerEdge then GB10 for each model)
     """
     from matplotlib.patches import Patch
 
-    entries = []
+    bedrock_entries = []
+    local_entries = []  # keyed by model name for grouping
+
     for system in all_systems:
         for model, info in data.get(system, {}).items():
-            entries.append({
+            entry = {
                 "system": system,
                 "model": model,
                 "avg_latency": info["avg_latency"],
                 "avg_retrieval": info["avg_retrieval"],
                 "avg_generation": info["avg_generation"],
                 "gpu_name": info.get("gpu_name", ""),
-            })
+            }
+            if system == "Bedrock":
+                bedrock_entries.append(entry)
+            else:
+                local_entries.append(entry)
 
-    if not entries:
+    if not bedrock_entries and not local_entries:
         print("  No data for latency overview")
         return
 
-    # Sort by latency: fastest at top (reversed for barh so top = index 0)
-    entries.sort(key=lambda e: e["avg_latency"])
+    # Bedrock: sort by latency (fastest first)
+    bedrock_entries.sort(key=lambda e: e["avg_latency"])
+
+    # Local: group by model name, sort groups by model size (active params),
+    # within each group sort systems alphabetically so pairs stay together
+    local_by_model: dict[str, list] = {}
+    for e in local_entries:
+        local_by_model.setdefault(e["model"], []).append(e)
+
+    # Sort model groups by active param count (smallest first)
+    sorted_model_names = sorted(local_by_model.keys(), key=_active_params)
+
+    ordered_local = []
+    for model_name in sorted_model_names:
+        group = sorted(local_by_model[model_name], key=lambda e: e["system"])
+        ordered_local.extend(group)
+
+    # Final order: Bedrock first, then local
+    entries = bedrock_entries + ordered_local
 
     n = len(entries)
     fig, ax = plt.subplots(figsize=(13, max(6, n * 0.45)))
@@ -299,9 +324,14 @@ def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
                 f"{total:.1f}s",
                 va="center", fontsize=9, fontweight="bold")
 
+    # Draw a separator line between Bedrock and local sections
+    if bedrock_entries and ordered_local:
+        sep_y = len(bedrock_entries) - 0.5
+        ax.axhline(y=sep_y, color="#aaa", linewidth=0.8, linestyle="--")
+
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=10)
-    ax.invert_yaxis()  # fastest at top
+    ax.invert_yaxis()  # top of chart = first entry
     ax.set_xlabel("Average Latency per Question (seconds)", fontsize=11)
     style_axis(ax, "Per-Question Latency by Model and System", "", "")
     ax.set_ylabel("")
@@ -315,7 +345,7 @@ def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
                                  label="Retrieval"))
     legend_elements.append(Patch(facecolor="#999", alpha=0.9,
                                  label="Generation"))
-    ax.legend(handles=legend_elements, loc="lower right", fontsize=9)
+    ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
 
     # Add a bit of right margin for the annotations
     ax.set_xlim(right=max_lat * 1.12)
