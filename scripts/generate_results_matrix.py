@@ -189,7 +189,8 @@ def _generate_matrix(submission_patterns: list[str], ground_truth: str | None,
 
     # Initialize Master DataFrame with GT
     cols_to_keep = ["question", "answer_value", "ref_id"]
-    for c in ["explanation", "answer_unit", "question_type"]:
+    for c in ["explanation", "answer_unit", "question_type",
+              "Quote", "Table", "Figure", "Math", "is_NA"]:
         if c in gt_df.columns:
             cols_to_keep.append(c)
 
