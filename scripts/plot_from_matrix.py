@@ -356,35 +356,42 @@ def main():
     # -------------------------------------------------------------------------
     # 2. Question Type Breakdown
     # -------------------------------------------------------------------------
-    # Derive types if explanation exists (logic from plot_results.py)
-    if "GT_Explanation" in df.columns:
-        print("Generating question type breakdown...")
-        
-        def get_types(row):
-            expl = str(row.get("GT_Explanation", "")).lower()
-            types = []
-            if "table" in expl: types.append("Table")
-            if "figure" in expl or "fig" in expl: types.append("Figure")
-            if "quote" in expl: types.append("Quote")
-            if "math" in expl or "calculation" in expl: types.append("Math")
-            
-            # Check GT Value for NA
-            gt_val = str(row.get("GT_Value", "")).lower()
-            if "unable" in gt_val or "is_blank" in gt_val:
-                types.append("is_NA")
-                
-            return types
+    all_types = ["Table", "Figure", "Quote", "Math", "is_NA"]
+    # Check for direct binary type columns first, then fall back to GT_Explanation
+    has_binary_type_cols = any(t in df.columns for t in all_types)
 
-        df["Derived_Types"] = df.apply(get_types, axis=1)
-        
-        all_types = ["Table", "Figure", "Quote", "Math", "is_NA"]
+    if has_binary_type_cols or "GT_Explanation" in df.columns:
+        print("Generating question type breakdown...")
+
+        if has_binary_type_cols:
+            # Use binary columns directly (0/1 flags in the CSV)
+            for t in all_types:
+                if t not in df.columns:
+                    df[t] = 0
+        else:
+            # Derive from GT_Explanation text
+            def get_types(row):
+                expl = str(row.get("GT_Explanation", "")).lower()
+                types = []
+                if "table" in expl: types.append("Table")
+                if "figure" in expl or "fig" in expl: types.append("Figure")
+                if "quote" in expl: types.append("Quote")
+                if "math" in expl or "calculation" in expl: types.append("Math")
+                gt_val = str(row.get("GT_Value", "")).lower()
+                if "unable" in gt_val or "is_blank" in gt_val:
+                    types.append("is_NA")
+                return types
+
+            derived = df.apply(get_types, axis=1)
+            for t in all_types:
+                df[t] = derived.apply(lambda lst: int(t in lst))
+
         type_scores = {m: {} for m in individual_models}
-        type_ci = {m: {} for m in individual_models}  # Store confidence intervals
-        type_counts = {}  # Store N per type
+        type_ci = {m: {} for m in individual_models}
+        type_counts = {}
 
         for qtype in all_types:
-            # Filter rows having this type
-            mask = df["Derived_Types"].apply(lambda t: qtype in t)
+            mask = df[qtype].astype(bool)
             subset = df[mask]
             n_type = len(subset)
             type_counts[qtype] = n_type
@@ -393,8 +400,6 @@ def main():
                 continue
 
             for model in individual_models:
-                # For NA questions, use NACorrect (ValCorrect is always True
-                # when GT is blank, so it's meaningless for NA detection)
                 if qtype == "is_NA":
                     score_col = f"{model}_NACorrect"
                 else:
@@ -403,8 +408,6 @@ def main():
                     successes = subset[score_col].sum()
                     acc = successes / n_type if n_type > 0 else 0
                     type_scores[model][qtype] = acc
-
-                    # Calculate confidence interval
                     ci_low, ci_high = wilson_ci(successes, n_type, confidence=0.95)
                     type_ci[model][qtype] = (ci_low, ci_high)
         
