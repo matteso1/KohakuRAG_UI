@@ -33,6 +33,39 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from results_io import load_results  # noqa: E402
 
+# Active parameter counts (B) for sorting by inference cost.
+# For dense models this equals total params; for MoE it's the active subset.
+ACTIVE_PARAMS: dict[str, float] = {
+    # Bedrock / API
+    "claude-3-haiku":       8,
+    "claude-3-5-haiku":     8,
+    "claude-3-5-sonnet":    70,
+    "claude-3-7-sonnet":    70,
+    "nova-pro":             40,
+    "llama3-3-70b":         70,
+    "llama3-1-70b":         70,
+    "llama4-scout":         17,
+    "llama4-maverick":      17,
+    "deepseek":             70,
+    # Local HF
+    "qwen2.5-7b":          7,
+    "qwen2.5-14b":         14,
+    "qwen2.5-32b":         32,
+    "qwen2.5-72b":         72,
+    "qwen1.5-110b":        110,
+    "qwen3-30b-a3b":       3.3,
+    "qwen3-next-80b-a3b":  3,
+}
+
+
+def _active_params(model_name: str) -> float:
+    """Return active param count for *model_name*, or inf if unknown."""
+    low = model_name.lower()
+    for key, params in ACTIVE_PARAMS.items():
+        if key in low:
+            return params
+    return float("inf")
+
 
 # ============================================================================
 # Data Loading
@@ -156,7 +189,7 @@ def find_shared_models(data: dict[str, dict[str, dict]]) -> list[str]:
             model_systems.setdefault(model, set()).add(system)
 
     shared = [m for m, systems in model_systems.items() if len(systems) >= 2]
-    return sorted(shared)
+    return sorted(shared, key=_active_params)
 
 
 def find_comparable_systems(data: dict[str, dict[str, dict]]) -> list[str]:
@@ -390,8 +423,8 @@ def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path,
         print("  No data for all-models plot")
         return
 
-    # Sort by system then latency
-    entries.sort(key=lambda e: (e["system"], e["avg_latency"]))
+    # Sort by active parameter count (smallest at top), then system name
+    entries.sort(key=lambda e: (_active_params(e["model"]), e["system"]))
 
     fig, ax = plt.subplots(figsize=(12, max(7, len(entries) * 0.5)))
 
@@ -399,7 +432,9 @@ def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path,
     latencies = []
     colors = []
     for e in entries:
-        label = f"{e['model']}  [{e['system']}]"
+        ap = _active_params(e["model"])
+        size_tag = f"  {ap:.0f}B" if ap != float("inf") else ""
+        label = f"{e['model']}{size_tag}  [{e['system']}]"
         labels.append(label)
         latencies.append(e["avg_latency"])
         colors.append(get_system_color(e["system"]))
