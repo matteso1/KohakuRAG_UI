@@ -978,6 +978,14 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
         print(f"[env] PyTorch {torch.__version__} | CUDA available: False | *** WARNING: running on CPU ***")
 
     config = load_config(config_path)
+
+    # Fail fast: refuse to run local HF models on CPU — it's too slow to be useful
+    if config.get("llm_provider") == "hf_local" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA is not available — refusing to load HF model on CPU "
+            "(would take hours per model). Fix your PyTorch/CUDA install. "
+            "On GB10: uv pip install -r local_requirements_gb10.txt"
+        )
     config["_config_path"] = config_path
 
     # Auto-detect environment from provider when not explicitly set
@@ -993,6 +1001,7 @@ async def main(config_path: str, experiment_name: str | None = None, run_environ
     # CLI --precision overrides any hf_dtype in config (only relevant for hf_local)
     if config.get("llm_provider") == "hf_local":
         config["hf_dtype"] = precision
+
 
     # Generate experiment name if not provided
     if experiment_name is None:

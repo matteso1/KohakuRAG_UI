@@ -2,7 +2,7 @@
 """Split existing monolithic results.json files into chunks.
 
 Scans for results.json files under the experiments directory and converts
-each into a set of ``results_chunk_NNN.json`` files (default 50 questions
+each into a set of ``results_chunk_NNN.json`` files (default 25 questions
 per chunk).  The original ``results.json`` is removed after a successful
 split so git no longer tracks the oversized file.
 
