@@ -292,13 +292,25 @@ FAMILY_COLORS = {
     "Qwen": "#3b82f6",
     "Phi": "#8b5cf6",
     "Gemma": "#14b8a6",
+    "Ensemble": "#d97706",
+}
+
+# Aliases for short model names that don't contain the family keyword
+_FAMILY_ALIASES = {
+    "sonnet": "Claude",
+    "haiku":  "Claude",
+    "opus":   "Claude",
 }
 
 
 def get_color(name: str) -> str:
+    low = name.lower()
     for family, color in FAMILY_COLORS.items():
-        if family.lower() in name.lower():
+        if family.lower() in low:
             return color
+    for alias, family in _FAMILY_ALIASES.items():
+        if alias in low:
+            return FAMILY_COLORS[family]
     return "#6b7280"
 
 

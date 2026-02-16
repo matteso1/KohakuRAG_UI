@@ -44,8 +44,16 @@ FAMILY_COLORS = {
     "Qwen":     "#3b82f6",
     "Phi":      "#8b5cf6",
     "Gemma":    "#14b8a6",
+    "Ensemble": "#d97706",
 }
 _FALLBACK_COLOR = "#6b7280"
+
+# Aliases for short model names that don't contain the family keyword
+_FAMILY_ALIASES = {
+    "sonnet": "Claude",
+    "haiku":  "Claude",
+    "opus":   "Claude",
+}
 
 
 def _hex_to_rgb(h: str):
@@ -58,8 +66,13 @@ def _rgb_to_hex(r, g, b):
 
 
 def _get_family(name: str) -> str:
+    low = name.lower()
     for family in FAMILY_COLORS:
-        if family.lower() in name.lower():
+        if family.lower() in low:
+            return family
+    # Check aliases (e.g. "sonnet" → Claude, "haiku" → Claude)
+    for alias, family in _FAMILY_ALIASES.items():
+        if alias in low:
             return family
     return "Other"
 
