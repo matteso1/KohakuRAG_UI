@@ -147,7 +147,7 @@ def run_experiment(config_name: str, experiment_name: str, env: str = "",
     # Matches "[1/282] Q123: processing..." or "[1/282] Q123: TIMEOUT ..."
     _status_re = re.compile(r"^\[(\d+)/(\d+)\].*(?:processing\.\.\.|TIMEOUT|ERROR)")
     # Stage prefixes to forward so the user sees loading/run progress
-    _stage_prefixes = ("[init]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
+    _stage_prefixes = ("[init]", "[env]", "[run]", "[resume]", "[monitor]", "[checkpoint]", "Loaded ")
 
     try:
         env = os.environ.copy()
