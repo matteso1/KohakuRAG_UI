@@ -159,6 +159,25 @@ def find_shared_models(data: dict[str, dict[str, dict]]) -> list[str]:
     return sorted(shared)
 
 
+def find_comparable_systems(data: dict[str, dict[str, dict]]) -> list[str]:
+    """Return systems that share at least one model with another system.
+
+    Systems with entirely disjoint model sets (e.g. Bedrock vs local GPU)
+    are excluded since cross-system latency comparison is meaningless.
+    """
+    model_systems: dict[str, set[str]] = {}
+    for system, models in data.items():
+        for model in models:
+            model_systems.setdefault(model, set()).add(system)
+
+    connected: set[str] = set()
+    for systems in model_systems.values():
+        if len(systems) >= 2:
+            connected.update(systems)
+
+    return sorted(connected)
+
+
 # ============================================================================
 # Plot Helpers
 # ============================================================================
@@ -349,8 +368,9 @@ def plot_latency_breakdown(data: dict, shared_models: list[str],
     print(f"Saved {out_path}")
 
 
-def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path):
-    """Plot 4: Bar chart of ALL models across all systems (not just shared).
+def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path,
+                              filename: str = "cross_system_latency_all_models.png"):
+    """Bar chart of ALL models across the given systems.
 
     Useful when systems have mostly different model sets.
     """
@@ -408,7 +428,7 @@ def plot_all_models_by_system(data: dict, systems: list[str], output_dir: Path):
     ax.legend(handles=legend_elements, loc="lower right", fontsize=10)
 
     plt.tight_layout()
-    out_path = output_dir / "cross_system_latency_all_models.png"
+    out_path = output_dir / filename
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved {out_path}")
@@ -496,15 +516,21 @@ def main():
         print("No latency data found!")
         sys.exit(1)
 
-    systems = sorted(data.keys())
-    print(f"Found {len(systems)} system(s): {systems}")
-    for system in systems:
+    all_systems = sorted(data.keys())
+    print(f"Found {len(all_systems)} system(s): {all_systems}")
+    for system in all_systems:
         models = list(data[system].keys())
         print(f"  {system}: {len(models)} model(s) — {models}")
 
     shared_models = find_shared_models(data)
+    # Only include systems that share at least one model with another system
+    systems = find_comparable_systems(data)
+    skipped = sorted(set(all_systems) - set(systems))
+    if skipped:
+        print(f"\nSkipping system(s) with no overlapping models: {skipped}")
     if shared_models:
-        print(f"\nModels on multiple systems: {shared_models}")
+        print(f"Models on multiple systems: {shared_models}")
+        print(f"Comparable systems: {systems}")
     else:
         print("\nNo models shared across systems (yet)")
 
@@ -516,10 +542,18 @@ def main():
         plot_latency_distributions(data, shared_models, systems, output_dir)
         plot_latency_breakdown(data, shared_models, systems, output_dir)
 
-    # Always generate the all-models overview
-    plot_all_models_by_system(data, systems, output_dir)
+    # All-models overview — only comparable systems
+    if systems:
+        comparable_data = {s: data[s] for s in systems}
+        plot_all_models_by_system(comparable_data, systems, output_dir)
 
-    n_plots = (3 if shared_models else 0) + 1
+    # Full overview including all systems (e.g. Bedrock) for absolute latency reference
+    if len(all_systems) > len(systems):
+        plot_all_models_by_system(data, all_systems, output_dir,
+                                  filename="cross_system_latency_all_systems.png")
+
+    n_extra = 1 if len(all_systems) > len(systems) else 0
+    n_plots = (3 if shared_models else 0) + (1 if systems else 0) + n_extra
     print(f"\n{n_plots} plot(s) saved to {output_dir}/")
 
 
