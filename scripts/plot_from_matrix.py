@@ -95,9 +95,9 @@ def _ensemble_model_count(name: str) -> int:
 
 def _ensemble_gray(model_count: int) -> str:
     """Return a gray hex color: more models → darker."""
-    # Light gray (#b0b0b0) for few models, dark gray (#404040) for many
+    # Near-white (#d0d0d0) for few models, medium gray (#707070) for many
     t = min(model_count / 12.0, 1.0)  # normalize; 12+ models → darkest
-    level = int(176 - 112 * t)  # 176 (0xb0) → 64 (0x40)
+    level = int(208 - 96 * t)  # 208 (0xd0) → 112 (0x70)
     return f"#{level:02x}{level:02x}{level:02x}"
 
 
@@ -351,47 +351,8 @@ def main():
         else:
             print(f"Warning: Score columns missing for {model}")
 
-    # Plot Overall
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    model_names = list(overall_scores.keys())
-    scores = [overall_scores[m]["Overall"] for m in model_names]
-    
-    # Sort by score descending
-    sorted_pairs = sorted(zip(model_names, scores), key=lambda x: x[1], reverse=True)
-    model_names = [p[0] for p in sorted_pairs]
-    scores = [p[1] for p in sorted_pairs]
-    
-    ci_widths = [overall_scores[m]["overall_ci"] for m in model_names]
-    bar_colors = assign_family_colors(model_names)
-    bars = ax.bar(model_names, scores, color=bar_colors, width=0.6,
-                  yerr=ci_widths, capsize=4, error_kw={'linewidth': 1.5, 'color': '#333'})
+    # (overall_scores plot removed – redundant with ranking plot in plot_model_size)
 
-    ax.set_ylim(0, 1.15)
-    n_questions = len(df)
-    setup_plot(ax, f"Model Performance (WattBot Score, n={n_questions}, 95% CI)", "WattBot Score (0.75*Val + 0.15*Ref + 0.10*NA)")
-    
-    # Add value labels
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(f'{height:.3f}',
-                    xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 5),
-                    textcoords="offset points",
-                    ha='center', va='bottom', fontsize=9, fontweight='bold')
-
-    # Family legend
-    present_families = sorted({_get_family(m) for m in model_names})
-    legend_patches = [
-        mpatches.Patch(color=FAMILY_COLORS.get(f, _FALLBACK_COLOR), label=f)
-        for f in present_families
-    ]
-    ax.legend(handles=legend_patches, loc='upper right', fontsize=9, title="Model Family")
-
-    plt.tight_layout()
-    plt.savefig(output_dir / "overall_scores.png", dpi=300)
-    print(f"Saved {output_dir / 'overall_scores.png'}")
-    
     # -------------------------------------------------------------------------
     # 2. Question Type Breakdown
     # -------------------------------------------------------------------------
