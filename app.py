@@ -23,6 +23,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -752,8 +754,6 @@ def _check_aws_credentials(
         )
         sts = session.client("sts")
         identity = sts.get_caller_identity()
-        arn = identity.get("Arn", "")
-        # Show a short, friendly confirmation
         account = identity.get("Account", "")
         return True, f"AWS OK (account {account})"
     except Exception as exc:
@@ -772,8 +772,36 @@ def _check_aws_credentials(
             )
         if "InvalidClientTokenId" in msg or "SignatureDoesNotMatch" in msg:
             return False, "AWS credentials are invalid. Re-configure your SSO profile."
-        # Generic fallback
         return False, f"AWS credential check failed: {msg}"
+
+
+def _run_sso_login(profile_name: str | None) -> tuple[bool, str]:
+    """Run ``aws sso login`` and return (success, output).
+
+    Opens a browser for authentication.  Blocks until the user completes
+    the flow or the 5-minute timeout expires.
+    """
+    if not shutil.which("aws"):
+        return False, (
+            "The `aws` CLI is not installed or not on PATH.\n"
+            "Install it from https://docs.aws.amazon.com/cli/latest/userguide/"
+            "getting-started-install.html"
+        )
+    cmd = ["aws", "sso", "login"]
+    if profile_name:
+        cmd += ["--profile", profile_name]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300,
+        )
+        output = (proc.stdout + "\n" + proc.stderr).strip()
+        if proc.returncode == 0:
+            return True, output
+        return False, output or "Login process exited with an error."
+    except subprocess.TimeoutExpired:
+        return False, "Login timed out after 5 minutes. Please try again."
+    except Exception as exc:
+        return False, str(exc)
 
 
 def main():
@@ -842,9 +870,18 @@ def main():
             cred_ok, cred_msg = _check_aws_credentials(aws_profile, aws_region)
             if not cred_ok:
                 st.error(cred_msg)
-                profile_flag = f" --profile {aws_profile}" if aws_profile else ""
-                st.code(f"aws sso login{profile_flag}", language="bash")
-                st.info("Run the command above in your terminal, then **refresh this page**.")
+                if st.button("Login to AWS SSO"):
+                    with st.spinner(
+                        "Waiting for browser authentication... "
+                        "Complete the login in your browser."
+                    ):
+                        ok, output = _run_sso_login(aws_profile)
+                    if ok:
+                        st.success("Logged in successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(output)
                 return
             else:
                 st.caption(cred_msg)
@@ -863,7 +900,7 @@ def main():
 
         if mode == "Single model":
             if is_bedrock:
-                default_key = "bedrock_haiku"
+                default_key = "bedrock_deepseek_v3"
             else:
                 default_key = "hf_qwen7b"
             default_idx = config_list.index(default_key) if default_key in config_list else 0
@@ -872,7 +909,7 @@ def main():
             ensemble_strategy = None
         else:
             if is_bedrock:
-                default_models = ["bedrock_haiku", "bedrock_sonnet"]
+                default_models = ["bedrock_deepseek_v3", "bedrock_sonnet"]
             else:
                 default_models = ["hf_qwen7b", "hf_llama3_8b"]
             selected_configs = st.multiselect(
