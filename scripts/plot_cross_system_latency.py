@@ -242,54 +242,47 @@ def style_axis(ax, title, xlabel, ylabel):
 def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
     """Horizontal stacked-bar chart: ALL models, ALL systems.
 
-    Layout (top to bottom):
-      - Bedrock models sorted by latency (fastest first)
-      - Local models grouped by model name (smallest first), with
-        systems side-by-side (e.g. PowerEdge then GB10 for each model)
+    Three sections (top → bottom), each sorted by latency fastest-first:
+      1. Bedrock   2. PowerEdge   3. GB10
+    Sections separated by dashed lines with labels.
     """
     from matplotlib.patches import Patch
 
-    bedrock_entries = []
-    local_entries = []  # keyed by model name for grouping
+    # Desired section order
+    SECTION_ORDER = ["Bedrock", "PowerEdge", "GB10"]
 
+    # Bucket entries by system
+    by_system: dict[str, list] = {}
     for system in all_systems:
         for model, info in data.get(system, {}).items():
-            entry = {
+            by_system.setdefault(system, []).append({
                 "system": system,
                 "model": model,
                 "avg_latency": info["avg_latency"],
                 "avg_retrieval": info["avg_retrieval"],
                 "avg_generation": info["avg_generation"],
-                "gpu_name": info.get("gpu_name", ""),
-            }
-            if system == "Bedrock":
-                bedrock_entries.append(entry)
-            else:
-                local_entries.append(entry)
+            })
 
-    if not bedrock_entries and not local_entries:
+    # Build ordered entries: each section sorted by latency
+    entries = []
+    section_boundaries = []  # (start_idx, system_name)
+    for sys_name in SECTION_ORDER:
+        section = by_system.pop(sys_name, [])
+        if not section:
+            continue
+        section.sort(key=lambda e: e["avg_latency"])
+        section_boundaries.append((len(entries), sys_name))
+        entries.extend(section)
+    # Any remaining systems not in SECTION_ORDER
+    for sys_name in sorted(by_system.keys()):
+        section = by_system[sys_name]
+        section.sort(key=lambda e: e["avg_latency"])
+        section_boundaries.append((len(entries), sys_name))
+        entries.extend(section)
+
+    if not entries:
         print("  No data for latency overview")
         return
-
-    # Bedrock: sort by latency (fastest first)
-    bedrock_entries.sort(key=lambda e: e["avg_latency"])
-
-    # Local: group by model name, sort groups by model size (active params),
-    # within each group sort systems alphabetically so pairs stay together
-    local_by_model: dict[str, list] = {}
-    for e in local_entries:
-        local_by_model.setdefault(e["model"], []).append(e)
-
-    # Sort model groups by active param count (smallest first)
-    sorted_model_names = sorted(local_by_model.keys(), key=_active_params)
-
-    ordered_local = []
-    for model_name in sorted_model_names:
-        group = sorted(local_by_model[model_name], key=lambda e: e["system"])
-        ordered_local.extend(group)
-
-    # Final order: Bedrock first, then local
-    entries = bedrock_entries + ordered_local
 
     n = len(entries)
     fig, ax = plt.subplots(figsize=(13, max(6, n * 0.45)))
@@ -299,56 +292,56 @@ def plot_latency_overview(data: dict, all_systems: list[str], output_dir: Path):
     generations = []
     colors = []
     for e in entries:
-        label = f"{e['model']}  [{e['system']}]"
-        labels.append(label)
+        labels.append(e["model"])
         retrievals.append(e["avg_retrieval"])
         generations.append(e["avg_generation"])
         colors.append(get_system_color(e["system"]))
 
     y_pos = np.arange(n)
 
-    # Retrieval (hatched) then generation (solid) stacked horizontally
-    bars_ret = ax.barh(y_pos, retrievals, color=colors, alpha=0.5,
-                       edgecolor="white", linewidth=0.8, height=0.65,
-                       hatch="//", label="Retrieval")
-    bars_gen = ax.barh(y_pos, generations, left=retrievals, color=colors,
-                       alpha=0.9, edgecolor="white", linewidth=0.8,
-                       height=0.65, label="Generation")
+    ax.barh(y_pos, retrievals, color=colors, alpha=0.5,
+            edgecolor="white", linewidth=0.8, height=0.65, hatch="//")
+    ax.barh(y_pos, generations, left=retrievals, color=colors,
+            alpha=0.9, edgecolor="white", linewidth=0.8, height=0.65)
 
-    # Annotate total latency to the right of each bar
-    max_lat = max(e["avg_latency"] for e in entries) if entries else 1
+    # Annotate total latency
+    max_lat = max(e["avg_latency"] for e in entries)
     for i, e in enumerate(entries):
-        total = e["avg_latency"]
-        ax.text(total + max_lat * 0.012,
-                y_pos[i],
-                f"{total:.1f}s",
+        ax.text(e["avg_latency"] + max_lat * 0.012, y_pos[i],
+                f"{e['avg_latency']:.1f}s",
                 va="center", fontsize=9, fontweight="bold")
 
-    # Draw a separator line between Bedrock and local sections
-    if bedrock_entries and ordered_local:
-        sep_y = len(bedrock_entries) - 0.5
-        ax.axhline(y=sep_y, color="#aaa", linewidth=0.8, linestyle="--")
+    # Section separators and labels
+    for idx, (start, sys_name) in enumerate(section_boundaries):
+        if idx > 0:
+            sep_y = start - 0.5
+            ax.axhline(y=sep_y, color="#aaa", linewidth=0.8, linestyle="--")
+        # Section label on the right edge
+        if idx < len(section_boundaries) - 1:
+            end = section_boundaries[idx + 1][0]
+        else:
+            end = n
+        mid_y = (start + end - 1) / 2
+        ax.text(max_lat * 1.08, mid_y, sys_name, va="center", ha="center",
+                fontsize=10, fontweight="bold", color=get_system_color(sys_name),
+                rotation=-90)
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=10)
-    ax.invert_yaxis()  # top of chart = first entry
+    ax.invert_yaxis()
     ax.set_xlabel("Average Latency per Question (seconds)", fontsize=11)
     style_axis(ax, "Per-Question Latency by Model and System", "", "")
     ax.set_ylabel("")
 
-    # Build legend: system colors + retrieval/generation pattern
-    seen_systems = dict.fromkeys(e["system"] for e in entries)
-    legend_elements = [
-        Patch(facecolor=get_system_color(s), label=s) for s in seen_systems
-    ]
+    # Legend: system colors + retrieval/generation
+    seen = dict.fromkeys(e["system"] for e in entries)
+    legend_elements = [Patch(facecolor=get_system_color(s), label=s) for s in seen]
     legend_elements.append(Patch(facecolor="#999", alpha=0.5, hatch="//",
                                  label="Retrieval"))
-    legend_elements.append(Patch(facecolor="#999", alpha=0.9,
-                                 label="Generation"))
+    legend_elements.append(Patch(facecolor="#999", alpha=0.9, label="Generation"))
     ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
 
-    # Add a bit of right margin for the annotations
-    ax.set_xlim(right=max_lat * 1.12)
+    ax.set_xlim(right=max_lat * 1.15)
 
     plt.tight_layout()
     out_path = output_dir / "cross_system_latency.png"
