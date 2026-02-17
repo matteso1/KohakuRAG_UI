@@ -3,7 +3,8 @@
 Model Size vs. Performance/Latency/Cost Plots (Provider-Agnostic)
 
 Generates publication-quality plots:
-  1. Model Size vs. WattBot Component Scores
+  1. Model Size vs. Overall WattBot Score (single-panel, clean)
+  1b. Model Size vs. WattBot Component Scores (2x2 grid)
   2. Model Size vs. Latency
   3. Model Size vs. Total Cost
   4. Model Size vs. Overall Score (bubble chart with cost as size)
@@ -295,6 +296,46 @@ FAMILY_COLORS = {
     "Ensemble": "#888888",  # base gray; actual shade set by model count
 }
 
+# More specific family colors for legend-only plots where text labels are removed.
+# Order matters: more specific keys must come before broader ones.
+DETAILED_FAMILY_COLORS = {
+    "Qwen 2.5":    "#3b82f6",  # blue
+    "Qwen 1.5":    "#1e3a5f",  # dark navy
+    "Qwen3-Next":  "#06b6d4",  # cyan
+    "Qwen3":       "#60a5fa",  # light blue
+    "Llama 4":     "#dc2626",  # red-orange
+    "Llama 3":     "#f59e0b",  # amber
+    "Mixtral":     "#059669",  # emerald
+    "Mistral":     "#10b981",  # green
+    "Claude":      "#6366f1",  # indigo
+    "DeepSeek":    "#ef4444",  # red
+    "Nova":        "#ec4899",  # pink
+    "Phi":         "#8b5cf6",  # purple
+    "Gemma":       "#14b8a6",  # teal
+    "OLMoE":       "#a3a3a3",  # gray
+    "Ensemble":    "#888888",
+}
+
+
+def get_detailed_family(display_name: str) -> str:
+    """Return the most specific family key for a display name."""
+    low = display_name.lower()
+    for family in DETAILED_FAMILY_COLORS:
+        if family.lower() in low:
+            return family
+    # Alias fallback
+    for alias, family in _FAMILY_ALIASES.items():
+        if alias in low:
+            return family
+    return "Other"
+
+
+def get_detailed_color(display_name: str) -> str:
+    """Return color using the detailed family map."""
+    family = get_detailed_family(display_name)
+    return DETAILED_FAMILY_COLORS.get(family, "#6b7280")
+
+
 # Aliases for short model names that don't contain the family keyword
 _FAMILY_ALIASES = {
     "sonnet": "Claude",
@@ -348,6 +389,65 @@ def style_axis(ax, title, xlabel, ylabel):
 # ============================================================================
 # Plots
 # ============================================================================
+
+def _build_detailed_legend(ax, experiments: list[dict], loc: str = "lower right"):
+    """Add a legend with one entry per detailed model family present in data."""
+    from matplotlib.lines import Line2D
+    seen = set()
+    handles = []
+    for e in experiments:
+        family = get_detailed_family(e["display_name"])
+        if family not in seen:
+            seen.add(family)
+            color = DETAILED_FAMILY_COLORS.get(family, "#6b7280")
+            marker = get_marker(e.get("llm_provider", ""))
+            handles.append(
+                Line2D([0], [0], marker=marker, color="w",
+                       markerfacecolor=color, markeredgecolor="white",
+                       markersize=9, label=family)
+            )
+    if handles:
+        ax.legend(handles=handles, loc=loc, fontsize=9, title="Model Family",
+                  framealpha=0.9)
+
+
+def plot_size_vs_overall(experiments: list[dict], output_dir: Path):
+    """Plot 1b: Single-panel Model Size vs. Overall WattBot Score (legend-only, no text labels)."""
+    sized = [e for e in experiments if e["size_b"] is not None]
+    if not sized:
+        print("  No experiments with known model size for size_vs_overall plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    for e in sized:
+        c = get_detailed_color(e["display_name"])
+        m = get_marker(e.get("llm_provider", ""))
+        ax.errorbar(e["size_b"], e["overall_score"],
+                    yerr=e.get("overall_ci", 0),
+                    fmt='none', ecolor=c, elinewidth=1.2, capsize=3, alpha=0.6, zorder=4)
+        ax.scatter(e["size_b"], e["overall_score"],
+                   c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
+
+    style_axis(ax, "Model Size vs. Overall WattBot Score",
+               "Model Size (B parameters)", "Overall Score")
+    ax.set_ylim(0, 1.05)
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B" if x >= 1 else f"{x:.1f}B"))
+
+    _build_detailed_legend(ax, sized)
+
+    ax.text(
+        0.02, 0.98,
+        "square = local HF | circle = API\n"
+        "Score = 0.75·ValAcc + 0.15·RefOverlap + 0.10·NA_Recall",
+        transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
+    )
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "size_vs_overall.png", dpi=300, bbox_inches="tight")
+    print(f"Saved {output_dir / 'size_vs_overall.png'}")
+
 
 def plot_size_vs_scores(experiments: list[dict], output_dir: Path):
     """Plot 1: Model Size vs. WattBot Component Scores."""
@@ -738,6 +838,42 @@ def plot_energy(experiments: list[dict], output_dir: Path):
     print(f"Saved {output_dir / 'energy_per_experiment.png'}")
 
 
+def plot_size_vs_energy(experiments: list[dict], output_dir: Path):
+    """Plot 9: Model Size vs. Total GPU Energy scatter (legend-only, no text labels)."""
+    with_energy = [e for e in experiments
+                   if e.get("gpu_energy_wh", 0) > 0
+                   and e.get("size_b") is not None
+                   and e.get("llm_provider") not in ("bedrock", "openai", "anthropic")]
+    if len(with_energy) < 2:
+        print("Not enough experiments with energy + size data for size_vs_energy plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    for e in with_energy:
+        c = get_detailed_color(e["display_name"])
+        m = get_marker(e.get("llm_provider", ""))
+        ax.scatter(e["size_b"], e["gpu_energy_wh"],
+                   c=c, s=150, zorder=5, edgecolors="white", linewidth=1.5, marker=m)
+
+    style_axis(ax, "Model Size vs. Total GPU Energy per Experiment",
+               "Model Size (B parameters)", "GPU Energy (Wh)")
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}B" if x >= 1 else f"{x:.1f}B"))
+
+    _build_detailed_legend(ax, with_energy)
+
+    ax.text(
+        0.02, 0.98,
+        "Energy measured via NVML / nvidia-smi\nAPI models excluded (no local GPU usage)",
+        transform=ax.transAxes, fontsize=8, va="top", style="italic", color="gray",
+    )
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "size_vs_energy.png", dpi=300, bbox_inches="tight")
+    print(f"Saved {output_dir / 'size_vs_energy.png'}")
+
+
 def print_summary_table(experiments: list[dict]):
     """Print formatted summary table."""
     print(f"\n{'='*110}")
@@ -781,7 +917,7 @@ def discover_systems(experiments_dir: Path) -> list[str]:
 def generate_plots(experiments_dir: Path, output_dir: Path,
                    name_filter: str | None, datafile: str | None,
                    system: str | None):
-    """Load experiments for one system and generate all 8 plots."""
+    """Load experiments for one system and generate all 10 plots."""
     label = f"[{system}] " if system else ""
     print(f"\n{'=' * 60}")
     print(f"{label}Loading experiment data...")
@@ -809,6 +945,7 @@ def generate_plots(experiments_dir: Path, output_dir: Path,
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"{label}Generating plots...")
+    plot_size_vs_overall(experiments, output_dir)
     plot_size_vs_scores(experiments, output_dir)
     plot_size_vs_latency(experiments, output_dir)
     plot_size_vs_cost(experiments, output_dir)
@@ -817,8 +954,9 @@ def generate_plots(experiments_dir: Path, output_dir: Path,
     plot_cost_vs_performance(experiments, output_dir)
     plot_score_breakdown(experiments, output_dir)
     plot_energy(experiments, output_dir)
+    plot_size_vs_energy(experiments, output_dir)
 
-    print(f"{label}All 8 plots saved to {output_dir}/")
+    print(f"{label}All 10 plots saved to {output_dir}/")
 
 
 # ============================================================================
