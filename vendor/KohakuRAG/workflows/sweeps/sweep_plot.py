@@ -1,7 +1,7 @@
 """Sweep Plotter: Validate and plot results from a sweep folder.
 
 Reads prediction CSVs from a sweep output folder, runs validation on each,
-and generates line plots with error bars (std dev from multiple runs).
+and generates scatter plots with error bars (std dev from multiple runs).
 
 Input folder structure:
     outputs/sweeps/top_k_vs_rerank/
@@ -13,7 +13,7 @@ Input folder structure:
 Output:
     outputs/sweeps/top_k_vs_rerank/
     ├── sweep_results.csv        # Validation scores for all runs
-    ├── plot_final_score.png     # Line plot with error bars
+    ├── plot_final_score.png     # Scatter plot with error bars
     ├── plot_value_score.png
     └── plot_ref_score.png
 
@@ -175,7 +175,7 @@ def plot_metric(
     metric: str,
     output_path: Path,
 ) -> None:
-    """Generate line plot with shaded ±1 std dev range and max value dotted line."""
+    """Generate scatter plot with error bars for ±1 std dev and max value markers."""
     aggregated = aggregate_runs(results, line_param, x_param, metric)
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -219,33 +219,36 @@ def plot_metric(
 
         label = str(line_val) if line_val is not None else "None"
 
-        # Plot mean line with markers
-        (line,) = ax.plot(
+        # Plot mean values as scatter
+        scatter = ax.scatter(
             x_plot,
             means,
             marker="o",
-            linewidth=2,
-            markersize=8,
+            s=64,
             label=f"{line_param}={label}",
+            zorder=5,
         )
+        color = scatter.get_facecolors()[0]
 
-        # Add shaded ±1 std dev range
-        ax.fill_between(
+        # Add error bars for ±1 std dev
+        ax.errorbar(
             x_plot,
-            means - stds,
-            means + stds,
-            alpha=0.2,
-            color=line.get_color(),
+            means,
+            yerr=stds,
+            fmt="none",
+            ecolor=color,
+            alpha=0.4,
+            capsize=4,
         )
 
-        # Add max value dotted line
-        ax.plot(
+        # Add max value scatter (diamond markers)
+        ax.scatter(
             x_plot,
             maxs,
-            linestyle="--",
-            linewidth=1.5,
+            marker="D",
+            s=36,
             alpha=0.7,
-            color=line.get_color(),
+            color=color,
         )
 
         # Track global max
@@ -255,19 +258,19 @@ def plot_metric(
                 global_max_x = x
                 global_max_x_idx = x_to_pos[x]
                 global_max_line = line_val
-                global_max_color = line.get_color()
+                global_max_color = color
 
     # Add star marker at global max
     if global_max_x_idx is not None:
         line_label = str(global_max_line) if global_max_line is not None else "None"
-        ax.plot(
-            global_max_x_idx,
-            global_max_val,
+        ax.scatter(
+            [global_max_x_idx],
+            [global_max_val],
             marker="*",
-            markersize=20,
-            color=global_max_color,
-            markeredgecolor="black",
-            markeredgewidth=1.5,
+            s=400,
+            color=[global_max_color],
+            edgecolors="black",
+            linewidths=1.5,
             zorder=10,
         )
         ax.annotate(
@@ -287,7 +290,7 @@ def plot_metric(
     ax.set_xlabel(x_param)
     ax.set_ylabel(metric)
     ax.set_title(
-        f"{metric} vs {x_param} by {line_param}\n(solid=mean, dashed=max, star=global max, shaded=±1 std dev)"
+        f"{metric} vs {x_param} by {line_param}\n(circles=mean, diamonds=max, star=global max, bars=±1 std dev)"
     )
     ax.grid(True, alpha=0.3)
     ax.legend()
