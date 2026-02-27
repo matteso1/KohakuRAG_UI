@@ -22,9 +22,7 @@ Primary development goal:
 From your **laptop** terminal (Git Bash is recommended on Windows):
 
 ```bash
-ssh mlx@128.104.18.206   # ethernet
-# if that fails:
-ssh mlx@10.141.72.249    # wifi
+ssh username@ip-address
 ```
 
 Notes:
