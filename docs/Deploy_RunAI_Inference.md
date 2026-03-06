@@ -47,10 +47,17 @@ multi-user deployment like a RAG system.
   GPU memory compared to naive HuggingFace serving.
 
 For a RAG system where multiple users may query at once, each with
-different context lengths, this memory efficiency is critical. vLLM also
-exposes an **OpenAI-compatible API** (`/v1/chat/completions`), so our
-Streamlit app can use the standard `openai` Python client — no custom
-code needed.
+different context lengths, this memory efficiency is critical.
+
+**What vLLM replaces (and what it doesn't):** vLLM only handles the
+"run the LLM on the GPU" part. It exposes an OpenAI-compatible API
+(`/v1/chat/completions`) that our code calls over HTTP. Everything
+else — the RAG pipeline, retrieval, context assembly, prompt
+construction, embedding search — is still our custom KohakuRAG code.
+We wrote `VLLMChatModel` (in `kohakurag/remote.py`) as a thin client
+that sends our assembled prompts to vLLM and gets completions back.
+Think of vLLM as replacing `model.generate()`, not replacing our RAG
+logic.
 
 ### Why not a single monolithic Inference job?
 
