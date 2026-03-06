@@ -61,17 +61,20 @@ logic.
 
 ### Why not a single monolithic Inference job?
 
-Loading the LLM, the embedding model, *and* the Streamlit app into one
-process has several problems:
+You *could* bundle vLLM + Jina V4 + Streamlit into one container — and
+it would technically work. But splitting them out has practical benefits:
 
-- **No concurrency.** Without vLLM, HuggingFace `generate()` blocks the
-  GPU — if two users query at the same time, one waits.
-- **Wasted GPU on the UI.** Streamlit is pure Python/CPU. Bundling it
-  with GPU workloads wastes fractional GPU allocation on code that
-  doesn't need it.
+- **Wasted GPU on the UI.** Streamlit is pure Python/CPU. In a monolith,
+  RunAI allocates GPU to the whole container even though the UI never
+  touches it. Splitting lets the Streamlit job request 0 GPU.
 - **Rigid scaling.** With a monolith you can't independently restart the
-  LLM (to swap models) without also restarting the UI and losing user
-  sessions.
+  LLM (e.g. to swap from Qwen 7B to a larger model) without also
+  killing the UI and losing user sessions. Separate jobs let you restart
+  one without affecting the others.
+- **Simpler containers.** The Streamlit app only needs `pip install
+  streamlit openai httpx` — a tiny image. A monolith needs PyTorch,
+  vLLM, and Jina V4 all in one image, which is harder to build and
+  debug.
 
 ### Why three jobs instead of two?
 
