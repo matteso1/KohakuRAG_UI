@@ -423,6 +423,30 @@ is backed by a **Data Volume** (`shared-models`) scoped to the whole
 cluster (`runai/doit-ai-cluster`), so any project can access the cached
 models.
 
+### vLLM compatibility
+
+Not every HuggingFace model works with vLLM. Before choosing a new LLM,
+check the [vLLM supported models list](https://docs.vllm.ai/en/latest/models/supported_models/).
+Well-supported families include:
+
+- **Qwen** (Qwen2, Qwen2.5, Qwen3, Qwen3.5) — first-class support,
+  [official deployment guide](https://qwen.readthedocs.io/en/latest/deployment/vllm.html)
+- **Llama** (Llama 2, Llama 3, Llama 3.1, Llama 4)
+- **Mistral / Mixtral**
+- **Gemma** (Gemma 2)
+- **Phi** (Phi-3, Phi-4)
+
+Models that use non-standard architectures or custom generation code
+(e.g., some multimodal or retrieval-augmented models) may not be
+supported. When in doubt, search the
+[vLLM GitHub issues](https://github.com/vllm-project/vllm/issues) for
+the model name.
+
+**Quantization:** vLLM supports AWQ and GPTQ quantized models out of
+the box (pass `--quantization awq` or `--quantization gptq`). FP8
+quantized models (e.g., `Qwen3-8B-FP8`) work on Ada Lovelace / Hopper
+GPUs natively, and on Ampere GPUs via FP8 Marlin (vLLM v0.9.0+).
+
 ### Adding a new model to the shared PVC
 
 1. Start any Workspace that mounts `shared-model-repository` at `/workspace`
