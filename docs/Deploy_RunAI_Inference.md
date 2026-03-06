@@ -78,11 +78,18 @@ it would technically work. But splitting them out has practical benefits:
 
 ### Why three jobs instead of two?
 
-The embedding model (Jina V4, ~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB)
-have very different resource profiles. Splitting them lets RunAI allocate
-fractional GPU to each (`0.75` for vLLM, `0.25` for embeddings) so they
-share one physical GPU efficiently. The Streamlit app gets `0` GPU — just
-CPU and RAM.
+A natural simplification is two jobs: **Job 1** runs vLLM (LLM only),
+and **Job 2** bundles the Streamlit UI with Jina V4 embeddings together.
+Fewer moving parts, but now Job 2 needs a GPU for Jina V4 (~3 GB VRAM),
+so you can't use a lightweight CPU-only image — you'd need a full
+PyTorch + CUDA container just for the UI pod.
+
+By splitting into three — vLLM, embedding server, Streamlit — each job
+gets exactly the resources it needs. The embedding model (Jina V4,
+~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB) have very different
+resource profiles, so RunAI can allocate fractional GPU to each (`0.75`
+for vLLM, `0.25` for embeddings) sharing one physical GPU efficiently.
+The Streamlit app gets `0` GPU — just CPU and RAM.
 
 ### Alternatives considered
 
