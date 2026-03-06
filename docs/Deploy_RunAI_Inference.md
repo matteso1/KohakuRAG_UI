@@ -3,269 +3,45 @@
 Production deployment using 3 RunAI **Inference** workloads on a single
 GPU, with vLLM for high-throughput LLM serving.
 
-The three services:
-
 | Job | What it does | GPU | Port |
 |-----|-------------|-----|------|
 | **`wattbot-vllm`** | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 0.75 | 8000 |
 | **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.25 | 8080 |
 | **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
 
-All three mount the `shared-models` **Data Volume** (read-only access to
-the PVC that contains model weights, code, and the vector index) and run
-on a single physical GPU using RunAI's fractional GPU allocation.
-
-All steps below use the **RunAI web UI only** — no CLI tools required.
-
----
-
-## Why This Architecture?
-
-RunAI offers three workload types: **Workspace** (interactive dev),
-**Training** (batch jobs), and **Inference** (always-on serving). We use
-Inference because we want WattBot available as a persistent service — not
-something that has to be manually launched each time.
-
-### Why vLLM?
-
-Standard HuggingFace `model.generate()` processes one request at a time —
-if two users send a question simultaneously, one blocks until the other
-finishes. This is fine for a single developer but breaks down for any
-multi-user deployment like a RAG system.
-
-**vLLM** solves this with two key innovations:
-
-- **Continuous batching** — instead of waiting for one request to finish
-  before starting the next, vLLM dynamically groups incoming requests
-  into GPU batches. Multiple users get served concurrently on a single
-  GPU, typically 2-4x more throughput than naive generation.
-- **PagedAttention** — LLM inference is bottlenecked by the KV cache
-  (key-value memory that grows with sequence length). Standard frameworks
-  pre-allocate worst-case memory per request, wasting 60-80% of GPU RAM.
-  PagedAttention manages KV cache like virtual memory pages — allocating
-  only what's actually needed and sharing common prefixes across requests.
-  This means vLLM can serve **3-5x more concurrent requests** in the same
-  GPU memory compared to naive HuggingFace serving.
-
-For a RAG system where multiple users may query at once, each with
-different context lengths, this memory efficiency is critical.
-
-**What vLLM replaces (and what it doesn't):** vLLM only handles the
-"run the LLM on the GPU" part. It exposes an OpenAI-compatible API
-(`/v1/chat/completions`) that our code calls over HTTP. Everything
-else — the RAG pipeline, retrieval, context assembly, prompt
-construction, embedding search — is still our custom KohakuRAG code.
-We wrote `VLLMChatModel` (in `kohakurag/remote.py`) as a thin client
-that sends our assembled prompts to vLLM and gets completions back.
-Think of vLLM as replacing `model.generate()`, not replacing our RAG
-logic.
-
-### Why not a single monolithic Inference job?
-
-You *could* bundle vLLM + Jina V4 + Streamlit into one container — and
-it would technically work. But splitting them out has practical benefits:
-
-- **Wasted GPU on the UI.** Streamlit is pure Python/CPU. In a monolith,
-  RunAI allocates GPU to the whole container even though the UI never
-  touches it. Splitting lets the Streamlit job request 0 GPU.
-- **Rigid scaling.** With a monolith you can't independently restart the
-  LLM (e.g. to swap from Qwen 7B to a larger model) without also
-  killing the UI and losing user sessions. Separate jobs let you restart
-  one without affecting the others.
-- **Simpler containers.** The Streamlit app only needs `pip install
-  streamlit openai httpx` — a tiny image. A monolith needs PyTorch,
-  vLLM, and Jina V4 all in one image, which is harder to build and
-  debug.
-
-### Why three jobs instead of two?
-
-A natural simplification is two jobs: **Job 1** runs vLLM (LLM only),
-and **Job 2** bundles the Streamlit UI with Jina V4 embeddings together.
-Fewer moving parts, but now Job 2 needs a GPU for Jina V4 (~3 GB VRAM),
-so you can't use a lightweight CPU-only image — you'd need a full
-PyTorch + CUDA container just for the UI pod.
-
-By splitting into three — vLLM, embedding server, Streamlit — each job
-gets exactly the resources it needs. The embedding model (Jina V4,
-~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB) have very different
-resource profiles, so RunAI can allocate fractional GPU to each (`0.75`
-for vLLM, `0.25` for embeddings) sharing one physical GPU efficiently.
-The Streamlit app gets `0` GPU — just CPU and RAM.
-
-### Alternatives considered
-
-| Option | What's in each job | Pros | Cons |
-|--------|-------------------|------|------|
-| Single Workspace job | Everything in one process (LLM + embeddings + UI) | Simple | Not persistent, no batching, wastes GPU on UI |
-| Two jobs | **Job 1:** vLLM (LLM only) — **Job 2:** Streamlit + Jina V4 embeddings bundled together | Fewer moving parts | Job 2 needs GPU for Jina V4, can't use lightweight `python:3.11-slim` image |
-| **Three jobs (chosen)** | **Job 1:** vLLM (LLM) — **Job 2:** Jina V4 (embeddings) — **Job 3:** Streamlit (UI, CPU-only) | Best resource efficiency, independent scaling | More services to configure |
-
----
-
-## How Data Sharing Works (PVC)
-
-All workloads share data through a single PVC that already exists on
-your cluster. It's exposed in two ways:
-
-| Name | Type | Access | Used by |
-|------|------|--------|---------|
-| `shared-model-repository` | **Data Source** | Read-write | Step 0 Workspace only (downloads models, clones repo, builds index) |
-| `shared-models` | **Data Volume** | **Read-only** | Inference jobs (vLLM, embedding server, Streamlit) |
-
-Same underlying PVC, two access levels. Think of the Data Source as the
-admin door and the Data Volume as the user door.
-
-```
-shared-model-repository PVC
-     │
-     ├── Workspace mounts via Data Source (RW) → setup: clone repo, download models, build index
-     ├── vLLM mounts via Data Volume (RO)      → reads model weights from cache
-     ├── Embedding mounts via Data Volume (RO)  → reads Jina V4 weights from cache
-     └── Streamlit mounts via Data Volume (RO)  → reads vector DB + code
-```
-
-**Key points:**
-- Both `shared-model-repository` (Data Source) and `shared-models`
-  (Data Volume) already exist — no need to create anything new
-- The Data Volume is **read-only**, so inference jobs can't accidentally
-  modify model weights or the vector index
-- Only the setup Workspace (Step 0) uses the read-write Data Source
-- Data persists even when jobs are stopped or deleted
-- The Workspace does NOT need to be running for Inference jobs to read
-  its files
-
-### What lives on the PVC
-
-| Item | Size | Written by |
-|------|------|------------|
-| Qwen 7B model weights | ~14 GB | Already on PVC |
-| Jina V4 model weights | ~3 GB | Downloaded in Step 0b |
-| Git repo clone | ~50 MB | Step 0 Workspace |
-| Vector index (`wattbot_jinav4.db`) | ~30 MB | Step 0 Workspace |
-
-### Data Sources vs Data Volumes
-
-The RunAI UI has two sections under **Data & Storage**: **Data Sources**
-and **Data Volumes**. You'll notice `shared-model-repository` appears in
-**both** — this is expected:
-
-- **Data Sources** shows the underlying PVC (`shared-model-repository`).
-  This is the raw storage. When you attach it to a workload, you get
-  **read-write** access.
-- **Data Volumes** shows `shared-models`, a shareable wrapper built on
-  top of that same PVC. When other projects mount the Data Volume, they
-  get **read-only** access.
-
-Same PVC, two views. Only the setup Workspace (Step 0) uses the Data
-Source (read-write). All inference jobs use the Data Volume (read-only).
-
-### Access control: who can modify the shared PVC?
-
-| Action | Who can do it | How to configure |
-|--------|--------------|-----------------|
-| Create / delete Data Volumes | **Data Volumes Administrator** role only | **Access** > **Access Rules** > assign the `Data Volumes Administrator` role to specific users |
-| Write to the PVC (download models, clone repos) | Anyone who mounts the **Data Source** in a workload | Control by limiting who has access to the project that owns the PVC (`runai/doit-ai-cluster/default/shared-models`) |
-| Read shared data (via Data Volume) | Anyone in a project the Data Volume is shared with | Data Volume admin sets sharing scopes |
-
-To restrict who can modify models on the PVC:
-
-1. **Limit project access.** Only users assigned to the
-   `shared-models` project can create workloads that mount the
-   read-write Data Source. Go to **Access** > **Access Rules** and
-   ensure only trusted users have roles in that project.
-2. **Use the Data Volume for consumers.** Other projects should mount
-   `shared-models` as a **Data Volume** (read-only), not the raw Data
-   Source. This prevents accidental writes.
-3. **Assign a Data Volumes Administrator.** Only users with the
-   `Data Volumes Administrator` role can create, share, or delete Data
-   Volumes. Keep this to a small set of admins.
-
-### Preventing accidents on the shared PVC
-
-The shared PVC holds model weights that are expensive to re-download.
-A few safeguards:
-
-- **Use a naming convention.** Models live under
-  `.cache/huggingface/hub/models--<org>--<name>/`. Don't put arbitrary
-  files at the PVC root — keep it organized.
-- **Don't run `rm -rf` on `/workspace/.cache`.** If a model needs to be
-  removed, delete only the specific model directory:
-  ```bash
-  # Safe: remove one specific model
-  rm -rf /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
-
-  # DANGEROUS: never do this
-  rm -rf /workspace/.cache/
-  ```
-- **Read-only for consumers.** Projects that only need to *use* models
-  should mount the **Data Volume** (read-only), not the Data Source.
-  Only the setup/admin project needs write access.
-- **Document what's on the PVC.** After adding or removing a model, run
-  `du -sh /workspace/.cache/huggingface/hub/models--*/` and note the
-  change so the team knows what's available.
-
----
-
-## Architecture Overview
-
-The system has two distinct phases that use embeddings differently:
-
-### Phase 1: Index Build (one-time, batch)
-
-Embeds all documents in the corpus into a vector database. This runs once
-(or when the corpus changes) and produces `wattbot_jinav4.db`.
-
-```
-┌──────────────────────────────────────────┐
-│  Index Build Job (Training or Workspace) │
-│                                          │
-│  Jina V4 model (loaded locally on GPU)   │
-│         │                                │
-│         ▼                                │
-│  data/corpus/*.json ──► wattbot_jinav4.db│
-│                         (written to PVC) │
-└──────────────────────────────────────────┘
-```
-
-This is a **batch job** — it loads the full Jina V4 model, processes every
-document, writes the SQLite vector DB, and exits. Use a RunAI **Training**
-or **Workspace** workload for this.
-
-### Phase 2: Query Serving (always-on, 3 Inference jobs)
-
-Handles live user queries. The embedding server here only encodes the
-user's question (a few sentences) for vector search — it does NOT
-re-embed the corpus.
+All three mount the `shared-models` **Data Volume** (read-only) and
+share one physical GPU via RunAI's fractional allocation. A one-time
+setup Workspace (Step 0) uses the `shared-model-repository` **Data
+Source** (read-write) to clone the repo, download Jina V4, and build
+the vector index.
 
 ```
   Users (browser)
        │
        ▼
 ┌─────────────────────┐
-│   Streamlit App     │  Inference job — CPU only, no GPU
-│   Port 8501         │  Reads wattbot_jinav4.db from PVC
+│   Streamlit App     │  CPU only, no GPU
+│   Port 8501         │
 └────────┬────────────┘
          │ HTTP (internal cluster DNS)
    ┌─────┴──────┐
    ▼            ▼
 ┌──────────┐  ┌──────────────────────────────┐
 │  vLLM    │  │  Embedding Server            │
-│  Server  │  │  (query-time only)           │
-│  Port    │  │  Encodes user questions into │
-│  8000    │  │  vectors for DB lookup       │
-│  GPU     │  │  Port 8080, GPU ~0.25        │
-│  ~0.75   │  └──────────────────────────────┘
+│  Server  │  │  Encodes user questions into │
+│  Port    │  │  vectors for DB lookup       │
+│  8000    │  │  Port 8080, GPU ~0.25        │
+│  GPU     │  └──────────────────────────────┘
+│  ~0.75   │
 └──────────┘
 ```
 
-**Query flow:**
-1. User types a question in Streamlit
-2. Streamlit sends the question text to the **Embedding Server**
-3. Embedding Server returns a 1024-dim vector
-4. Streamlit searches the pre-built **vector DB** (local SQLite on PVC)
-5. Streamlit sends the question + retrieved context to **vLLM**
-6. vLLM returns the generated answer
-7. Streamlit displays the answer with citations
+**Query flow:** User asks a question → Streamlit sends it to the
+Embedding Server → gets a vector back → searches the pre-built vector
+DB → sends question + retrieved context to vLLM → displays the answer
+with citations.
+
+All steps below use the **RunAI web UI only** — no CLI tools required.
 
 ---
 
@@ -374,6 +150,11 @@ python -m vllm.entrypoints.openai.api_server \
 Qwen 7B weights are already on the PVC — vLLM loads them from the HF
 cache on startup (no download needed). The Data Volume is read-only,
 so vLLM can't accidentally modify or delete weights.
+
+> **Note:** vLLM exposes an **OpenAI-compatible** API (`/v1/chat/completions`),
+> but it runs **entirely on your local GPU** — no OpenAI account or API
+> charges. The `openai` Python package is just used as a client library
+> to talk to your local vLLM server.
 
 **Verify (from any other pod's terminal):**
 ```bash
@@ -488,7 +269,62 @@ Restarts are fast.
 
 ---
 
-## PVC Layout
+## Troubleshooting
+
+- **vLLM OOM:** Reduce `--max-model-len` (e.g., 4096) or use `--quantization awq`
+- **Embedding server 503:** Model still loading (~30s on first request). Check logs.
+- **Streamlit can't connect:** Verify service DNS names match your job names in the RunAI UI
+- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist on `shared-model-repository`
+- **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
+- **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
+
+---
+---
+
+# Reference
+
+## How Data Sharing Works (PVC)
+
+All workloads share data through a single PVC that already exists on
+your cluster. It's exposed in two ways:
+
+| Name | Type | Access | Used by |
+|------|------|--------|---------|
+| `shared-model-repository` | **Data Source** | Read-write | Step 0 Workspace only (downloads models, clones repo, builds index) |
+| `shared-models` | **Data Volume** | **Read-only** | Inference jobs (vLLM, embedding server, Streamlit) |
+
+Same underlying PVC, two access levels. Think of the Data Source as the
+admin door and the Data Volume as the user door.
+
+```
+shared-model-repository PVC
+     │
+     ├── Workspace mounts via Data Source (RW) → setup: clone repo, download models, build index
+     ├── vLLM mounts via Data Volume (RO)      → reads model weights from cache
+     ├── Embedding mounts via Data Volume (RO)  → reads Jina V4 weights from cache
+     └── Streamlit mounts via Data Volume (RO)  → reads vector DB + code
+```
+
+**Key points:**
+- Both `shared-model-repository` (Data Source) and `shared-models`
+  (Data Volume) already exist — no need to create anything new
+- The Data Volume is **read-only**, so inference jobs can't accidentally
+  modify model weights or the vector index
+- Only the setup Workspace (Step 0) uses the read-write Data Source
+- Data persists even when jobs are stopped or deleted
+- The Workspace does NOT need to be running for Inference jobs to read
+  its files
+
+### What lives on the PVC
+
+| Item | Size | Written by |
+|------|------|------------|
+| Qwen 7B model weights | ~14 GB | Already on PVC |
+| Jina V4 model weights | ~3 GB | Downloaded in Step 0b |
+| Git repo clone | ~50 MB | Step 0 Workspace |
+| Vector index (`wattbot_jinav4.db`) | ~30 MB | Step 0 Workspace |
+
+### PVC Layout
 
 After setup, `shared-model-repository` looks like:
 
@@ -509,6 +345,73 @@ After setup, `shared-model-repository` looks like:
         ├── models--Qwen--Qwen2.5-7B-Instruct/
         └── models--jinaai--jina-embeddings-v4/
 ```
+
+---
+
+## Data Sources vs Data Volumes
+
+The RunAI UI has two sections under **Data & Storage**: **Data Sources**
+and **Data Volumes**. You'll notice `shared-model-repository` appears in
+**both** — this is expected:
+
+- **Data Sources** shows the underlying PVC (`shared-model-repository`).
+  This is the raw storage. When you attach it to a workload, you get
+  **read-write** access.
+- **Data Volumes** shows `shared-models`, a shareable wrapper built on
+  top of that same PVC. When other projects mount the Data Volume, they
+  get **read-only** access.
+
+Same PVC, two views. Only the setup Workspace (Step 0) uses the Data
+Source (read-write). All inference jobs use the Data Volume (read-only).
+
+---
+
+## Access Control
+
+### Who can modify the shared PVC?
+
+| Action | Who can do it | How to configure |
+|--------|--------------|-----------------|
+| Create / delete Data Volumes | **Data Volumes Administrator** role only | **Access** > **Access Rules** > assign the `Data Volumes Administrator` role to specific users |
+| Write to the PVC (download models, clone repos) | Anyone who mounts the **Data Source** in a workload | Control by limiting who has access to the project that owns the PVC (`runai/doit-ai-cluster/default/shared-models`) |
+| Read shared data (via Data Volume) | Anyone in a project the Data Volume is shared with | Data Volume admin sets sharing scopes |
+
+To restrict who can modify models on the PVC:
+
+1. **Limit project access.** Only users assigned to the
+   `shared-models` project can create workloads that mount the
+   read-write Data Source. Go to **Access** > **Access Rules** and
+   ensure only trusted users have roles in that project.
+2. **Use the Data Volume for consumers.** Other projects should mount
+   `shared-models` as a **Data Volume** (read-only), not the raw Data
+   Source. This prevents accidental writes.
+3. **Assign a Data Volumes Administrator.** Only users with the
+   `Data Volumes Administrator` role can create, share, or delete Data
+   Volumes. Keep this to a small set of admins.
+
+### Preventing accidents on the shared PVC
+
+The shared PVC holds model weights that are expensive to re-download.
+A few safeguards:
+
+- **Use a naming convention.** Models live under
+  `.cache/huggingface/hub/models--<org>--<name>/`. Don't put arbitrary
+  files at the PVC root — keep it organized.
+- **Don't run `rm -rf` on `/workspace/.cache`.** If a model needs to be
+  removed, delete only the specific model directory:
+  ```bash
+  # Safe: remove one specific model
+  rm -rf /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
+
+  # DANGEROUS: never do this
+  rm -rf /workspace/.cache/
+  ```
+- **Read-only for consumers.** Projects that only need to *use* models
+  should mount the **Data Volume** (read-only), not the Data Source.
+  Only the setup/admin project needs write access.
+- **Document what's on the PVC.** After adding or removing a model, run
+  `du -sh /workspace/.cache/huggingface/hub/models--*/` and note the
+  change so the team knows what's available.
 
 ---
 
@@ -557,14 +460,100 @@ Changing the embedding model requires rebuilding the vector index:
 
 ---
 
-## Troubleshooting
+## Why This Architecture?
 
-- **vLLM OOM:** Reduce `--max-model-len` (e.g., 4096) or use `--quantization awq`
-- **Embedding server 503:** Model still loading (~30s on first request). Check logs.
-- **Streamlit can't connect:** Verify service DNS names match your job names in the RunAI UI
-- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist on `shared-model-repository`
-- **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
-- **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
+RunAI offers three workload types: **Workspace** (interactive dev),
+**Training** (batch jobs), and **Inference** (always-on serving). We use
+Inference because we want WattBot available as a persistent service — not
+something that has to be manually launched each time.
+
+### Why vLLM?
+
+Standard HuggingFace `model.generate()` processes one request at a time —
+if two users send a question simultaneously, one blocks until the other
+finishes. This is fine for a single developer but breaks down for any
+multi-user deployment like a RAG system.
+
+**vLLM** solves this with two key innovations:
+
+- **Continuous batching** — instead of waiting for one request to finish
+  before starting the next, vLLM dynamically groups incoming requests
+  into GPU batches. Multiple users get served concurrently on a single
+  GPU, typically 2-4x more throughput than naive generation.
+- **PagedAttention** — LLM inference is bottlenecked by the KV cache
+  (key-value memory that grows with sequence length). Standard frameworks
+  pre-allocate worst-case memory per request, wasting 60-80% of GPU RAM.
+  PagedAttention manages KV cache like virtual memory pages — allocating
+  only what's actually needed and sharing common prefixes across requests.
+  This means vLLM can serve **3-5x more concurrent requests** in the same
+  GPU memory compared to naive HuggingFace serving.
+
+For a RAG system where multiple users may query at once, each with
+different context lengths, this memory efficiency is critical.
+
+**What vLLM replaces (and what it doesn't):** vLLM only handles the
+"run the LLM on the GPU" part. It exposes an OpenAI-compatible API
+(`/v1/chat/completions`) that our code calls over HTTP. Everything
+else — the RAG pipeline, retrieval, context assembly, prompt
+construction, embedding search — is still our custom KohakuRAG code.
+We wrote `VLLMChatModel` (in `kohakurag/remote.py`) as a thin client
+that sends our assembled prompts to vLLM and gets completions back.
+Think of vLLM as replacing `model.generate()`, not replacing our RAG
+logic.
+
+### Why not a single monolithic Inference job?
+
+You *could* bundle vLLM + Jina V4 + Streamlit into one container — and
+it would technically work. But splitting them out has practical benefits:
+
+- **Wasted GPU on the UI.** Streamlit is pure Python/CPU. In a monolith,
+  RunAI allocates GPU to the whole container even though the UI never
+  touches it. Splitting lets the Streamlit job request 0 GPU.
+- **Rigid scaling.** With a monolith you can't independently restart the
+  LLM (e.g. to swap from Qwen 7B to a larger model) without also
+  killing the UI and losing user sessions. Separate jobs let you restart
+  one without affecting the others.
+- **Simpler containers.** The Streamlit app only needs `pip install
+  streamlit openai httpx` — a tiny image. A monolith needs PyTorch,
+  vLLM, and Jina V4 all in one image, which is harder to build and
+  debug.
+
+### Why three jobs instead of two?
+
+A natural simplification is two jobs: **Job 1** runs vLLM (LLM only),
+and **Job 2** bundles the Streamlit UI with Jina V4 embeddings together.
+Fewer moving parts, but now Job 2 needs a GPU for Jina V4 (~3 GB VRAM),
+so you can't use a lightweight CPU-only image — you'd need a full
+PyTorch + CUDA container just for the UI pod.
+
+By splitting into three — vLLM, embedding server, Streamlit — each job
+gets exactly the resources it needs. The embedding model (Jina V4,
+~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB) have very different
+resource profiles, so RunAI can allocate fractional GPU to each (`0.75`
+for vLLM, `0.25` for embeddings) sharing one physical GPU efficiently.
+The Streamlit app gets `0` GPU — just CPU and RAM.
+
+### Alternatives considered
+
+| Option | What's in each job | Pros | Cons |
+|--------|-------------------|------|------|
+| Single Workspace job | Everything in one process (LLM + embeddings + UI) | Simple | Not persistent, no batching, wastes GPU on UI |
+| Two jobs | **Job 1:** vLLM (LLM only) — **Job 2:** Streamlit + Jina V4 embeddings bundled together | Fewer moving parts | Job 2 needs GPU for Jina V4, can't use lightweight `python:3.11-slim` image |
+| **Three jobs (chosen)** | **Job 1:** vLLM (LLM) — **Job 2:** Jina V4 (embeddings) — **Job 3:** Streamlit (UI, CPU-only) | Best resource efficiency, independent scaling | More services to configure |
+
+### Index Build vs Query Serving
+
+The system has two distinct phases that use embeddings differently:
+
+**Phase 1: Index Build (one-time, batch)** — Embeds all documents in
+the corpus into a vector database. This runs once (or when the corpus
+changes) and produces `wattbot_jinav4.db`. Use a RunAI **Workspace**
+for this (Step 0).
+
+**Phase 2: Query Serving (always-on, 3 Inference jobs)** — Handles
+live user queries. The embedding server only encodes the user's
+question (a few sentences) for vector search — it does NOT re-embed
+the corpus.
 
 ---
 
