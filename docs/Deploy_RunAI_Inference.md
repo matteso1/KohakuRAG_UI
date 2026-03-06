@@ -3,6 +3,17 @@
 Production deployment using 3 RunAI **Inference** workloads on a single
 GPU, with vLLM for high-throughput LLM serving.
 
+The three services:
+
+| Job | What it does | GPU | Port |
+|-----|-------------|-----|------|
+| **`wattbot-vllm`** | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 0.75 | 8000 |
+| **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.25 | 8080 |
+| **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
+
+All three share a PVC (persistent network disk) and run on a single
+physical GPU using RunAI's fractional GPU allocation.
+
 All steps below use the **RunAI web UI only** — no CLI tools required.
 
 ---
