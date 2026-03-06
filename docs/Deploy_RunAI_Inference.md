@@ -137,11 +137,64 @@ shared-model-repository  (PVC — already exists on your cluster)
 
 ### Data Sources vs Data Volumes
 
-The RunAI UI has two sections under **Data & Storage**: **Data Sources** and
-**Data Volumes**. We use **Data Sources** — the general-purpose option that
-wraps existing PVCs. Data Volumes are a higher-level wrapper for
-cross-project sharing with dedicated admin permissions; we don't need
-that since all our jobs live in the same project.
+The RunAI UI has two sections under **Data & Storage**: **Data Sources**
+and **Data Volumes**. You'll notice `shared-model-repository` appears in
+**both** — this is expected:
+
+- **Data Sources** shows the underlying PVC (`shared-model-repository`).
+  This is the raw storage. When you attach it to a workload, you get
+  **read-write** access.
+- **Data Volumes** shows `shared-models`, a shareable wrapper built on
+  top of that same PVC. When other projects mount the Data Volume, they
+  get **read-only** access.
+
+Same PVC, two views. We attach the **Data Source** version (read-write)
+so our workloads can write model weights, clone repos, and build indexes.
+
+### Access control: who can modify the shared PVC?
+
+| Action | Who can do it | How to configure |
+|--------|--------------|-----------------|
+| Create / delete Data Volumes | **Data Volumes Administrator** role only | **Access** > **Access Rules** > assign the `Data Volumes Administrator` role to specific users |
+| Write to the PVC (download models, clone repos) | Anyone who mounts the **Data Source** in a workload | Control by limiting who has access to the project that owns the PVC (`runai/doit-ai-cluster/default/shared-models`) |
+| Read shared data (via Data Volume) | Anyone in a project the Data Volume is shared with | Data Volume admin sets sharing scopes |
+
+To restrict who can modify models on the PVC:
+
+1. **Limit project access.** Only users assigned to the
+   `shared-models` project can create workloads that mount the
+   read-write Data Source. Go to **Access** > **Access Rules** and
+   ensure only trusted users have roles in that project.
+2. **Use the Data Volume for consumers.** Other projects should mount
+   `shared-models` as a **Data Volume** (read-only), not the raw Data
+   Source. This prevents accidental writes.
+3. **Assign a Data Volumes Administrator.** Only users with the
+   `Data Volumes Administrator` role can create, share, or delete Data
+   Volumes. Keep this to a small set of admins.
+
+### Preventing accidents on the shared PVC
+
+The shared PVC holds model weights that are expensive to re-download.
+A few safeguards:
+
+- **Use a naming convention.** Models live under
+  `.cache/huggingface/hub/models--<org>--<name>/`. Don't put arbitrary
+  files at the PVC root — keep it organized.
+- **Don't run `rm -rf` on `/workspace/.cache`.** If a model needs to be
+  removed, delete only the specific model directory:
+  ```bash
+  # Safe: remove one specific model
+  rm -rf /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
+
+  # DANGEROUS: never do this
+  rm -rf /workspace/.cache/
+  ```
+- **Read-only for consumers.** Projects that only need to *use* models
+  should mount the **Data Volume** (read-only), not the Data Source.
+  Only the setup/admin project needs write access.
+- **Document what's on the PVC.** After adding or removing a model, run
+  `du -sh /workspace/.cache/huggingface/hub/models--*/` and note the
+  change so the team knows what's available.
 
 ---
 
