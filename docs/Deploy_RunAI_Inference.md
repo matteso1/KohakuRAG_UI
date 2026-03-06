@@ -134,14 +134,15 @@ need that since all our jobs live in the same project.
 
 1. Go to **Assets** > **Data Sources** > **+ New Data Source**
 2. Set:
-   - **Scope:** your project (e.g. `doit-ai-cluster`)
+   - **Scope:** your project (e.g. `runai/doit-ai-cluster/default/<your-project>`)
    - **Name:** `wattbot-pvc`
    - **Type:** PVC
    - **PVC:** select **New PVC**
-   - **Storage class:** use the cluster default (or ask your admin)
+   - **Storage class:** `local-path` (or whatever your cluster provides)
    - **Access mode:** ReadWriteMany (so multiple jobs can mount it)
-   - **Size:** `100 Gi` (enough for model weights + code + index)
-   - **Mount path:** `/workspace`
+   - **Claim size:** `50` GB (Qwen 7B ~14 GB + Jina V4 ~3 GB + index ~30 MB + headroom)
+   - **Volume mode:** Filesystem
+   - **Container path:** `/workspace`
 3. Click **Create**
 
 Once created, this data source appears in the **Data Sources** dropdown
