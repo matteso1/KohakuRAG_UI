@@ -1,0 +1,8 @@
+# Lightweight dependencies for the Streamlit app in remote mode.
+# No GPU/torch/transformers needed — the Streamlit pod only makes
+# HTTP calls to the vLLM and embedding servers.
+streamlit
+openai
+httpx
+numpy
+python-dotenv

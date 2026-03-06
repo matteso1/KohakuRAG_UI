@@ -2,7 +2,8 @@
 WattBot RAG — Streamlit App
 
 Interactive UI for querying the WattBot RAG pipeline.
-Supports both local HuggingFace models (GPU) and AWS Bedrock models (API).
+Supports local HuggingFace models (GPU), AWS Bedrock models (API),
+and remote vLLM + embedding server mode (RunAI / PowerEdge deployment).
 
 Launch (Bedrock — no GPU required):
     streamlit run app.py -- --mode bedrock
@@ -10,7 +11,11 @@ Launch (Bedrock — no GPU required):
 Launch (Local — requires GPU):
     streamlit run app.py -- --mode local
 
+Launch (Remote — vLLM + embedding server):
+    streamlit run app.py -- --mode remote
+
 If no --mode is given, defaults to "bedrock".
+The RAG_MODE environment variable can also set the mode (overrides CLI).
 When a GPU is detected, the sidebar offers a toggle to switch modes at runtime.
 """
 
@@ -39,9 +44,16 @@ logger = logging.getLogger(__name__)
 # CLI argument parsing (works with `streamlit run app.py -- --mode bedrock`)
 # ---------------------------------------------------------------------------
 def _parse_run_mode() -> str:
-    """Parse --mode from CLI args. Returns 'bedrock' or 'local'."""
+    """Parse --mode from CLI args or RAG_MODE env var.
+
+    Returns 'bedrock', 'local', or 'remote'.
+    RAG_MODE env var takes precedence over --mode CLI arg.
+    """
+    env_mode = os.environ.get("RAG_MODE", "").strip().lower()
+    if env_mode in ("bedrock", "local", "remote"):
+        return env_mode
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--mode", choices=["bedrock", "local"], default="bedrock")
+    parser.add_argument("--mode", choices=["bedrock", "local", "remote"], default="bedrock")
     args, _ = parser.parse_known_args()
     return args.mode
 
@@ -75,6 +87,14 @@ try:
 except ImportError:
     BedrockChatModel = None  # type: ignore[assignment,misc]
     BedrockEmbeddingModel = None  # type: ignore[assignment,misc]
+
+_HAS_REMOTE_DEPS = False
+try:
+    from kohakurag.remote import VLLMChatModel, RemoteEmbeddingModel
+    _HAS_REMOTE_DEPS = True
+except ImportError:
+    VLLMChatModel = None  # type: ignore[assignment,misc]
+    RemoteEmbeddingModel = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Prompts (shared with run_experiment.py)
@@ -586,6 +606,72 @@ def run_bedrock_ensemble_sequential_query(
 
 
 # ---------------------------------------------------------------------------
+# Remote (vLLM + embedding server) pipeline init
+# ---------------------------------------------------------------------------
+def _load_remote_shared_resources(
+    config: dict,
+    embedding_url: str = "http://localhost:8080",
+) -> tuple:
+    """Load remote embedder and local vector store for remote mode.
+
+    The vector store (SQLite) is read from local disk / PVC — only the
+    embedding model and LLM are remote services.
+    """
+    embedding_dim = config.get("embedding_dim", 1024)
+    db_raw = config.get("db", "data/embeddings/wattbot_jinav4.db")
+    db_path = _repo_root / db_raw.removeprefix("../").removeprefix("../")
+    table_prefix = config.get("table_prefix", "wattbot_jv4")
+
+    _debug(
+        f"Loading remote shared resources:\n"
+        f"  db_path        = {db_path} (exists={db_path.exists()})\n"
+        f"  table_prefix   = {table_prefix}\n"
+        f"  embedding_dim  = {embedding_dim}\n"
+        f"  embedding_url  = {embedding_url}"
+    )
+
+    embedder = RemoteEmbeddingModel(base_url=embedding_url)
+
+    store = KVaultNodeStore(
+        db_path,
+        table_prefix=table_prefix,
+        dimensions=embedding_dim,
+        paragraph_search_mode="averaged",
+    )
+    return embedder, store
+
+
+def _load_remote_chat_model(
+    config: dict,
+    vllm_url: str = "http://localhost:8000/v1",
+    vllm_model: str = "default",
+) -> "VLLMChatModel":
+    """Create a VLLMChatModel from config + remote URL."""
+    return VLLMChatModel(
+        base_url=vllm_url,
+        model=vllm_model,
+        system_prompt=SYSTEM_PROMPT,
+        max_tokens=config.get("hf_max_new_tokens", 512),
+        temperature=config.get("hf_temperature", 0.2),
+        max_concurrent=config.get("max_concurrent", 10),
+    )
+
+
+@st.cache_resource(show_spinner="Connecting to remote vLLM server...")
+def init_remote_pipeline(
+    config_name: str,
+    vllm_url: str = "http://localhost:8000/v1",
+    vllm_model: str = "default",
+    embedding_url: str = "http://localhost:8080",
+) -> RAGPipeline:
+    """Load a remote-backed pipeline (vLLM + embedding server). Cached."""
+    config = load_config(CONFIGS_DIR / f"{config_name}.py")
+    embedder, store = _load_remote_shared_resources(config, embedding_url)
+    chat_model = _load_remote_chat_model(config, vllm_url, vllm_model)
+    return RAGPipeline(store=store, embedder=embedder, chat_model=chat_model, planner=None)
+
+
+# ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
 def _run_qa_sync(
@@ -865,27 +951,49 @@ def main():
         st.header("Settings")
 
         # --- Provider mode selection ---
-        # Show toggle only when both backends are possible
-        can_toggle = gpu_available and _HAS_LOCAL_DEPS and _HAS_BEDROCK_DEPS
-        if can_toggle:
-            use_local = st.toggle(
-                "Use local GPU models",
-                value=(_CLI_MODE == "local"),
-                help=(
-                    "GPU detected on this machine. Toggle ON to use local "
-                    "HuggingFace models; toggle OFF for AWS Bedrock API models."
-                ),
-            )
-            provider = "local" if use_local else "bedrock"
+        # Build list of available providers
+        available_providers = []
+        if _HAS_BEDROCK_DEPS:
+            available_providers.append("bedrock")
+        if _HAS_LOCAL_DEPS and gpu_available:
+            available_providers.append("local")
+        if _HAS_REMOTE_DEPS:
+            available_providers.append("remote")
+        if not available_providers:
+            # Fallback: always allow bedrock as an option
+            available_providers.append("bedrock")
+
+        if _CLI_MODE == "remote" and _HAS_REMOTE_DEPS:
+            default_provider = "remote"
         elif _CLI_MODE == "local" and _HAS_LOCAL_DEPS:
-            provider = "local"
+            default_provider = "local"
         else:
-            provider = "bedrock"
+            default_provider = "bedrock"
+
+        if len(available_providers) > 1:
+            provider_labels = {
+                "bedrock": "AWS Bedrock (API)",
+                "local": "Local GPU (HuggingFace)",
+                "remote": "Remote vLLM (RunAI)",
+            }
+            provider = st.radio(
+                "Backend",
+                [p for p in ["bedrock", "local", "remote"] if p in available_providers],
+                format_func=lambda p: provider_labels.get(p, p),
+                index=([p for p in ["bedrock", "local", "remote"] if p in available_providers].index(default_provider)
+                       if default_provider in available_providers else 0),
+                horizontal=True,
+            )
+        else:
+            provider = default_provider if default_provider in available_providers else available_providers[0]
 
         is_bedrock = provider == "bedrock"
+        is_remote = provider == "remote"
 
         if is_bedrock:
             st.caption("Backend: **AWS Bedrock** (API)")
+        elif is_remote:
+            st.caption("Backend: **Remote vLLM** (RunAI inference)")
         else:
             st.caption("Backend: **Local HuggingFace** (GPU)")
 
@@ -935,11 +1043,64 @@ def main():
             else:
                 st.caption(cred_msg)
 
+        # --- Setup Remote section (remote mode only) ---
+        if is_remote:
+            st.divider()
+            st.subheader("Remote Services")
+            if not _HAS_REMOTE_DEPS:
+                st.error(
+                    "Remote dependencies not installed. Run:\n\n"
+                    "```\npip install -r remote_requirements.txt\n```"
+                )
+                return
+            vllm_url = st.text_input(
+                "vLLM base URL",
+                value=os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1"),
+                help="OpenAI-compatible endpoint of your vLLM server (include /v1).",
+            )
+            vllm_model = st.text_input(
+                "vLLM model name",
+                value=os.environ.get("VLLM_MODEL", "default"),
+                help="Model ID served by vLLM (e.g. Qwen/Qwen2.5-7B-Instruct).",
+            )
+            embedding_url = st.text_input(
+                "Embedding server URL",
+                value=os.environ.get("EMBEDDING_SERVICE_URL", "http://localhost:8080"),
+                help="Base URL of the FastAPI embedding server.",
+            )
+
+            # Quick health check on the remote services
+            if st.button("Check connectivity"):
+                import httpx as _hx
+                with st.spinner("Checking..."):
+                    checks = {}
+                    try:
+                        r = _hx.get(f"{vllm_url.rstrip('/').removesuffix('/v1')}/health", timeout=5)
+                        checks["vLLM"] = r.status_code == 200
+                    except Exception:
+                        checks["vLLM"] = False
+                    try:
+                        r = _hx.get(f"{embedding_url.rstrip('/')}/health", timeout=5)
+                        checks["Embedding"] = r.status_code == 200
+                    except Exception:
+                        checks["Embedding"] = False
+                for svc, ok in checks.items():
+                    if ok:
+                        st.caption(f"{svc}: **connected**")
+                    else:
+                        st.warning(f"{svc}: **unreachable**")
+
         st.divider()
-        mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
+        # Remote mode is single-model only (vLLM serves one model)
+        if is_remote:
+            mode = "Single model"
+        else:
+            mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
 
         # --- Config discovery + model selection (right after Mode) ---
-        configs = discover_configs(provider)
+        # Remote mode reuses local (hf_*) configs for DB path / embedding settings
+        config_provider = "local" if is_remote else provider
+        configs = discover_configs(config_provider)
         if not configs:
             prefix = "bedrock_*" if is_bedrock else "hf_*"
             st.error(f"No {prefix}.py config files found in vendor/KohakuRAG/configs/")
@@ -953,7 +1114,14 @@ def main():
             else:
                 default_key = "hf_qwen7b"
             default_idx = config_list.index(default_key) if default_key in config_list else 0
-            selected_config = st.selectbox("Model config", config_list, index=default_idx)
+            config_help = (
+                "Config selects the vector DB and embedding settings. "
+                "The LLM is served by your vLLM instance."
+            ) if is_remote else None
+            selected_config = st.selectbox(
+                "Model config", config_list, index=default_idx,
+                help=config_help,
+            )
             selected_configs = [selected_config]
             ensemble_strategy = None
         else:
@@ -971,7 +1139,7 @@ def main():
 
         # Precision only matters for local models
         precision = "4bit"
-        if not is_bedrock:
+        if not is_bedrock and not is_remote:
             precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
 
         st.divider()
@@ -1005,7 +1173,7 @@ def main():
         )
 
         # --- GPU / VRAM info (local mode only) ---
-        if not is_bedrock:
+        if provider == "local":
             st.divider()
             gpu_info = get_gpu_info()
             if gpu_info["gpu_count"] > 0:
@@ -1028,6 +1196,9 @@ def main():
                     st.caption("Strategy: **sequential** (load one at a time)")
                 else:
                     st.warning(plan["reason"])
+        elif is_remote:
+            # Remote mode — no local GPU needed
+            gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
         else:
             # Bedrock ensemble always runs parallel (API-based, no VRAM constraint)
             gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
@@ -1042,7 +1213,13 @@ def main():
 
     # ---- Load pipelines ----
     try:
-        if is_bedrock:
+        if is_remote:
+            # Remote (vLLM + embedding server) pipeline
+            pipeline = init_remote_pipeline(
+                selected_configs[0], vllm_url, vllm_model, embedding_url,
+            )
+            _apply_planner(pipeline, use_planner, planner_queries)
+        elif is_bedrock:
             # Bedrock pipelines
             if mode == "Single model":
                 pipeline = init_bedrock_pipeline(
@@ -1113,6 +1290,7 @@ def main():
             if mode == "Single model":
                 spinner_msg = (
                     "Querying Bedrock..." if is_bedrock
+                    else "Querying remote vLLM..." if is_remote
                     else "Retrieving and generating..."
                 )
                 if is_bedrock:
