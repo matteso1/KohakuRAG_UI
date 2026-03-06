@@ -5,6 +5,47 @@ GPU, with vLLM for high-throughput LLM serving.
 
 ---
 
+## Why This Architecture?
+
+RunAI offers three workload types: **Workspace** (interactive dev),
+**Training** (batch jobs), and **Inference** (always-on serving). We use
+Inference because we want WattBot available as a persistent service — not
+something that has to be manually launched each time.
+
+### Why not a single monolithic Inference job?
+
+Loading the LLM, the embedding model, *and* the Streamlit app into one
+process has several problems:
+
+- **No concurrency.** HuggingFace `generate()` blocks the GPU — if two
+  users query at the same time, one waits. vLLM solves this with
+  continuous batching (PagedAttention), serving multiple requests on one
+  GPU concurrently. This alone gives 2-4x throughput.
+- **Wasted GPU on the UI.** Streamlit is pure Python/CPU. Bundling it
+  with GPU workloads wastes fractional GPU allocation on code that
+  doesn't need it.
+- **Rigid scaling.** With a monolith you can't independently restart the
+  LLM (to swap models) without also restarting the UI and losing user
+  sessions.
+
+### Why three jobs instead of two?
+
+The embedding model (Jina V4, ~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB)
+have very different resource profiles. Splitting them lets RunAI allocate
+fractional GPU to each (`0.75` for vLLM, `0.25` for embeddings) so they
+share one physical GPU efficiently. The Streamlit app gets `0` GPU — just
+CPU and RAM.
+
+### Alternatives considered
+
+| Option | Pros | Cons |
+|--------|------|------|
+| Single Workspace job | Simple, interactive | Not persistent, no batching, wastes GPU on UI |
+| Two jobs (vLLM + app-with-embeddings) | Fewer moving parts | App needs GPU for Jina V4, can't use `python:3.11-slim` |
+| **Three jobs (chosen)** | Best resource efficiency, independent scaling | More services to configure |
+
+---
+
 ## Architecture Overview
 
 The system has two distinct phases that use embeddings differently:
@@ -106,6 +147,33 @@ kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
 | GPU | `0.25` |
 | PVC | `<your-pvc>:/workspace` |
 | Env | `HF_HOME=/workspace/.cache/huggingface` |
+
+### Uploading a pre-built index from your local machine
+
+If you already have `wattbot_jinav4.db` built locally (e.g., on the GB10)
+and want to skip rebuilding on the cluster:
+
+```bash
+# 1. Find any running pod that mounts your PVC
+kubectl get pods -n <your-namespace>
+
+# 2. Copy the DB file into it
+kubectl cp data/embeddings/wattbot_jinav4.db \
+  <pod-name>:/workspace/KohakuRAG_UI/data/embeddings/wattbot_jinav4.db
+
+# 3. Verify
+kubectl exec <pod-name> -- ls -lh /workspace/KohakuRAG_UI/data/embeddings/wattbot_jinav4.db
+```
+
+You can also do this from a Workspace terminal if your local machine has
+`scp` access to the cluster node, or use the RunAI CLI:
+
+```bash
+runai exec -it <workspace-name> -- ls /workspace/KohakuRAG_UI/data/embeddings/
+```
+
+The key requirement is that the file lands on the PVC at the path the
+Streamlit app expects: `KohakuRAG_UI/data/embeddings/wattbot_jinav4.db`.
 
 ---
 
