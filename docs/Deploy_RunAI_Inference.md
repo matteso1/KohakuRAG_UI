@@ -11,7 +11,8 @@ The three services:
 | **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.25 | 8080 |
 | **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
 
-All three share a PVC (persistent network disk) and run on a single
+All three mount the existing `shared-model-repository` data source (a
+PVC that already contains Qwen model weights) and run on a single
 physical GPU using RunAI's fractional GPU allocation.
 
 All steps below use the **RunAI web UI only** — no CLI tools required.
@@ -103,52 +104,44 @@ The Streamlit app gets `0` GPU — just CPU and RAM.
 
 ## How Data Sharing Works (PVC)
 
-All workloads share data through a **PVC** (Persistent Volume Claim) — a
-network disk that any job can mount. Think of it as a shared drive.
+All workloads share data through the **`shared-model-repository`** data
+source — a PVC (Persistent Volume Claim) that already exists on your
+cluster. Think of it as a shared network drive that any job can mount.
 
 ```
-PVC: "wattbot-pvc"  (a network disk that persists across jobs)
+shared-model-repository  (PVC — already exists on your cluster)
      │
      ├── Workspace mounts at /workspace  → you clone repo + build index here
      ├── vLLM job mounts at /workspace   → reads model weights from cache
-     ├── Embedding job mounts /workspace  → reads model weights from cache
+     ├── Embedding job mounts /workspace  → reads Jina V4 weights from cache
      └── Streamlit job mounts /workspace  → reads vector DB + code
 ```
 
 **Key points:**
-- You set up the PVC **once** in the RunAI UI (Data Sources section)
-- Every workload you create can attach that same PVC
+- `shared-model-repository` already exists (visible under **Assets** >
+  **Data Sources** in the RunAI UI) — no need to create a new PVC
+- Every workload you create can attach this same data source
 - Files written by one job are immediately visible to all others
 - Data persists even when jobs are stopped or deleted
-- The Workspace does NOT need to be running for Inference jobs to read its files
+- The Workspace does NOT need to be running for Inference jobs to read
+  its files
+
+### What lives on the PVC
+
+| Item | Size | Written by |
+|------|------|------------|
+| Qwen 7B model weights | ~14 GB | Already on PVC |
+| Jina V4 model weights | ~3 GB | Downloaded in Step 0b |
+| Git repo clone | ~50 MB | Step 0 Workspace |
+| Vector index (`wattbot_jinav4.db`) | ~30 MB | Step 0 Workspace |
 
 ### Data Sources vs Data Volumes
 
 The RunAI UI has two sections under **Data & Storage**: **Data Sources** and
-**Data Volumes**. Use **Data Sources** — it's the general-purpose option that
-lets you create a new PVC directly in the UI. Data Volumes are a higher-level
-wrapper for cross-project sharing with dedicated admin permissions; we don't
-need that since all our jobs live in the same project.
-
-### Creating the Data Source (one-time)
-
-1. Go to **Assets** > **Data Sources** > **+ New Data Source**
-2. Set:
-   - **Scope:** your project (e.g. `runai/doit-ai-cluster/default/<your-project>`)
-   - **Name:** `wattbot-pvc`
-   - **Type:** PVC
-   - **PVC:** select **New PVC**
-   - **Storage class:** `local-path` (or whatever your cluster provides)
-   - **Access mode:** ReadWriteMany (so multiple jobs can mount it)
-   - **Claim size:** `50` GB (Qwen 7B ~14 GB + Jina V4 ~3 GB + index ~30 MB + headroom)
-   - **Volume mode:** Filesystem
-   - **Container path:** `/workspace`
-3. Click **Create**
-
-Once created, this data source appears in the **Data Sources** dropdown
-when creating any workload. Every workload (Workspace, vLLM, embeddings,
-Streamlit) should attach **the same** `wattbot-pvc` data source mounted
-at `/workspace`.
+**Data Volumes**. We use **Data Sources** — the general-purpose option that
+wraps existing PVCs. Data Volumes are a higher-level wrapper for
+cross-project sharing with dedicated admin permissions; we don't need
+that since all our jobs live in the same project.
 
 ---
 
@@ -217,8 +210,9 @@ re-embed the corpus.
 
 ## Step 0: Prepare the PVC (one-time setup)
 
-Before deploying anything, you need code and data on the shared PVC.
-Since RunAI has no file upload UI, the easiest approach is a **Workspace**.
+Before deploying anything, you need the repo, vector index, and Jina V4
+model weights on the shared PVC. Since RunAI has no file upload UI, the
+easiest approach is a **Workspace**.
 
 ### 0a. Create a Workspace
 
@@ -229,17 +223,31 @@ In the RunAI UI:
    - **Name:** `wattbot-setup`
    - **Image:** `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime`
    - **GPU:** `0.25` (needed for index build)
-   - **Data Sources:** select the `wattbot-pvc` data source you created above
+   - **Data Sources:** select `shared-model-repository`, mount at `/workspace`
    - **Environment:** `HF_HOME=/workspace/.cache/huggingface`
 3. Create the Workspace and wait for it to start
 4. Click **Connect** > open the **terminal** (JupyterLab or shell)
 
-### 0b. Clone the repo and build the index
+### 0b. Download Jina V4 model weights
 
-In the Workspace terminal:
+Qwen 7B is already on the PVC. Jina V4 needs to be downloaded once:
 
 ```bash
-# Clone the repo onto the PVC
+# Download Jina V4 to the shared HF cache
+pip install sentence-transformers "transformers>=4.42,<5"
+python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('jinaai/jina-embeddings-v4', trust_remote_code=True)
+print('Jina V4 downloaded successfully')
+"
+
+# Verify (~3 GB in the HF cache)
+du -sh /workspace/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4/
+```
+
+### 0c. Clone the repo and build the index
+
+```bash
 cd /workspace
 git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
@@ -257,7 +265,7 @@ ls -lh data/embeddings/wattbot_jinav4.db
 # Should be ~30+ MB
 ```
 
-### 0c. Stop the Workspace
+### 0d. Stop the Workspace
 
 Once the index is built, you can **stop the Workspace** from the RunAI UI
 to free its GPU. The files persist on the PVC — the Inference jobs will
@@ -286,7 +294,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `4` |
 | Memory | `16Gi` |
 | Port | `8000` |
-| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
+| Data Sources | `shared-model-repository` (mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -300,8 +308,8 @@ python -m vllm.entrypoints.openai.api_server \
 |-----|-------|
 | `HF_HOME` | `/workspace/.cache/huggingface` |
 
-First startup downloads model weights (~14 GB) to the PVC cache.
-Subsequent restarts use the cache and start in seconds.
+Qwen 7B weights are already on `shared-model-repository` — vLLM loads
+them from the HF cache on startup (no download needed).
 
 **Verify (from any other pod's terminal):**
 ```bash
@@ -322,7 +330,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `2` |
 | Memory | `8Gi` |
 | Port | `8080` |
-| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
+| Data Sources | `shared-model-repository` (mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -340,8 +348,8 @@ python scripts/embedding_server.py
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-First startup downloads Jina V4 (~3 GB) to the PVC cache. The model
-takes ~30 seconds to load before it starts serving requests.
+Jina V4 weights are already on `shared-model-repository` (downloaded in
+Step 0b). The model takes ~30 seconds to load before it starts serving.
 
 **Verify:**
 ```bash
@@ -363,7 +371,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `1` |
 | Memory | `2Gi` |
 | Port | `8501` |
-| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
+| Data Sources | `shared-model-repository` (mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -390,18 +398,19 @@ https://<cluster-url>/<project>/wattbot-app/proxy/8501/
 
 ## Deployment Order
 
-1. **Step 0** — Workspace: clone repo + build index on PVC, then stop
-2. **Step 1** — vLLM: takes longest to start (downloads + loads model)
-3. **Step 2** — Embedding server: also downloads Jina V4 on first run
+1. **Step 0** — Workspace: download Jina V4, clone repo, build index, then stop
+2. **Step 1** — vLLM: loads Qwen from cache (~30s)
+3. **Step 2** — Embedding server: loads Jina V4 from cache (~30s)
 4. **Step 3** — Streamlit app: last, needs both services running
 
-After first run, all model weights are cached on the PVC. Restarts are fast.
+All model weights are already cached on `shared-model-repository`.
+Restarts are fast.
 
 ---
 
 ## PVC Layout
 
-After setup, the shared PVC looks like:
+After setup, `shared-model-repository` looks like:
 
 ```
 /workspace/
@@ -423,15 +432,48 @@ After setup, the shared PVC looks like:
 
 ---
 
-## Changing the LLM Model
+## Adding and Changing Models
 
-To swap models (e.g., Qwen 7B to Llama 3 8B):
+Model weights live on `shared-model-repository` under
+`/workspace/.cache/huggingface/hub/`. The `shared-model-repository` PVC
+is backed by a **Data Volume** (`shared-models`) scoped to the whole
+cluster (`runai/doit-ai-cluster`), so any project can access the cached
+models.
 
-1. In the RunAI UI, edit the `wattbot-vllm` job's command: change `--model`
-2. Edit the `wattbot-app` job's env var: change `VLLM_MODEL` to match
-3. Restart both jobs
+### Adding a new model to the shared PVC
+
+1. Start any Workspace that mounts `shared-model-repository` at `/workspace`
+2. In the terminal, download the model:
+   ```bash
+   export HF_HOME=/workspace/.cache/huggingface
+   # For a HuggingFace model (vLLM-compatible):
+   pip install huggingface_hub
+   huggingface-cli download <org>/<model-name>
+   # Example: huggingface-cli download meta-llama/Llama-3-8B-Instruct
+   ```
+3. Verify it's cached:
+   ```bash
+   ls /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
+   ```
+4. Stop the Workspace — the weights persist on the PVC
+
+### Swapping the LLM (e.g., Qwen 7B → Llama 3 8B)
+
+1. Make sure the new model is on the PVC (see above)
+2. In the RunAI UI, edit the `wattbot-vllm` job's command: change `--model`
+3. Edit the `wattbot-app` job's env var: change `VLLM_MODEL` to match
+4. Restart both jobs
 
 No code changes needed. The embedding model and vector DB are unchanged.
+
+### Swapping the embedding model
+
+Changing the embedding model requires rebuilding the vector index:
+
+1. Download the new model to the PVC (see above)
+2. Update the index build config and re-run Step 0c
+3. Update `wattbot-embedding` env vars (`EMBEDDING_MODEL`, `EMBEDDING_DIM`)
+4. Restart the embedding server
 
 ---
 
@@ -440,7 +482,7 @@ No code changes needed. The embedding model and vector DB are unchanged.
 - **vLLM OOM:** Reduce `--max-model-len` (e.g., 4096) or use `--quantization awq`
 - **Embedding server 503:** Model still loading (~30s on first request). Check logs.
 - **Streamlit can't connect:** Verify service DNS names match your job names in the RunAI UI
-- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist on the PVC
+- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist on `shared-model-repository`
 - **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
 - **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
 
