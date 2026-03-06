@@ -107,7 +107,7 @@ All workloads share data through a **PVC** (Persistent Volume Claim) — a
 network disk that any job can mount. Think of it as a shared drive.
 
 ```
-PVC: "my-pvc"  (a network disk that persists across jobs)
+PVC: "wattbot-pvc"  (a network disk that persists across jobs)
      │
      ├── Workspace mounts at /workspace  → you clone repo + build index here
      ├── vLLM job mounts at /workspace   → reads model weights from cache
@@ -122,9 +122,32 @@ PVC: "my-pvc"  (a network disk that persists across jobs)
 - Data persists even when jobs are stopped or deleted
 - The Workspace does NOT need to be running for Inference jobs to read its files
 
-In the RunAI UI, when creating any workload, there's a **"Data Sources"**
-or **"Storage"** section where you select existing PVCs. Pick the same
-PVC each time and mount it at `/workspace`.
+### Data Sources vs Data Volumes
+
+The RunAI UI has two sections under **Data & Storage**: **Data Sources** and
+**Data Volumes**. Use **Data Sources** — it's the general-purpose option that
+lets you create a new PVC directly in the UI. Data Volumes are a higher-level
+wrapper for cross-project sharing with dedicated admin permissions; we don't
+need that since all our jobs live in the same project.
+
+### Creating the Data Source (one-time)
+
+1. Go to **Assets** > **Data Sources** > **+ New Data Source**
+2. Set:
+   - **Scope:** your project (e.g. `doit-ai-cluster`)
+   - **Name:** `wattbot-pvc`
+   - **Type:** PVC
+   - **PVC:** select **New PVC**
+   - **Storage class:** use the cluster default (or ask your admin)
+   - **Access mode:** ReadWriteMany (so multiple jobs can mount it)
+   - **Size:** `100 Gi` (enough for model weights + code + index)
+   - **Mount path:** `/workspace`
+3. Click **Create**
+
+Once created, this data source appears in the **Data Sources** dropdown
+when creating any workload. Every workload (Workspace, vLLM, embeddings,
+Streamlit) should attach **the same** `wattbot-pvc` data source mounted
+at `/workspace`.
 
 ---
 
@@ -205,7 +228,7 @@ In the RunAI UI:
    - **Name:** `wattbot-setup`
    - **Image:** `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime`
    - **GPU:** `0.25` (needed for index build)
-   - **Data Sources:** attach your PVC, mount at `/workspace`
+   - **Data Sources:** select the `wattbot-pvc` data source you created above
    - **Environment:** `HF_HOME=/workspace/.cache/huggingface`
 3. Create the Workspace and wait for it to start
 4. Click **Connect** > open the **terminal** (JupyterLab or shell)
@@ -262,7 +285,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `4` |
 | Memory | `16Gi` |
 | Port | `8000` |
-| Data Sources | same PVC, mount at `/workspace` |
+| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -298,7 +321,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `2` |
 | Memory | `8Gi` |
 | Port | `8080` |
-| Data Sources | same PVC, mount at `/workspace` |
+| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -339,7 +362,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `1` |
 | Memory | `2Gi` |
 | Port | `8501` |
-| Data Sources | same PVC, mount at `/workspace` |
+| Data Sources | `wattbot-pvc` (mount at `/workspace`) |
 
 **Command:**
 ```bash
