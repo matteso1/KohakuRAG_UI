@@ -1,0 +1,50 @@
+# ============================================================================
+# Streamlit App — WattBot RAG UI (no GPU needed)
+#
+# Connects to remote vLLM and embedding services via HTTP.
+#
+# Build:
+#   docker build -f deploy/Dockerfile.streamlit -t kohakurag-streamlit .
+#
+# Run:
+#   docker run -p 8501:8501 \
+#     -e VLLM_BASE_URL=http://vllm-service:8000/v1 \
+#     -e EMBEDDING_SERVICE_URL=http://embedding-service:8080 \
+#     -e VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
+#     kohakurag-streamlit
+# ============================================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install Python dependencies (no torch/GPU libs needed for Streamlit)
+RUN pip install --no-cache-dir \
+    streamlit openai httpx numpy python-dotenv
+
+# Copy application code
+COPY vendor/KohakuRAG/src/kohakurag/ /app/vendor/KohakuRAG/src/kohakurag/
+COPY vendor/KohakuVault/ /app/vendor/KohakuVault/
+COPY scripts/ /app/scripts/
+COPY app.py /app/
+COPY data/ /app/data/
+
+# Install vendored packages
+RUN pip install --no-cache-dir -e /app/vendor/KohakuVault && \
+    pip install --no-cache-dir -e /app/vendor/KohakuRAG || true
+
+# Default env vars for remote mode
+ENV RAG_MODE=remote
+ENV VLLM_BASE_URL=http://localhost:8000/v1
+ENV VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+ENV EMBEDDING_SERVICE_URL=http://localhost:8080
+ENV STREAMLIT_PORT=8501
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "app.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true", \
+     "--server.enableCORS=false", \
+     "--server.enableXsrfProtection=false", \
+     "--browser.gatherUsageStats=false"]

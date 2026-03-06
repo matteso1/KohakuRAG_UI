@@ -1,0 +1,129 @@
+# ============================================================================
+# RunAI Job Definitions for WattBot RAG System
+#
+# Architecture:
+#   ┌─────────────────────┐
+#   │   Streamlit App     │  (Inference job, CPU only)
+#   │   Port 8501         │
+#   └────────┬────────────┘
+#            │ HTTP (internal cluster DNS)
+#     ┌──────┴──────┐
+#     ▼             ▼
+#   ┌──────────┐  ┌──────────────┐
+#   │  vLLM    │  │  Embedding   │
+#   │  LLM     │  │  Server      │
+#   │  Port    │  │  Port 8080   │
+#   │  8000    │  │  GPU 0.25    │
+#   │  GPU 0.75│  └──────────────┘
+#   └──────────┘
+#
+# All 3 services on 1 GPU (fractional allocation).
+# vLLM gets the lion's share since LLM inference is the bottleneck.
+#
+# NOTE: These are reference configs. Adapt image names, PVC names, and
+# resource fractions to your cluster. You can also create these via the
+# RunAI UI instead of CLI.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Job 1: vLLM LLM Server (Inference workload)
+# ---------------------------------------------------------------------------
+# Uses the official vLLM image. Serves an OpenAI-compatible API.
+# Model weights are pulled from HuggingFace on first start (cached on PVC).
+#
+# CLI equivalent:
+#   runai submit wattbot-vllm \
+#     --type inference \
+#     --image vllm/vllm-openai:latest \
+#     --gpu 0.75 \
+#     --cpu 4 \
+#     --memory 16Gi \
+#     --pvc wattbot-pvc:/data \
+#     --env HF_HOME=/data/.cache/huggingface \
+#     --port 8000 \
+#     --command -- python -m vllm.entrypoints.openai.api_server \
+#       --model Qwen/Qwen2.5-7B-Instruct \
+#       --host 0.0.0.0 \
+#       --port 8000 \
+#       --max-model-len 8192 \
+#       --dtype auto \
+#       --quantization awq
+#
+# IMPORTANT: Choose quantization based on your GPU VRAM:
+#   - 80GB (A100): --dtype bfloat16 (no quantization needed for 7B)
+#   - 40GB (A6000): --dtype bfloat16
+#   - 24GB (L4/4090): --quantization awq or --quantization gptq
+#   - 16GB: --quantization awq --max-model-len 4096
+
+# ---------------------------------------------------------------------------
+# Job 2: Embedding Server (Inference workload)
+# ---------------------------------------------------------------------------
+# Serves Jina V4 embeddings via FastAPI.
+#
+# CLI equivalent:
+#   runai submit wattbot-embedding \
+#     --type inference \
+#     --image kohakurag-embedding:latest \
+#     --gpu 0.25 \
+#     --cpu 2 \
+#     --memory 8Gi \
+#     --pvc wattbot-pvc:/data \
+#     --env HF_HOME=/data/.cache/huggingface \
+#     --env EMBEDDING_MODEL=jinaai/jina-embeddings-v4 \
+#     --env EMBEDDING_DIM=1024 \
+#     --port 8080
+#
+# Or using the PVC-based approach (no Docker build needed):
+#   runai submit wattbot-embedding \
+#     --type inference \
+#     --image pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime \
+#     --gpu 0.25 \
+#     --cpu 2 \
+#     --memory 8Gi \
+#     --pvc wattbot-pvc:/workspace \
+#     --env HF_HOME=/workspace/.cache/huggingface \
+#     --env PYTHONPATH=/workspace/KohakuRAG_UI/vendor/KohakuRAG/src \
+#     --port 8080 \
+#     --command -- /bin/bash -c \
+#       "pip install fastapi uvicorn httpx sentence-transformers && \
+#        cd /workspace/KohakuRAG_UI && \
+#        python scripts/embedding_server.py"
+
+# ---------------------------------------------------------------------------
+# Job 3: Streamlit App (Inference workload, CPU only)
+# ---------------------------------------------------------------------------
+# The UI layer. Connects to vLLM and embedding services via internal DNS.
+#
+# CLI equivalent:
+#   runai submit wattbot-app \
+#     --type inference \
+#     --image kohakurag-streamlit:latest \
+#     --cpu 1 \
+#     --memory 2Gi \
+#     --pvc wattbot-pvc:/data \
+#     --env RAG_MODE=remote \
+#     --env VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \
+#     --env VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
+#     --env EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \
+#     --port 8501
+#
+# Or using the PVC-based approach (no Docker build needed):
+#   runai submit wattbot-app \
+#     --type inference \
+#     --image python:3.11-slim \
+#     --cpu 1 \
+#     --memory 2Gi \
+#     --pvc wattbot-pvc:/workspace \
+#     --env RAG_MODE=remote \
+#     --env VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \
+#     --env VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
+#     --env EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \
+#     --port 8501 \
+#     --command -- /bin/bash -c \
+#       "pip install streamlit openai httpx numpy python-dotenv && \
+#        cd /workspace/KohakuRAG_UI && \
+#        pip install -e vendor/KohakuVault && \
+#        pip install -e vendor/KohakuRAG && \
+#        streamlit run app.py --server.port=8501 --server.address=0.0.0.0 \
+#          --server.headless=true --server.enableCORS=false \
+#          --server.enableXsrfProtection=false"

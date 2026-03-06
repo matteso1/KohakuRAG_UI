@@ -1,0 +1,46 @@
+# ============================================================================
+# Embedding Server — Jina V4 served via FastAPI
+#
+# Build:
+#   docker build -f deploy/Dockerfile.embedding -t kohakurag-embedding .
+#
+# Run:
+#   docker run --gpus all -p 8080:8080 kohakurag-embedding
+# ============================================================================
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+# Prevent interactive prompts during apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv python3-pip git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use python3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY local_requirements.txt .
+RUN pip install --no-cache-dir \
+    fastapi uvicorn httpx \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
+    && pip install --no-cache-dir \
+    transformers>=4.42,<5 accelerate huggingface_hub safetensors \
+    sentence-transformers
+
+# Copy source code
+COPY vendor/KohakuRAG/src/kohakurag/ /app/vendor/KohakuRAG/src/kohakurag/
+COPY scripts/embedding_server.py /app/scripts/embedding_server.py
+
+# Default env vars
+ENV EMBEDDING_MODEL=jinaai/jina-embeddings-v4
+ENV EMBEDDING_TASK=retrieval
+ENV EMBEDDING_DIM=1024
+ENV EMBEDDING_HOST=0.0.0.0
+ENV EMBEDDING_PORT=8080
+
+EXPOSE 8080
+
+CMD ["python", "scripts/embedding_server.py"]
