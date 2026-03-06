@@ -295,7 +295,8 @@ Qwen 7B is already on the PVC. Jina V4 needs to be downloaded once:
 
 ```bash
 # Download Jina V4 to the shared HF cache
-pip install sentence-transformers "transformers>=4.42,<5"
+pip install uv
+uv pip install --system sentence-transformers "transformers>=4.42,<5"
 python -c "
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('jinaai/jina-embeddings-v4', trust_remote_code=True)
@@ -313,8 +314,9 @@ cd /workspace
 git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 
-# Install dependencies
-pip install -e vendor/KohakuVault -e vendor/KohakuRAG -r local_requirements.txt
+# Install uv + dependencies (uv is ~10-100x faster than pip)
+pip install uv
+uv pip install --system -e vendor/KohakuVault -e vendor/KohakuRAG -r local_requirements.txt
 
 # Build the vector index (embeds all documents — takes a few minutes)
 cd vendor/KohakuRAG
@@ -396,18 +398,23 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 **Command:**
 ```bash
+# Install uv (fast Python package installer)
+pip install uv && \
 # Copy code to writable container filesystem (Data Volume is read-only)
 cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
-pip install fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
-pip install vendor/KohakuVault vendor/KohakuRAG && \
+uv pip install --system fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
+uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
 python scripts/embedding_server.py
 ```
 
 > **Why copy to /tmp?** The Data Volume is read-only. `pip install`
-> (even non-editable) and KohakuVault's SQLite WAL mode both need to
-> write files alongside the source. Copying to `/tmp` gives a writable
-> workspace without needing write access to the shared PVC.
+> and KohakuVault's SQLite WAL mode both need to write files alongside
+> the source. Copying to `/tmp` gives a writable workspace without
+> needing write access to the shared PVC.
+>
+> **Why uv?** `uv` is a drop-in replacement for `pip` that's 10-100x
+> faster. Installs that take 1-3 minutes with pip finish in seconds.
 
 **Environment variables:**
 | Key | Value |
@@ -444,11 +451,13 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 **Command:**
 ```bash
+# Install uv (fast Python package installer)
+pip install uv && \
 # Copy code + vector DB to writable container filesystem (Data Volume is read-only)
 cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
-pip install streamlit openai httpx numpy python-dotenv && \
-pip install vendor/KohakuVault vendor/KohakuRAG && \
+uv pip install --system streamlit openai httpx numpy python-dotenv && \
+uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
 streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
 ```
 
@@ -518,7 +527,7 @@ models.
    ```bash
    export HF_HOME=/workspace/.cache/huggingface
    # For a HuggingFace model (vLLM-compatible):
-   pip install huggingface_hub
+   pip install uv && uv pip install --system huggingface_hub
    huggingface-cli download <org>/<model-name>
    # Example: huggingface-cli download meta-llama/Llama-3-8B-Instruct
    ```
