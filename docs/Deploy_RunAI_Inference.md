@@ -11,9 +11,9 @@ The three services:
 | **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.25 | 8080 |
 | **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
 
-All three mount the existing `shared-model-repository` data source (a
-PVC that already contains Qwen model weights) and run on a single
-physical GPU using RunAI's fractional GPU allocation.
+All three mount the `shared-models` **Data Volume** (read-only access to
+the PVC that contains model weights, code, and the vector index) and run
+on a single physical GPU using RunAI's fractional GPU allocation.
 
 All steps below use the **RunAI web UI only** — no CLI tools required.
 
@@ -104,24 +104,32 @@ The Streamlit app gets `0` GPU — just CPU and RAM.
 
 ## How Data Sharing Works (PVC)
 
-All workloads share data through the **`shared-model-repository`** data
-source — a PVC (Persistent Volume Claim) that already exists on your
-cluster. Think of it as a shared network drive that any job can mount.
+All workloads share data through a single PVC that already exists on
+your cluster. It's exposed in two ways:
+
+| Name | Type | Access | Used by |
+|------|------|--------|---------|
+| `shared-model-repository` | **Data Source** | Read-write | Step 0 Workspace only (downloads models, clones repo, builds index) |
+| `shared-models` | **Data Volume** | **Read-only** | Inference jobs (vLLM, embedding server, Streamlit) |
+
+Same underlying PVC, two access levels. Think of the Data Source as the
+admin door and the Data Volume as the user door.
 
 ```
-shared-model-repository  (PVC — already exists on your cluster)
+shared-model-repository PVC
      │
-     ├── Workspace mounts at /workspace  → you clone repo + build index here
-     ├── vLLM job mounts at /workspace   → reads model weights from cache
-     ├── Embedding job mounts /workspace  → reads Jina V4 weights from cache
-     └── Streamlit job mounts /workspace  → reads vector DB + code
+     ├── Workspace mounts via Data Source (RW) → setup: clone repo, download models, build index
+     ├── vLLM mounts via Data Volume (RO)      → reads model weights from cache
+     ├── Embedding mounts via Data Volume (RO)  → reads Jina V4 weights from cache
+     └── Streamlit mounts via Data Volume (RO)  → reads vector DB + code
 ```
 
 **Key points:**
-- `shared-model-repository` already exists (visible under **Assets** >
-  **Data Sources** in the RunAI UI) — no need to create a new PVC
-- Every workload you create can attach this same data source
-- Files written by one job are immediately visible to all others
+- Both `shared-model-repository` (Data Source) and `shared-models`
+  (Data Volume) already exist — no need to create anything new
+- The Data Volume is **read-only**, so inference jobs can't accidentally
+  modify model weights or the vector index
+- Only the setup Workspace (Step 0) uses the read-write Data Source
 - Data persists even when jobs are stopped or deleted
 - The Workspace does NOT need to be running for Inference jobs to read
   its files
@@ -148,8 +156,8 @@ and **Data Volumes**. You'll notice `shared-model-repository` appears in
   top of that same PVC. When other projects mount the Data Volume, they
   get **read-only** access.
 
-Same PVC, two views. We attach the **Data Source** version (read-write)
-so our workloads can write model weights, clone repos, and build indexes.
+Same PVC, two views. Only the setup Workspace (Step 0) uses the Data
+Source (read-write). All inference jobs use the Data Volume (read-only).
 
 ### Access control: who can modify the shared PVC?
 
@@ -347,7 +355,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `4` |
 | Memory | `16Gi` |
 | Port | `8000` |
-| Data Sources | `shared-model-repository` (mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -361,8 +369,9 @@ python -m vllm.entrypoints.openai.api_server \
 |-----|-------|
 | `HF_HOME` | `/workspace/.cache/huggingface` |
 
-Qwen 7B weights are already on `shared-model-repository` — vLLM loads
-them from the HF cache on startup (no download needed).
+Qwen 7B weights are already on the PVC — vLLM loads them from the HF
+cache on startup (no download needed). The Data Volume is read-only,
+so vLLM can't accidentally modify or delete weights.
 
 **Verify (from any other pod's terminal):**
 ```bash
@@ -383,7 +392,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `2` |
 | Memory | `8Gi` |
 | Port | `8080` |
-| Data Sources | `shared-model-repository` (mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
 
 **Command:**
 ```bash
@@ -401,8 +410,8 @@ python scripts/embedding_server.py
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-Jina V4 weights are already on `shared-model-repository` (downloaded in
-Step 0b). The model takes ~30 seconds to load before it starts serving.
+Jina V4 weights are already on the PVC (downloaded in Step 0b). The
+model takes ~30 seconds to load before it starts serving.
 
 **Verify:**
 ```bash
@@ -424,7 +433,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `1` |
 | Memory | `2Gi` |
 | Port | `8501` |
-| Data Sources | `shared-model-repository` (mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
 
 **Command:**
 ```bash
