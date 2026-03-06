@@ -76,11 +76,11 @@ CPU and RAM.
 
 ### Alternatives considered
 
-| Option | Pros | Cons |
-|--------|------|------|
-| Single Workspace job | Simple, interactive | Not persistent, no batching, wastes GPU on UI |
-| Two jobs (vLLM + app-with-embeddings) | Fewer moving parts | App needs GPU for Jina V4, can't use `python:3.11-slim` |
-| **Three jobs (chosen)** | Best resource efficiency, independent scaling | More services to configure |
+| Option | What's in each job | Pros | Cons |
+|--------|-------------------|------|------|
+| Single Workspace job | Everything in one process (LLM + embeddings + UI) | Simple | Not persistent, no batching, wastes GPU on UI |
+| Two jobs | **Job 1:** vLLM (LLM only) — **Job 2:** Streamlit + Jina V4 embeddings bundled together | Fewer moving parts | Job 2 needs GPU for Jina V4, can't use lightweight `python:3.11-slim` image |
+| **Three jobs (chosen)** | **Job 1:** vLLM (LLM) — **Job 2:** Jina V4 (embeddings) — **Job 3:** Streamlit (UI, CPU-only) | Best resource efficiency, independent scaling | More services to configure |
 
 ---
 
