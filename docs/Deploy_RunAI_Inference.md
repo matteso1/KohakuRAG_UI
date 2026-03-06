@@ -396,11 +396,18 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 **Command:**
 ```bash
+# Copy code to writable container filesystem (Data Volume is read-only)
+cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
+cd /tmp/KohakuRAG_UI && \
 pip install fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
-cd /workspace/KohakuRAG_UI && \
-pip install -e vendor/KohakuVault -e vendor/KohakuRAG && \
+pip install vendor/KohakuVault vendor/KohakuRAG && \
 python scripts/embedding_server.py
 ```
+
+> **Why copy to /tmp?** The Data Volume is read-only. `pip install`
+> (even non-editable) and KohakuVault's SQLite WAL mode both need to
+> write files alongside the source. Copying to `/tmp` gives a writable
+> workspace without needing write access to the shared PVC.
 
 **Environment variables:**
 | Key | Value |
@@ -437,9 +444,11 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 **Command:**
 ```bash
+# Copy code + vector DB to writable container filesystem (Data Volume is read-only)
+cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
+cd /tmp/KohakuRAG_UI && \
 pip install streamlit openai httpx numpy python-dotenv && \
-cd /workspace/KohakuRAG_UI && \
-pip install -e vendor/KohakuVault -e vendor/KohakuRAG && \
+pip install vendor/KohakuVault vendor/KohakuRAG && \
 streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
 ```
 
