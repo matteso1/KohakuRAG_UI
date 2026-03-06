@@ -2,24 +2,23 @@
 WattBot RAG — Streamlit App
 
 Interactive UI for querying the WattBot RAG pipeline.
-Supports local HuggingFace models (GPU), AWS Bedrock models (API),
-and remote vLLM + embedding server mode (RunAI / PowerEdge deployment).
 
-Launch (Bedrock — no GPU required):
-    streamlit run app.py -- --mode bedrock
+Supports two deployment modes:
+  - **local**  (default): HF models loaded directly on GPU in this process.
+  - **remote**: LLM served by vLLM, embeddings by a FastAPI server, both as
+    separate RunAI inference jobs. Set RAG_MODE=remote + service URLs.
 
-Launch (Local — requires GPU):
-    streamlit run app.py -- --mode local
+Launch (local):
+    streamlit run app.py
 
-Launch (Remote — vLLM + embedding server):
-    streamlit run app.py -- --mode remote
-
-If no --mode is given, defaults to "bedrock".
-The RAG_MODE environment variable can also set the mode (overrides CLI).
-When a GPU is detected, the sidebar offers a toggle to switch modes at runtime.
+Launch (remote — vLLM + embedding server):
+    RAG_MODE=remote \\
+    VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \\
+    VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \\
+    EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \\
+    streamlit run app.py
 """
 
-import argparse
 import asyncio
 import csv
 import gc
@@ -28,8 +27,6 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 import sys
 import time
 import traceback
@@ -41,25 +38,6 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# CLI argument parsing (works with `streamlit run app.py -- --mode bedrock`)
-# ---------------------------------------------------------------------------
-def _parse_run_mode() -> str:
-    """Parse --mode from CLI args or RAG_MODE env var.
-
-    Returns 'bedrock', 'local', or 'remote'.
-    RAG_MODE env var takes precedence over --mode CLI arg.
-    """
-    env_mode = os.environ.get("RAG_MODE", "").strip().lower()
-    if env_mode in ("bedrock", "local", "remote"):
-        return env_mode
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--mode", choices=["bedrock", "local", "remote"], default="bedrock")
-    args, _ = parser.parse_known_args()
-    return args.mode
-
-_CLI_MODE = _parse_run_mode()
-
-# ---------------------------------------------------------------------------
 # Path setup
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parent
@@ -68,33 +46,26 @@ sys.path.insert(0, str(_repo_root / "scripts"))
 
 from kohakurag import RAGPipeline
 from kohakurag.datastore import KVaultNodeStore
+from kohakurag.embeddings import JinaV4EmbeddingModel
+from kohakurag.llm import HuggingFaceLocalChatModel
 from kohakurag.pipeline import LLMQueryPlanner, SimpleQueryPlanner
 
-# Conditional imports — local-mode deps may not be installed in bedrock envs
-_HAS_LOCAL_DEPS = False
+# Remote inference clients (vLLM + embedding server)
 try:
-    from kohakurag.embeddings import JinaV4EmbeddingModel
-    from kohakurag.llm import HuggingFaceLocalChatModel
-    _HAS_LOCAL_DEPS = True
+    from kohakurag.remote import RemoteEmbeddingModel, VLLMChatModel
+    REMOTE_AVAILABLE = True
 except ImportError:
-    JinaV4EmbeddingModel = None  # type: ignore[assignment,misc]
-    HuggingFaceLocalChatModel = None  # type: ignore[assignment,misc]
+    REMOTE_AVAILABLE = False
 
-_HAS_BEDROCK_DEPS = False
-try:
-    from llm_bedrock import BedrockChatModel, BedrockEmbeddingModel
-    _HAS_BEDROCK_DEPS = True
-except ImportError:
-    BedrockChatModel = None  # type: ignore[assignment,misc]
-    BedrockEmbeddingModel = None  # type: ignore[assignment,misc]
-
-_HAS_REMOTE_DEPS = False
-try:
-    from kohakurag.remote import VLLMChatModel, RemoteEmbeddingModel
-    _HAS_REMOTE_DEPS = True
-except ImportError:
-    VLLMChatModel = None  # type: ignore[assignment,misc]
-    RemoteEmbeddingModel = None  # type: ignore[assignment,misc]
+# ---------------------------------------------------------------------------
+# Mode detection from environment
+# ---------------------------------------------------------------------------
+RAG_MODE = os.environ.get("RAG_MODE", "local")  # "local" or "remote"
+VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+VLLM_MAX_TOKENS = int(os.environ.get("VLLM_MAX_TOKENS", "512"))
+VLLM_TEMPERATURE = float(os.environ.get("VLLM_TEMPERATURE", "0.2"))
+EMBEDDING_SERVICE_URL = os.environ.get("EMBEDDING_SERVICE_URL", "http://localhost:8080")
 
 # ---------------------------------------------------------------------------
 # Prompts (shared with run_experiment.py)
@@ -181,48 +152,6 @@ VRAM_4BIT_GB = {
 EMBEDDER_OVERHEAD_GB = 3  # Jina V4 embedder + store + misc
 PRECISION_MULTIPLIER = {"4bit": 1.0, "bf16": 4.0, "fp16": 4.0, "auto": 4.0}
 
-# Approximate Bedrock pricing ($/M tokens).  Keyed by model-ID prefix so
-# versioned IDs like "...v2:0" still match.  Prices are for cross-region
-# inference profiles (us.*) as of 2025-Q2.
-BEDROCK_PRICING: dict[str, tuple[float, float]] = {
-    # (input $/M tokens, output $/M tokens)
-    "us.anthropic.claude-3-haiku":       (0.25,  1.25),
-    "us.anthropic.claude-3-5-haiku":     (0.80,  4.00),
-    "us.anthropic.claude-3-5-sonnet":    (3.00, 15.00),
-    "us.anthropic.claude-3-7-sonnet":    (3.00, 15.00),
-    "us.meta.llama3-3-70b":              (0.72,  0.72),
-    "us.meta.llama4-scout":              (0.17,  0.17),
-    "us.meta.llama4-maverick":           (0.20,  0.60),
-    "us.amazon.nova-pro":                (0.80,  3.20),
-    "us.deepseek.r1":                    (1.35,  5.40),
-}
-
-
-def _get_bedrock_cost(model_id: str, input_tokens: int, output_tokens: int) -> float | None:
-    """Estimate USD cost for a Bedrock call. Returns None if pricing unknown."""
-    for prefix, (inp_price, out_price) in BEDROCK_PRICING.items():
-        if model_id.startswith(prefix):
-            return (input_tokens * inp_price + output_tokens * out_price) / 1_000_000
-    return None
-
-
-def _get_pipeline_token_usage(pipeline: "RAGPipeline") -> tuple[int, int, str]:
-    """Extract token usage from a pipeline's chat model.
-
-    Returns (input_tokens, output_tokens, model_id).
-    """
-    chat = pipeline._chat
-    if hasattr(chat, "token_usage"):
-        return chat.token_usage.input_tokens, chat.token_usage.output_tokens, getattr(chat, "_model_id", "")
-    return 0, 0, ""
-
-
-def _reset_pipeline_token_usage(pipeline: "RAGPipeline") -> None:
-    """Reset accumulated token counts before a new query."""
-    chat = pipeline._chat
-    if hasattr(chat, "token_usage"):
-        chat.token_usage.reset()
-
 # ---------------------------------------------------------------------------
 # Metadata URL lookup  (ref_id → URL from metadata.csv)
 # ---------------------------------------------------------------------------
@@ -253,20 +182,9 @@ def _debug(msg: str) -> None:
     print(f"[DEBUG] {msg}", flush=True)
 
 
-def discover_configs(provider: str = "local") -> dict[str, Path]:
-    """Find config files and return {display_name: path}.
-
-    Args:
-        provider: "local" for hf_*.py, "bedrock" for bedrock_*.py, "all" for both.
-    """
-    if provider == "bedrock":
-        return {p.stem: p for p in sorted(CONFIGS_DIR.glob("bedrock_*.py"))}
-    elif provider == "all":
-        hf = {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
-        br = {p.stem: p for p in sorted(CONFIGS_DIR.glob("bedrock_*.py"))}
-        return {**hf, **br}
-    else:
-        return {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
+def discover_configs() -> dict[str, Path]:
+    """Find all hf_*.py config files and return {display_name: path}."""
+    return {p.stem: p for p in sorted(CONFIGS_DIR.glob("hf_*.py"))}
 
 
 def load_config(config_path: Path) -> dict:
@@ -282,9 +200,6 @@ def load_config(config_path: Path) -> dict:
         "max_retries", "max_concurrent",
         "embedding_model", "embedding_dim", "embedding_task", "embedding_model_id",
         "hf_model_id", "hf_dtype", "hf_max_new_tokens", "hf_temperature",
-        # Bedrock-specific keys
-        "bedrock_model", "bedrock_region", "bedrock_profile",
-        "bedrock_embedding_model",
     ]:
         if hasattr(module, key):
             config[key] = getattr(module, key)
@@ -455,220 +370,62 @@ def init_ensemble_parallel(config_names: tuple[str, ...], precision: str) -> dic
 
 
 @st.cache_resource(show_spinner="Loading embedder and vector store...")
-def init_shared_only() -> tuple:
+def init_shared_only() -> tuple[JinaV4EmbeddingModel, KVaultNodeStore]:
     """Load only the embedder + store (for sequential ensemble). Cached."""
     ref_config = load_config(next(CONFIGS_DIR.glob("hf_*.py")))
     return _load_shared_resources(ref_config)
 
 
 # ---------------------------------------------------------------------------
-# Bedrock pipeline init
+# Remote pipeline init (vLLM + embedding server)
 # ---------------------------------------------------------------------------
-def _load_bedrock_shared_resources(
-    config: dict, aws_profile: str | None = None, aws_region: str = "us-east-2",
-) -> tuple:
-    """Load embedder and vector store for a Bedrock config."""
-    embedding_dim = config.get("embedding_dim", 1024)
-    db_raw = config.get("db", "data/embeddings/wattbot_titan_v2.db")
-    db_path = _repo_root / db_raw.removeprefix("../").removeprefix("../")
-    table_prefix = config.get("table_prefix", "wattbot_tv2")
-
-    emb_model = config.get("embedding_model", "bedrock")
-    if emb_model == "bedrock":
-        embedder = BedrockEmbeddingModel(
-            model_id=config.get("bedrock_embedding_model", "amazon.titan-embed-text-v2:0"),
-            profile_name=aws_profile,
-            region_name=aws_region,
-            dimensions=embedding_dim,
-        )
-    else:
-        # Bedrock LLM but local Jina V4 embeddings (GPU server scenario)
-        embedder = JinaV4EmbeddingModel(
-            task=config.get("embedding_task", "retrieval"),
-            truncate_dim=embedding_dim,
-        )
-
-    _debug(
-        f"Loading Bedrock shared resources:\n"
-        f"  db_path       = {db_path} (exists={db_path.exists()})\n"
-        f"  table_prefix  = {table_prefix}\n"
-        f"  embedding_dim = {embedding_dim}\n"
-        f"  embedding     = {emb_model}"
-    )
-
-    store = KVaultNodeStore(
-        db_path,
-        table_prefix=table_prefix,
-        dimensions=embedding_dim,
-        paragraph_search_mode="averaged",
-    )
-    return embedder, store
-
-
-def _load_bedrock_chat_model(
-    config: dict, aws_profile: str | None = None, aws_region: str = "us-east-2",
-) -> "BedrockChatModel":
-    """Create a BedrockChatModel from config."""
-    return BedrockChatModel(
-        model_id=config.get("bedrock_model", "us.anthropic.claude-3-haiku-20240307-v1:0"),
-        profile_name=aws_profile,
-        region_name=aws_region,
-        system_prompt=SYSTEM_PROMPT,
-        max_tokens=config.get("hf_max_new_tokens", 4096),
-        max_retries=config.get("max_retries", 5),
-        max_concurrent=config.get("max_concurrent", 5),
-    )
-
-
-@st.cache_resource(show_spinner="Connecting to AWS Bedrock...")
-def init_bedrock_pipeline(
-    config_name: str, aws_profile: str | None = None, aws_region: str = "us-east-2",
+@st.cache_resource(show_spinner="Connecting to remote inference services...")
+def init_remote_pipeline(
+    vllm_url: str,
+    vllm_model: str,
+    embedding_url: str,
+    max_tokens: int = 512,
+    temperature: float = 0.2,
 ) -> RAGPipeline:
-    """Load a single Bedrock-backed pipeline. Cached across reruns."""
-    config = load_config(CONFIGS_DIR / f"{config_name}.py")
-    embedder, store = _load_bedrock_shared_resources(config, aws_profile, aws_region)
-    chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
-    return RAGPipeline(store=store, embedder=embedder, chat_model=chat_model, planner=None)
+    """Create a pipeline backed by remote vLLM and embedding services.
 
-
-@st.cache_resource(show_spinner="Connecting ensemble models to Bedrock...")
-def init_bedrock_ensemble_parallel(
-    config_names: tuple[str, ...],
-    aws_profile: str | None = None,
-    aws_region: str = "us-east-2",
-) -> dict[str, RAGPipeline]:
-    """Load all Bedrock ensemble models. Cached."""
-    ref_config = load_config(CONFIGS_DIR / f"{config_names[0]}.py")
-    embedder, store = _load_bedrock_shared_resources(ref_config, aws_profile, aws_region)
-
-    pipelines = {}
-    for name in config_names:
-        config = load_config(CONFIGS_DIR / f"{name}.py")
-        chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
-        pipelines[name] = RAGPipeline(
-            store=store, embedder=embedder, chat_model=chat_model, planner=None,
-        )
-    return pipelines
-
-
-@st.cache_resource(show_spinner="Loading Bedrock embedder and vector store...")
-def init_bedrock_shared_only(
-    aws_profile: str | None = None, aws_region: str = "us-east-2",
-) -> tuple:
-    """Load only embedder + store for sequential Bedrock ensemble. Cached."""
-    ref_config = load_config(next(CONFIGS_DIR.glob("bedrock_*.py")))
-    return _load_bedrock_shared_resources(ref_config, aws_profile, aws_region)
-
-
-def run_bedrock_ensemble_sequential_query(
-    config_names: list[str],
-    question: str,
-    top_k: int,
-    aws_profile: str | None = None,
-    aws_region: str = "us-east-2",
-    progress_callback=None,
-    best_guess: bool = False,
-    max_retries: int = 0,
-    use_planner: bool = False,
-    planner_queries: int = 3,
-) -> dict[str, object]:
-    """Query Bedrock models one at a time (sequential ensemble)."""
-    embedder, store = init_bedrock_shared_only(aws_profile, aws_region)
-    results = {}
-
-    for i, name in enumerate(config_names):
-        if progress_callback:
-            progress_callback(i, len(config_names), name)
-
-        config = load_config(CONFIGS_DIR / f"{name}.py")
-        chat_model = _load_bedrock_chat_model(config, aws_profile, aws_region)
-        pipeline = RAGPipeline(
-            store=store, embedder=embedder, chat_model=chat_model, planner=None,
-        )
-        _apply_planner(pipeline, use_planner, planner_queries)
-
-        _reset_pipeline_token_usage(pipeline)
-        t0 = time.time()
-        result = _run_qa_sync(
-            pipeline, question, top_k,
-            best_guess=best_guess, max_retries=max_retries,
-        )
-        elapsed = time.time() - t0
-        inp_tok, out_tok, mid = _get_pipeline_token_usage(pipeline)
-        cost = _get_bedrock_cost(mid, inp_tok, out_tok)
-        results[name] = {
-            "result": result, "time": elapsed,
-            "cost_info": {"input_tokens": inp_tok, "output_tokens": out_tok,
-                          "model_id": mid, "cost": cost},
-        }
-
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Remote (vLLM + embedding server) pipeline init
-# ---------------------------------------------------------------------------
-def _load_remote_shared_resources(
-    config: dict,
-    embedding_url: str = "http://localhost:8080",
-) -> tuple:
-    """Load remote embedder and local vector store for remote mode.
-
-    The vector store (SQLite) is read from local disk / PVC — only the
-    embedding model and LLM are remote services.
+    The vector store (SQLite) is still read locally — only the LLM and
+    embedding model run on separate GPU pods.
     """
-    embedding_dim = config.get("embedding_dim", 1024)
-    db_raw = config.get("db", "data/embeddings/wattbot_jinav4.db")
-    db_path = _repo_root / db_raw.removeprefix("../").removeprefix("../")
-    table_prefix = config.get("table_prefix", "wattbot_jv4")
+    if not REMOTE_AVAILABLE:
+        raise ImportError(
+            "Remote mode requires 'openai' and 'httpx' packages. "
+            "Install with: pip install openai httpx"
+        )
 
-    _debug(
-        f"Loading remote shared resources:\n"
-        f"  db_path        = {db_path} (exists={db_path.exists()})\n"
-        f"  table_prefix   = {table_prefix}\n"
-        f"  embedding_dim  = {embedding_dim}\n"
-        f"  embedding_url  = {embedding_url}"
-    )
-
-    embedder = RemoteEmbeddingModel(base_url=embedding_url)
-
-    store = KVaultNodeStore(
-        db_path,
-        table_prefix=table_prefix,
-        dimensions=embedding_dim,
-        paragraph_search_mode="averaged",
-    )
-    return embedder, store
-
-
-def _load_remote_chat_model(
-    config: dict,
-    vllm_url: str = "http://localhost:8000/v1",
-    vllm_model: str = "default",
-) -> "VLLMChatModel":
-    """Create a VLLMChatModel from config + remote URL."""
-    return VLLMChatModel(
+    _debug(f"Connecting to vLLM at {vllm_url} (model={vllm_model})")
+    chat_model = VLLMChatModel(
         base_url=vllm_url,
         model=vllm_model,
         system_prompt=SYSTEM_PROMPT,
-        max_tokens=config.get("hf_max_new_tokens", 512),
-        temperature=config.get("hf_temperature", 0.2),
-        max_concurrent=config.get("max_concurrent", 10),
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
 
+    _debug(f"Connecting to embedding server at {embedding_url}")
+    embedder = RemoteEmbeddingModel(base_url=embedding_url)
 
-@st.cache_resource(show_spinner="Connecting to remote vLLM server...")
-def init_remote_pipeline(
-    config_name: str,
-    vllm_url: str = "http://localhost:8000/v1",
-    vllm_model: str = "default",
-    embedding_url: str = "http://localhost:8080",
-) -> RAGPipeline:
-    """Load a remote-backed pipeline (vLLM + embedding server). Cached."""
-    config = load_config(CONFIGS_DIR / f"{config_name}.py")
-    embedder, store = _load_remote_shared_resources(config, embedding_url)
-    chat_model = _load_remote_chat_model(config, vllm_url, vllm_model)
-    return RAGPipeline(store=store, embedder=embedder, chat_model=chat_model, planner=None)
+    # Vector store is local (lightweight SQLite reads, no GPU needed)
+    db_path = _repo_root / "data" / "embeddings" / "wattbot_jinav4.db"
+    table_prefix = "wattbot_jv4"
+    embedding_dim = embedder.dimension
+
+    _debug(f"Opening local vector store: {db_path}")
+    store = KVaultNodeStore(
+        db_path,
+        table_prefix=table_prefix,
+        dimensions=embedding_dim,
+        paragraph_search_mode="averaged",
+    )
+
+    return RAGPipeline(
+        store=store, embedder=embedder, chat_model=chat_model, planner=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -873,307 +630,113 @@ def _detect_gpu_available() -> bool:
         return False
 
 
-def _check_aws_credentials(
-    profile_name: str | None, region_name: str,
-) -> tuple[bool, str]:
-    """Verify AWS credentials are valid before using Bedrock.
-
-    Returns (ok, message). If *ok* is False the message explains the
-    problem and what command to run.
-    """
-    try:
-        import boto3
-        session = boto3.Session(
-            profile_name=profile_name,
-            region_name=region_name,
-        )
-        sts = session.client("sts")
-        identity = sts.get_caller_identity()
-        account = identity.get("Account", "")
-        return True, f"AWS OK (account {account})"
-    except Exception as exc:
-        msg = str(exc)
-        if "Token has expired" in msg or "refresh failed" in msg:
-            return False, "AWS SSO session expired — please re-login."
-        if "NoCredentialProviders" in msg or "Unable to locate credentials" in msg:
-            if profile_name:
-                return False, (
-                    f"No valid credentials for profile **{profile_name}**. "
-                    "Please login first."
-                )
-            return False, (
-                "No AWS credentials found. Set the **AWS profile** field above, "
-                "or configure environment variables."
-            )
-        if "InvalidClientTokenId" in msg or "SignatureDoesNotMatch" in msg:
-            return False, "AWS credentials are invalid. Re-configure your SSO profile."
-        return False, f"AWS credential check failed: {msg}"
-
-
-def _run_sso_login(profile_name: str | None) -> tuple[bool, str]:
-    """Run ``aws sso login`` and return (success, output).
-
-    Opens a browser for authentication.  Blocks until the user completes
-    the flow or the 5-minute timeout expires.
-    """
-    if not shutil.which("aws"):
-        return False, (
-            "The `aws` CLI is not installed or not on PATH.\n"
-            "Install it from https://docs.aws.amazon.com/cli/latest/userguide/"
-            "getting-started-install.html"
-        )
-    cmd = ["aws", "sso", "login"]
-    if profile_name:
-        cmd += ["--profile", profile_name]
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300,
-        )
-        output = (proc.stdout + "\n" + proc.stderr).strip()
-        if proc.returncode == 0:
-            return True, output
-        return False, output or "Login process exited with an error."
-    except subprocess.TimeoutExpired:
-        return False, "Login timed out after 5 minutes. Please try again."
-    except Exception as exc:
-        return False, str(exc)
-
 
 def main():
     st.set_page_config(page_title="WattBot RAG", page_icon="lightning", layout="wide")
     st.title("WattBot RAG Pipeline")
 
-    # Determine effective run mode (CLI default + optional sidebar toggle)
-    gpu_available = _detect_gpu_available()
+    is_remote = RAG_MODE == "remote"
 
-    # ---- Sidebar ----
-    with st.sidebar:
-        st.header("Settings")
+    # ---- Remote mode: simplified sidebar ----
+    if is_remote:
+        mode = "Single model"  # vLLM serves one model
+        precision = "auto"     # handled by vLLM
+        ensemble_strategy = None
+        selected_configs = []  # not used in remote mode
+        gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
 
-        # --- Provider mode selection ---
-        # Build list of available providers
-        available_providers = []
-        if _HAS_BEDROCK_DEPS:
-            available_providers.append("bedrock")
-        if _HAS_LOCAL_DEPS and gpu_available:
-            available_providers.append("local")
-        if _HAS_REMOTE_DEPS:
-            available_providers.append("remote")
-        if not available_providers:
-            # Fallback: always allow bedrock as an option
-            available_providers.append("bedrock")
+        with st.sidebar:
+            st.header("Settings")
+            st.caption(f"**Remote mode** — vLLM + embedding server")
+            st.caption(f"LLM: `{VLLM_MODEL}`")
+            st.caption(f"vLLM: `{VLLM_BASE_URL}`")
+            st.caption(f"Embeddings: `{EMBEDDING_SERVICE_URL}`")
 
-        if _CLI_MODE == "remote" and _HAS_REMOTE_DEPS:
-            default_provider = "remote"
-        elif _CLI_MODE == "local" and _HAS_LOCAL_DEPS:
-            default_provider = "local"
-        else:
-            default_provider = "bedrock"
-
-        if len(available_providers) > 1:
-            provider_labels = {
-                "bedrock": "AWS Bedrock (API)",
-                "local": "Local GPU (HuggingFace)",
-                "remote": "Remote vLLM (RunAI)",
-            }
-            provider = st.radio(
-                "Backend",
-                [p for p in ["bedrock", "local", "remote"] if p in available_providers],
-                format_func=lambda p: provider_labels.get(p, p),
-                index=([p for p in ["bedrock", "local", "remote"] if p in available_providers].index(default_provider)
-                       if default_provider in available_providers else 0),
-                horizontal=True,
-            )
-        else:
-            provider = default_provider if default_provider in available_providers else available_providers[0]
-
-        is_bedrock = provider == "bedrock"
-        is_remote = provider == "remote"
-
-        if is_bedrock:
-            st.caption("Backend: **AWS Bedrock** (API)")
-        elif is_remote:
-            st.caption("Backend: **Remote vLLM** (RunAI inference)")
-        else:
-            st.caption("Backend: **Local HuggingFace** (GPU)")
-
-        # --- Setup Bedrock section (bedrock mode only) ---
-        if is_bedrock:
             st.divider()
-            st.subheader("Setup Bedrock")
-            if not _HAS_BEDROCK_DEPS:
-                st.error(
-                    "Bedrock dependencies not installed. Run:\n\n"
-                    "```\npip install -r bedrock_requirements.txt\n```"
-                )
-                return
-            aws_profile = st.text_input(
-                "AWS profile",
-                value=os.environ.get("AWS_PROFILE", ""),
+            top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
+            best_guess = st.toggle("Allow best-guess answers", value=False,
+                                   help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
+
+            st.divider()
+            st.subheader("Query planner & retries")
+            use_planner = st.toggle(
+                "Enable query planner", value=False,
                 help=(
-                    "Your AWS SSO profile name (e.g. bedrock_yourname). "
-                    "Leave blank to use environment variables or instance role."
+                    "Expands each question into multiple diverse search queries "
+                    "via the LLM for better retrieval coverage."
                 ),
             )
-            aws_region = st.text_input(
-                "AWS region",
-                value=os.environ.get("AWS_REGION", "us-east-2"),
-                help="AWS region where Bedrock models are enabled.",
-            )
-            # Normalize empty string to None for boto3
-            aws_profile = aws_profile.strip() or None
-
-            # --- Validate AWS credentials upfront ---
-            cred_ok, cred_msg = _check_aws_credentials(aws_profile, aws_region)
-            if not cred_ok:
-                st.error(cred_msg)
-                if st.button("Login to AWS SSO"):
-                    with st.spinner(
-                        "Waiting for browser authentication... "
-                        "Complete the login in your browser."
-                    ):
-                        ok, output = _run_sso_login(aws_profile)
-                    if ok:
-                        st.success("Logged in successfully!")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(output)
-                return
-            else:
-                st.caption(cred_msg)
-
-        # --- Setup Remote section (remote mode only) ---
-        if is_remote:
-            st.divider()
-            st.subheader("Remote Services")
-            if not _HAS_REMOTE_DEPS:
-                st.error(
-                    "Remote dependencies not installed. Run:\n\n"
-                    "```\npip install -r remote_requirements.txt\n```"
+            planner_queries = 3
+            if use_planner:
+                planner_queries = st.slider(
+                    "Planner queries", min_value=2, max_value=10, value=3,
+                    help="Number of diverse search queries the LLM generates per question.",
                 )
-                return
-            vllm_url = st.text_input(
-                "vLLM base URL",
-                value=os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1"),
-                help="OpenAI-compatible endpoint of your vLLM server (include /v1).",
-            )
-            vllm_model = st.text_input(
-                "vLLM model name",
-                value=os.environ.get("VLLM_MODEL", "default"),
-                help="Model ID served by vLLM (e.g. Qwen/Qwen2.5-7B-Instruct).",
-            )
-            embedding_url = st.text_input(
-                "Embedding server URL",
-                value=os.environ.get("EMBEDDING_SERVICE_URL", "http://localhost:8080"),
-                help="Base URL of the FastAPI embedding server.",
+            max_retries = st.number_input(
+                "Max retries", min_value=0, max_value=10, value=2,
+                help="Maximum retry attempts when the LLM response cannot be parsed.",
             )
 
-            # Quick health check on the remote services
-            if st.button("Check connectivity"):
-                import httpx as _hx
-                with st.spinner("Checking..."):
-                    checks = {}
-                    try:
-                        r = _hx.get(f"{vllm_url.rstrip('/').removesuffix('/v1')}/health", timeout=5)
-                        checks["vLLM"] = r.status_code == 200
-                    except Exception:
-                        checks["vLLM"] = False
-                    try:
-                        r = _hx.get(f"{embedding_url.rstrip('/')}/health", timeout=5)
-                        checks["Embedding"] = r.status_code == 200
-                    except Exception:
-                        checks["Embedding"] = False
-                for svc, ok in checks.items():
-                    if ok:
-                        st.caption(f"{svc}: **connected**")
-                    else:
-                        st.warning(f"{svc}: **unreachable**")
-
-        st.divider()
-        # Remote mode is single-model only (vLLM serves one model)
-        if is_remote:
-            mode = "Single model"
-        else:
-            mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
-
-        # --- Config discovery + model selection (right after Mode) ---
-        # Remote mode reuses local (hf_*) configs for DB path / embedding settings
-        config_provider = "local" if is_remote else provider
-        configs = discover_configs(config_provider)
+    # ---- Local mode: full sidebar with model selection ----
+    else:
+        configs = discover_configs()
         if not configs:
-            prefix = "bedrock_*" if is_bedrock else "hf_*"
-            st.error(f"No {prefix}.py config files found in vendor/KohakuRAG/configs/")
+            st.error("No HF config files found in vendor/KohakuRAG/configs/")
             return
 
-        config_list = list(configs.keys())
-
-        if mode == "Single model":
-            if is_bedrock:
-                default_key = "bedrock_deepseek_v3"
-            else:
-                default_key = "hf_qwen7b"
-            default_idx = config_list.index(default_key) if default_key in config_list else 0
-            config_help = (
-                "Config selects the vector DB and embedding settings. "
-                "The LLM is served by your vLLM instance."
-            ) if is_remote else None
-            selected_config = st.selectbox(
-                "Model config", config_list, index=default_idx,
-                help=config_help,
-            )
-            selected_configs = [selected_config]
-            ensemble_strategy = None
-        else:
-            if is_bedrock:
-                default_models = ["bedrock_deepseek_v3", "bedrock_sonnet"]
-            else:
-                default_models = ["hf_qwen7b", "hf_llama3_8b"]
-            selected_configs = st.multiselect(
-                "Ensemble models (pick 2+)", config_list,
-                default=[m for m in default_models if m in config_list] or config_list[:2],
-            )
-            ensemble_strategy = st.selectbox(
-                "Aggregation", ["majority", "first_non_blank"],
-            )
-
-        # Precision only matters for local models
-        precision = "4bit"
-        if not is_bedrock and not is_remote:
+        with st.sidebar:
+            st.header("Settings")
+            mode = st.radio("Mode", ["Single model", "Ensemble"], horizontal=True)
             precision = st.selectbox("Precision", ["4bit", "bf16", "fp16", "auto"], index=0)
+            top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
+            best_guess = st.toggle("Allow best-guess answers", value=False,
+                                   help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
 
-        st.divider()
-        top_k = st.slider("Retrieved chunks (top_k)", min_value=1, max_value=20, value=8)
-        best_guess = st.toggle("Allow best-guess answers", value=False,
-                               help="When enabled, out-of-scope questions get a best-effort answer labelled as a guess.")
-
-        st.divider()
-        st.subheader("Query planner & retries")
-        use_planner = st.toggle(
-            "Enable query planner", value=False,
-            help=(
-                "Expands each question into multiple diverse search queries "
-                "via the LLM for better retrieval coverage."
-            ),
-        )
-        planner_queries = 3
-        if use_planner:
-            planner_queries = st.slider(
-                "Planner queries", min_value=2, max_value=10, value=3,
-                help="Number of diverse search queries the LLM generates per question.",
+            st.divider()
+            st.subheader("Query planner & retries")
+            use_planner = st.toggle(
+                "Enable query planner", value=False,
+                help=(
+                    "Expands each question into multiple diverse search queries "
+                    "via the LLM for better retrieval coverage."
+                ),
             )
-        max_retries = st.number_input(
-            "Max retries", min_value=0, max_value=10, value=2,
-            help="Maximum retry attempts when the LLM response cannot be parsed.",
-        )
-        st.caption(
-            "Tip: Disabling the query planner skips an extra LLM inference "
-            "call, and lowering retries caps worst-case wait time. Both "
-            "reduce end-to-end latency per question."
-        )
+            planner_queries = 3
+            if use_planner:
+                planner_queries = st.slider(
+                    "Planner queries", min_value=2, max_value=10, value=3,
+                    help="Number of diverse search queries the LLM generates per question.",
+                )
+            max_retries = st.number_input(
+                "Max retries", min_value=0, max_value=10, value=2,
+                help="Maximum retry attempts when the LLM response cannot be parsed.",
+            )
+            st.caption(
+                "Tip: Disabling the query planner skips an extra LLM inference "
+                "call, and lowering retries caps worst-case wait time. Both "
+                "reduce end-to-end latency per question."
+            )
 
-        # --- GPU / VRAM info (local mode only) ---
-        if provider == "local":
+            st.divider()
+            config_list = list(configs.keys())
+
+            if mode == "Single model":
+                default_idx = config_list.index("hf_qwen7b") if "hf_qwen7b" in config_list else 0
+                selected_config = st.selectbox("Model config", config_list, index=default_idx)
+                selected_configs = [selected_config]
+                ensemble_strategy = None
+            else:
+                selected_configs = st.multiselect(
+                    "Ensemble models (pick 2+)", config_list,
+                    default=["hf_qwen7b", "hf_llama3_8b"] if all(
+                        c in config_list for c in ["hf_qwen7b", "hf_llama3_8b"]
+                    ) else config_list[:2],
+                )
+                ensemble_strategy = st.selectbox(
+                    "Aggregation", ["majority", "first_non_blank"],
+                )
+
+            # GPU info
             st.divider()
             gpu_info = get_gpu_info()
             if gpu_info["gpu_count"] > 0:
@@ -1184,7 +747,6 @@ def main():
             else:
                 st.caption("No GPU detected")
 
-            # Ensemble VRAM plan
             if mode == "Ensemble" and len(selected_configs) >= 2:
                 plan = plan_ensemble(selected_configs, precision, gpu_info)
                 vram_list = [f"{n}: ~{v:.0f}GB" for n, v in
@@ -1196,60 +758,35 @@ def main():
                     st.caption("Strategy: **sequential** (load one at a time)")
                 else:
                     st.warning(plan["reason"])
-        elif is_remote:
-            # Remote mode — no local GPU needed
-            gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
-        else:
-            # Bedrock ensemble always runs parallel (API-based, no VRAM constraint)
-            gpu_info = {"gpu_count": 0, "gpus": [], "total_free_gb": 0}
-            if mode == "Ensemble" and len(selected_configs) >= 2:
-                st.divider()
-                st.caption("Strategy: **parallel** (API mode — no GPU needed)")
 
     # ---- Validate ensemble selection ----
-    if mode == "Ensemble" and len(selected_configs) < 2:
+    if not is_remote and mode == "Ensemble" and len(selected_configs) < 2:
         st.info("Select at least 2 models for ensemble mode.")
         return
 
     # ---- Load pipelines ----
     try:
         if is_remote:
-            # Remote (vLLM + embedding server) pipeline
             pipeline = init_remote_pipeline(
-                selected_configs[0], vllm_url, vllm_model, embedding_url,
+                VLLM_BASE_URL, VLLM_MODEL, EMBEDDING_SERVICE_URL,
+                max_tokens=VLLM_MAX_TOKENS, temperature=VLLM_TEMPERATURE,
             )
             _apply_planner(pipeline, use_planner, planner_queries)
-        elif is_bedrock:
-            # Bedrock pipelines
-            if mode == "Single model":
-                pipeline = init_bedrock_pipeline(
-                    selected_configs[0], aws_profile, aws_region,
-                )
-                _apply_planner(pipeline, use_planner, planner_queries)
-            elif mode == "Ensemble":
-                # Bedrock ensembles always run parallel (no VRAM constraint)
-                ensemble_pipelines = init_bedrock_ensemble_parallel(
-                    tuple(selected_configs), aws_profile, aws_region,
+        elif mode == "Single model":
+            pipeline = init_single_pipeline(selected_configs[0], precision)
+            _apply_planner(pipeline, use_planner, planner_queries)
+        elif mode == "Ensemble":
+            plan = plan_ensemble(selected_configs, precision, gpu_info)
+            if plan["mode"] == "error":
+                st.error(f"Cannot run ensemble: {plan['reason']}")
+                return
+            if plan["mode"] == "parallel":
+                ensemble_pipelines = init_ensemble_parallel(
+                    tuple(selected_configs), precision,
                 )
                 for _p in ensemble_pipelines.values():
                     _apply_planner(_p, use_planner, planner_queries)
-        else:
-            # Local pipelines
-            if mode == "Single model":
-                pipeline = init_single_pipeline(selected_configs[0], precision)
-                _apply_planner(pipeline, use_planner, planner_queries)
-            elif mode == "Ensemble":
-                plan = plan_ensemble(selected_configs, precision, gpu_info)
-                if plan["mode"] == "error":
-                    st.error(f"Cannot run ensemble: {plan['reason']}")
-                    return
-                if plan["mode"] == "parallel":
-                    ensemble_pipelines = init_ensemble_parallel(
-                        tuple(selected_configs), precision,
-                    )
-                    for _p in ensemble_pipelines.values():
-                        _apply_planner(_p, use_planner, planner_queries)
-                # sequential doesn't pre-load models (planner set inside query fn)
+            # sequential doesn't pre-load models (planner set inside query fn)
     except Exception as e:
         st.error(f"Failed to load pipeline: {e}")
         tb = traceback.format_exc()
@@ -1287,15 +824,8 @@ def main():
         with st.chat_message("assistant"):
             t0 = time.time()
 
-            if mode == "Single model":
-                spinner_msg = (
-                    "Querying Bedrock..." if is_bedrock
-                    else "Querying remote vLLM..." if is_remote
-                    else "Retrieving and generating..."
-                )
-                if is_bedrock:
-                    _reset_pipeline_token_usage(pipeline)
-                with st.spinner(spinner_msg):
+            if is_remote or mode == "Single model":
+                with st.spinner("Retrieving and generating..."):
                     try:
                         result = run_single_query(
                             pipeline, question, top_k,
@@ -1309,25 +839,11 @@ def main():
                             st.code(tb, language="python")
                         return
                 elapsed = time.time() - t0
-                cost_info = None
-                if is_bedrock:
-                    inp_tok, out_tok, model_id = _get_pipeline_token_usage(pipeline)
-                    cost = _get_bedrock_cost(model_id, inp_tok, out_tok)
-                    cost_info = {"input_tokens": inp_tok, "output_tokens": out_tok,
-                                 "model_id": model_id, "cost": cost}
-                _display_single_result(result, elapsed, cost_info=cost_info)
+                _display_single_result(result, elapsed)
 
-            else:  # Ensemble
+            else:  # Ensemble (local mode only)
                 try:
-                    is_sequential = (
-                        not is_bedrock
-                        and plan["mode"] == "sequential"
-                    )
-                    if is_bedrock and not is_sequential:
-                        # Reset token counters on all ensemble pipelines
-                        for _p in ensemble_pipelines.values():
-                            _reset_pipeline_token_usage(_p)
-                    if not is_sequential:
+                    if plan["mode"] == "parallel":
                         with st.spinner(
                             f"Querying {len(selected_configs)} models in parallel..."
                         ):
@@ -1361,22 +877,8 @@ def main():
                     return
 
                 elapsed = time.time() - t0
-                # Collect per-model cost info for bedrock ensembles
-                ensemble_cost_info = None
-                if is_bedrock and not is_sequential:
-                    ensemble_cost_info = {}
-                    for name, _p in ensemble_pipelines.items():
-                        inp_tok, out_tok, mid = _get_pipeline_token_usage(_p)
-                        cost = _get_bedrock_cost(mid, inp_tok, out_tok)
-                        ensemble_cost_info[name] = {
-                            "input_tokens": inp_tok, "output_tokens": out_tok,
-                            "model_id": mid, "cost": cost,
-                        }
                 agg = build_ensemble_answer(model_results, ensemble_strategy)
-                _display_ensemble_result(
-                    agg, model_results, elapsed, ensemble_strategy,
-                    cost_info=ensemble_cost_info,
-                )
+                _display_ensemble_result(agg, model_results, elapsed, ensemble_strategy)
 
 
 def _extract_confidence(raw_response: str) -> str:
@@ -1490,7 +992,7 @@ def _linkify_citations(
     return text
 
 
-def _display_single_result(result, elapsed: float, cost_info: dict | None = None):
+def _display_single_result(result, elapsed: float):
     """Display a single-model answer."""
     answer = result.answer
     timing = result.timing
@@ -1512,6 +1014,22 @@ def _display_single_result(result, elapsed: float, cost_info: dict | None = None
     if answer.answer_value and answer.answer_value != "is_blank":
         st.markdown(f"Value: `{answer.answer_value}`")
 
+    # Clickable reference links (shown directly, not inside an expander)
+    ref_ids = answer.ref_id
+    ref_urls = answer.ref_url
+    if ref_ids and ref_ids != "is_blank":
+        links = []
+        for i, rid in enumerate(ref_ids if isinstance(ref_ids, list) else [ref_ids]):
+            url = METADATA_URLS.get(rid)
+            if not url:
+                url = ref_urls[i] if isinstance(ref_urls, list) and i < len(ref_urls) else None
+            label = _humanize_ref_id(rid)
+            if url and url != "is_blank":
+                links.append(f"[{label}]({url})")
+            else:
+                links.append(label)
+        st.markdown("Sources: " + " · ".join(links))
+
     details = {
         "timing": timing,
         "elapsed": elapsed,
@@ -1524,8 +1042,6 @@ def _display_single_result(result, elapsed: float, cost_info: dict | None = None
         ],
         "raw_response": result.raw_response,
     }
-    if cost_info:
-        details["cost_info"] = cost_info
     _render_details(details)
 
     if answer.explanation and answer.explanation != "is_blank":
@@ -1541,7 +1057,6 @@ def _display_single_result(result, elapsed: float, cost_info: dict | None = None
 
 def _display_ensemble_result(
     agg: dict, model_results: dict, elapsed: float, strategy: str,
-    cost_info: dict | None = None,
 ):
     """Display aggregated ensemble answer + per-model breakdown."""
     linked_explanation = _linkify_citations(
@@ -1561,31 +1076,10 @@ def _display_ensemble_result(
     model_times = [e["time"] for e in model_results.values()]
     total_gen = sum(model_times)
 
-    # Merge cost_info from sequential results into the top-level dict
-    if cost_info is None:
-        cost_info = {}
-        for name, entry in model_results.items():
-            if "cost_info" in entry:
-                cost_info[name] = entry["cost_info"]
-
-    # Compute total estimated cost across all models
-    total_cost = None
-    if cost_info:
-        costs = [c["cost"] for c in cost_info.values() if c.get("cost") is not None]
-        if costs:
-            total_cost = sum(costs)
-
-    if total_cost is not None:
-        cols = st.columns(4)
-        cols[0].metric("Models", n_models)
-        cols[1].metric("Aggregation", strategy)
-        cols[2].metric("Total", f"{elapsed:.1f}s")
-        cols[3].metric("Est. cost", f"${total_cost:.4f}")
-    else:
-        cols = st.columns(3)
-        cols[0].metric("Models", n_models)
-        cols[1].metric("Aggregation", strategy)
-        cols[2].metric("Total", f"{elapsed:.1f}s")
+    cols = st.columns(3)
+    cols[0].metric("Models", n_models)
+    cols[1].metric("Aggregation", strategy)
+    cols[2].metric("Total", f"{elapsed:.1f}s")
 
     # Per-model answers
     with st.expander(f"Individual model answers ({n_models} models)"):
@@ -1594,11 +1088,8 @@ def _display_ensemble_result(
             marker = "+" if agreed else "-"
             val = info["answer_value"] if info["answer_value"] and info["answer_value"] != "is_blank" else "Out-of-scope"
             ans = info["answer"] if info["answer"] and info["answer"] != "is_blank" else "Out-of-scope"
-            cost_str = ""
-            if name in cost_info and cost_info[name].get("cost") is not None:
-                cost_str = f" · ${cost_info[name]['cost']:.4f}"
             st.markdown(
-                f"**{name}** ({info['time']:.1f}s{cost_str}) [{marker}]  \n"
+                f"**{name}** ({info['time']:.1f}s) [{marker}]  \n"
                 f"Answer: `{val}` — {ans}"
             )
             if info["explanation"] and info["explanation"] != "is_blank":
@@ -1678,19 +1169,11 @@ def _render_details(details: dict):
 
     timing = details.get("timing", {})
     elapsed = details.get("elapsed", 0)
-    cost_info = details.get("cost_info")
 
-    if cost_info and cost_info.get("cost") is not None:
-        cols = st.columns(4)
-        cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
-        cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
-        cols[2].metric("Total", f"{elapsed:.1f}s")
-        cols[3].metric("Est. cost", f"${cost_info['cost']:.4f}")
-    else:
-        cols = st.columns(3)
-        cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
-        cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
-        cols[2].metric("Total", f"{elapsed:.1f}s")
+    cols = st.columns(3)
+    cols[0].metric("Retrieval", f"{timing.get('retrieval_s', 0):.1f}s")
+    cols[1].metric("Generation", f"{timing.get('generation_s', 0):.1f}s")
+    cols[2].metric("Total", f"{elapsed:.1f}s")
 
     ref_ids = details.get("ref_id", [])
     ref_urls = details.get("ref_url", [])

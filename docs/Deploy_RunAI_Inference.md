@@ -1,241 +1,237 @@
-# Deploying WattBot RAG on RunAI (PowerEdge) — Split Inference Architecture
+# Deploying WattBot RAG on RunAI (Inference Jobs)
 
-This guide walks through deploying the WattBot RAG system as **three RunAI
-Inference workloads** on a PowerEdge server with shared GPU resources.
+Production deployment using 3 RunAI **Inference** workloads on a single
+GPU, with vLLM for high-throughput LLM serving.
+
+---
 
 ## Architecture Overview
 
+The system has two distinct phases that use embeddings differently:
+
+### Phase 1: Index Build (one-time, batch)
+
+Embeds all documents in the corpus into a vector database. This runs once
+(or when the corpus changes) and produces `wattbot_jinav4.db`.
+
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    RunAI Cluster (PowerEdge)                  │
-│                                                              │
-│  ┌─────────────────────┐   ┌────────────────────────┐       │
-│  │  Job 1: vLLM        │   │  Job 2: Embedding      │       │
-│  │  (Qwen 7B, 0.75 GPU)│   │  (Jina V4, 0.25 GPU)  │       │
-│  │  :8000/v1            │   │  :8080                 │       │
-│  └─────────┬───────────┘   └────────────┬───────────┘       │
-│            │                             │                    │
-│            │     HTTP (OpenAI API)       │   HTTP (REST)      │
-│            │                             │                    │
-│  ┌─────────┴─────────────────────────────┴───────────┐       │
-│  │            Job 3: Streamlit App (CPU only)         │       │
-│  │            :8501                                   │       │
-│  │  ┌──────────────────────────────────────────────┐ │       │
-│  │  │  Vector Store (SQLite on PVC) — read only    │ │       │
-│  │  └──────────────────────────────────────────────┘ │       │
-│  └───────────────────────────────────────────────────┘       │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │           PVC: /workspace/kohakurag                   │    │
-│  │  ├── repo/           (cloned code)                    │    │
-│  │  ├── data/           (vector DB, metadata)            │    │
-│  │  └── hf_cache/       (HuggingFace model weights)     │    │
-│  └──────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Index Build Job (Training or Workspace) │
+│                                          │
+│  Jina V4 model (loaded locally on GPU)   │
+│         │                                │
+│         ▼                                │
+│  data/corpus/*.json ──► wattbot_jinav4.db│
+│                         (written to PVC) │
+└──────────────────────────────────────────┘
 ```
 
-**Key idea:** The Streamlit app has **no GPU** — it makes HTTP calls to vLLM
-(for LLM inference) and to the embedding server (for query embedding). The
-vector store (SQLite DB) is read directly from the shared PVC.
+This is a **batch job** — it loads the full Jina V4 model, processes every
+document, writes the SQLite vector DB, and exits. Use a RunAI **Training**
+or **Workspace** workload for this.
+
+### Phase 2: Query Serving (always-on, 3 Inference jobs)
+
+Handles live user queries. The embedding server here only encodes the
+user's question (a few sentences) for vector search — it does NOT
+re-embed the corpus.
+
+```
+  Users (browser)
+       │
+       ▼
+┌─────────────────────┐
+│   Streamlit App     │  Inference job — CPU only, no GPU
+│   Port 8501         │  Reads wattbot_jinav4.db from PVC
+└────────┬────────────┘
+         │ HTTP (internal cluster DNS)
+   ┌─────┴──────┐
+   ▼            ▼
+┌──────────┐  ┌──────────────────────────────┐
+│  vLLM    │  │  Embedding Server            │
+│  Server  │  │  (query-time only)           │
+│  Port    │  │  Encodes user questions into │
+│  8000    │  │  vectors for DB lookup       │
+│  GPU     │  │  Port 8080, GPU ~0.25        │
+│  ~0.75   │  └──────────────────────────────┘
+└──────────┘
+```
+
+**Query flow:**
+1. User types a question in Streamlit
+2. Streamlit sends the question text to the **Embedding Server**
+3. Embedding Server returns a 1024-dim vector
+4. Streamlit searches the pre-built **vector DB** (local SQLite on PVC)
+5. Streamlit sends the question + retrieved context to **vLLM**
+6. vLLM returns the generated answer
+7. Streamlit displays the answer with citations
+
+**Why split it this way?**
+- **vLLM** gives continuous batching — 2-4x throughput vs raw HF
+- **Embedding server** encodes queries only (tiny workload), shares GPU
+- **Streamlit app** is CPU-only — just UI, HTTP calls, SQLite reads
+- The vector DB is **read-only** at query time
+
+---
 
 ## Prerequisites
 
-- RunAI cluster access on the PowerEdge server
-- A PVC (Persistent Volume Claim) provisioned and accessible to all jobs
-- HuggingFace model weights cached on the PVC (or internet access to download)
+1. **PVC** mounted at `/workspace` with the cloned repo and enough disk for model weights
+2. **HuggingFace token** for gated models: `export HF_TOKEN="hf_..."`
+3. **Internal DNS** for service discovery between RunAI jobs
 
-## Step 0: Build the Vector Index (One-Time)
+---
 
-Before deploying the always-on inference services, you need to build the
-vector index. This is a **batch operation** — run it once as a RunAI
-**Training** or **Workspace** job, not as an Inference job.
+## Step 0: Build the Vector Index (one-time)
 
-### What happens at index time
+Before deploying inference jobs, build the vector database.
 
-1. Load all source documents (PDFs, CSVs, etc.)
-2. Chunk them into passages
-3. Embed every passage using Jina V4 (GPU-accelerated)
-4. Store embeddings + metadata in a SQLite vector database
+**When to run:** First-time setup, or when corpus changes.
+**NOT needed when:** Changing LLM model, retrieval settings, or restarting jobs.
 
-### How to run the index build
+### From a Workspace (interactive)
 
 ```bash
-# SSH into a RunAI Workspace job with GPU, or submit a Training job:
-runai submit index-build \
-    --pvc kohakurag-pvc:/workspace \
-    --gpu 1 \
-    --image nvidia/cuda:12.4.1-devel-ubuntu22.04 \
-    --command -- bash -c "
-        cd /workspace/kohakurag/repo &&
-        pip install -e vendor/KohakuRAG &&
-        pip install -e vendor/KohakuVault &&
-        python -m kohakurag.cli build-index \
-            --config vendor/KohakuRAG/configs/hf_qwen7b.py
-    "
+cd /workspace/KohakuRAG_UI
+pip install -e vendor/KohakuVault -e vendor/KohakuRAG -r local_requirements.txt
+cd vendor/KohakuRAG
+kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
 ```
 
-The resulting SQLite database (e.g., `data/embeddings/wattbot_jinav4.db`)
-lives on the PVC and is read by the Streamlit app at query time.
+### As a Training job
 
-**Important:** The embedding model used at index time must match the one
-served at query time. Both default to `jinaai/jina-embeddings-v4` with
-`truncate_dim=1024`.
+| Field | Value |
+|-------|-------|
+| Image | `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` |
+| GPU | `0.25` |
+| PVC | `<your-pvc>:/workspace` |
+| Env | `HF_HOME=/workspace/.cache/huggingface` |
 
-## Step 1: Deploy the vLLM Server (GPU)
+---
 
-vLLM serves the LLM via an OpenAI-compatible API.
+## Step 1: Deploy the vLLM Server
 
+| Field | Value |
+|-------|-------|
+| Name | `wattbot-vllm` |
+| Image | `vllm/vllm-openai:latest` |
+| GPU | `0.75` |
+| Port | `8000` |
+| PVC | `<your-pvc>:/workspace` |
+
+**Command:**
 ```bash
-runai submit-inference wattbot-vllm \
-    --pvc kohakurag-pvc:/workspace \
-    --gpu 0.75 \
-    --image vllm/vllm-openai:latest \
-    --port 8000 \
-    --env HF_HOME=/workspace/kohakurag/hf_cache \
-    --command -- python -m vllm.entrypoints.openai.api_server \
-        --model Qwen/Qwen2.5-7B-Instruct \
-        --dtype auto \
-        --max-model-len 4096 \
-        --port 8000
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
 ```
 
-**Verify:**
+**Env:** `HF_HOME=/workspace/.cache/huggingface`
+
+**Verify:** `curl http://wattbot-vllm:8000/v1/models`
+
+---
+
+## Step 2: Deploy the Embedding Server
+
+| Field | Value |
+|-------|-------|
+| Name | `wattbot-embedding` |
+| Image | `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` |
+| GPU | `0.25` |
+| Port | `8080` |
+| PVC | `<your-pvc>:/workspace` |
+
+**Command:**
 ```bash
-curl http://wattbot-vllm:8000/v1/models
+pip install fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
+cd /workspace/KohakuRAG_UI && \
+pip install -e vendor/KohakuVault -e vendor/KohakuRAG && \
+python scripts/embedding_server.py
 ```
 
-## Step 2: Deploy the Embedding Server (GPU)
+**Env:**
+```
+HF_HOME=/workspace/.cache/huggingface
+EMBEDDING_MODEL=jinaai/jina-embeddings-v4
+EMBEDDING_DIM=1024
+EMBEDDING_TASK=retrieval
+```
 
-The FastAPI embedding server wraps Jina V4 for query-time embedding.
+**Verify:** `curl http://wattbot-embedding:8080/health`
 
+---
+
+## Step 3: Deploy the Streamlit App
+
+| Field | Value |
+|-------|-------|
+| Name | `wattbot-app` |
+| Image | `python:3.11-slim` |
+| GPU | none |
+| Port | `8501` |
+| PVC | `<your-pvc>:/workspace` |
+
+**Command:**
 ```bash
-runai submit-inference wattbot-embedding \
-    --pvc kohakurag-pvc:/workspace \
-    --gpu 0.25 \
-    --image nvidia/cuda:12.4.1-runtime-ubuntu22.04 \
-    --port 8080 \
-    --env HF_HOME=/workspace/kohakurag/hf_cache \
-    --env EMBEDDING_MODEL=jinaai/jina-embeddings-v4 \
-    --env EMBEDDING_DIM=1024 \
-    --env EMBEDDING_TASK=retrieval \
-    --command -- bash -c "
-        cd /workspace/kohakurag/repo &&
-        pip install -e vendor/KohakuRAG &&
-        pip install fastapi uvicorn &&
-        python scripts/embedding_server.py
-    "
+pip install streamlit openai httpx numpy python-dotenv && \
+cd /workspace/KohakuRAG_UI && \
+pip install -e vendor/KohakuVault -e vendor/KohakuRAG && \
+streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
 ```
 
-**Verify:**
-```bash
-curl http://wattbot-embedding:8080/health
-curl http://wattbot-embedding:8080/info
+**Env:**
+```
+RAG_MODE=remote
+VLLM_BASE_URL=http://wattbot-vllm:8000/v1
+VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080
 ```
 
-## Step 3: Deploy the Streamlit App (CPU Only)
-
-The Streamlit UI connects to the two GPU services over HTTP.
-
-```bash
-runai submit-inference wattbot-ui \
-    --pvc kohakurag-pvc:/workspace \
-    --gpu 0 \
-    --cpu 2 --memory 4Gi \
-    --image python:3.11-slim \
-    --port 8501 \
-    --env RAG_MODE=remote \
-    --env VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \
-    --env VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
-    --env EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \
-    --command -- bash -c "
-        cd /workspace/kohakurag/repo &&
-        pip install -r remote_requirements.txt &&
-        pip install -e vendor/KohakuVault &&
-        pip install -e vendor/KohakuRAG &&
-        streamlit run app.py \
-            --server.port=8501 \
-            --server.address=0.0.0.0 \
-            --server.headless=true
-    "
-```
-
-**Access:** Open `http://<runai-cluster>:8501` in your browser.
+---
 
 ## PVC Layout
 
 ```
-/workspace/kohakurag/
-├── repo/                          # git clone of KohakuRAG_UI
+/workspace/
+├── KohakuRAG_UI/
 │   ├── app.py
+│   ├── data/embeddings/wattbot_jinav4.db  ← built in Step 0
 │   ├── vendor/KohakuRAG/
-│   ├── vendor/KohakuVault/
-│   ├── scripts/embedding_server.py
-│   ├── data/
-│   │   ├── embeddings/wattbot_jinav4.db   ← vector index
-│   │   └── metadata.csv
-│   └── remote_requirements.txt
-└── hf_cache/                      # shared HuggingFace model cache
-    └── hub/
-        ├── models--Qwen--Qwen2.5-7B-Instruct/
-        └── models--jinaai--jina-embeddings-v4/
+│   └── scripts/embedding_server.py
+└── .cache/huggingface/hub/
+    ├── models--Qwen--Qwen2.5-7B-Instruct/
+    └── models--jinaai--jina-embeddings-v4/
 ```
 
-## Alternative: PVC-Based (No Docker Build)
+---
 
-All three commands above use the PVC-based approach — no custom Docker images
-needed. The code and model weights live on the PVC, and `pip install` runs
-at container startup. This is simpler for development but adds startup time.
+## Changing the LLM Model
 
-For production, build custom Docker images using the Dockerfiles in `deploy/`:
-- `deploy/Dockerfile.embedding` — embedding server with Jina V4 baked in
-- `deploy/Dockerfile.streamlit` — Streamlit app with lightweight deps
+1. Update vLLM job's `--model` argument
+2. Update Streamlit job's `VLLM_MODEL` env var
+3. Restart both jobs — no code changes needed
 
-## Environment Variables Reference
-
-| Variable | Used By | Default | Description |
-|---|---|---|---|
-| `RAG_MODE` | Streamlit | `bedrock` | Set to `remote` for vLLM mode |
-| `VLLM_BASE_URL` | Streamlit | `http://localhost:8000/v1` | vLLM OpenAI-compatible endpoint |
-| `VLLM_MODEL` | Streamlit | `default` | Model ID served by vLLM |
-| `EMBEDDING_SERVICE_URL` | Streamlit | `http://localhost:8080` | Embedding server base URL |
-| `EMBEDDING_MODEL` | Embedding server | `jinaai/jina-embeddings-v4` | HF model ID |
-| `EMBEDDING_DIM` | Embedding server | `1024` | Matryoshka truncation dimension |
-| `EMBEDDING_TASK` | Embedding server | `retrieval` | Jina task mode |
-| `HF_HOME` | vLLM, Embedding | system default | HuggingFace cache directory |
-
-## Query Flow
-
-When a user asks a question in the Streamlit UI:
-
-1. **Streamlit** sends the query text to the **Embedding Server** (`POST /embed`)
-2. **Embedding Server** returns a vector using Jina V4
-3. **Streamlit** searches the local SQLite vector DB (on PVC) for top-k similar passages
-4. **Streamlit** builds a prompt with the retrieved context and sends it to **vLLM** (`POST /v1/chat/completions`)
-5. **vLLM** returns the generated answer
-6. **Streamlit** displays the answer with citations
+---
 
 ## Troubleshooting
 
-### vLLM won't start / OOM
-- Check GPU memory allocation: `runai describe job wattbot-vllm`
-- Reduce `--max-model-len` or switch to a smaller model
-- Ensure `--gpu 0.75` leaves enough for the embedding server
+- **vLLM OOM:** Reduce `--max-model-len` or use `--quantization awq`
+- **Embedding server 503:** Model still loading (~30s on first request)
+- **Streamlit can't connect:** Check service DNS names and ports
+- **Vector DB not found:** Run Step 0 first
+- **Mismatch errors:** Ensure same `EMBEDDING_DIM=1024` at index and query time
 
-### Embedding server returns 503
-- Model is still loading (Jina V4 takes ~30s on first request)
-- Check logs: `runai logs wattbot-embedding`
+---
 
-### Streamlit shows "unreachable" for services
-- Verify service DNS names match your RunAI job names
-- Check that ports 8000 and 8080 are exposed
-- Test connectivity: `curl http://wattbot-vllm:8000/health` from the Streamlit pod
+## Local Development
 
-### Vector DB not found
-- Ensure you ran Step 0 (index build) first
-- Confirm the DB path in your config matches the PVC location
-- Check PVC mount: `ls /workspace/kohakurag/repo/data/embeddings/`
+```bash
+# Default — local GPU models
+streamlit run app.py
 
-### Index vs Query embedding mismatch
-- The **same model** (`jinaai/jina-embeddings-v4`) and **same dimension**
-  (`1024`) must be used at both index-build time and query time
-- If you re-index with different settings, restart the embedding server to match
+# Test remote mode locally
+# Terminal 1: python scripts/embedding_server.py
+# Terminal 2: python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B-Instruct
+# Terminal 3: RAG_MODE=remote streamlit run app.py
+```
