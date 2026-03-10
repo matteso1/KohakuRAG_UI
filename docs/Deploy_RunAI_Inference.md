@@ -1,19 +1,20 @@
 # Deploying WattBot RAG on RunAI (Inference Jobs)
 
-Production deployment using 3 RunAI **Inference** workloads on a single
-GPU, with vLLM for high-throughput LLM serving.
+Production deployment using 3 RunAI **Inference** workloads across
+1.5 GPUs (~90 GB), with vLLM for high-throughput LLM serving.
 
 | Job | What it does | GPU | Port |
 |-----|-------------|-----|------|
-| **`wattbot-vllm`** | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 0.75 | 8000 |
-| **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.25 | 8080 |
+| **`wattbot-vllm`** | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 1.0 | 8000 |
+| **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.5 | 8080 |
 | **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
 
-All three mount the `shared-models` **Data Volume** (read-only) and
-share one physical GPU via RunAI's fractional allocation. A one-time
-setup Workspace (Step 0) uses the `shared-model-repository` **Data
-Source** (read-write) to clone the repo, download Jina V4, and build
-the vector index.
+All three mount the shared model repository at `/models/` (read-only)
+and share one physical GPU via RunAI's fractional allocation. A one-time
+setup Workspace (Step 0) uses your personal workspace at
+`/home/jovyan/work/` (writable) to clone the repo, install
+dependencies, and build the vector index. Model weights (Qwen, Jina V4)
+are already pre-cached on the shared PVC — no downloads needed.
 
 ```
   Users (browser)
@@ -30,9 +31,9 @@ the vector index.
 │  vLLM    │  │  Embedding Server            │
 │  Server  │  │  Encodes user questions into │
 │  Port    │  │  vectors for DB lookup       │
-│  8000    │  │  Port 8080, GPU ~0.25        │
+│  8000    │  │  Port 8080, GPU ~0.5         │
 │  GPU     │  └──────────────────────────────┘
-│  ~0.75   │
+│  ~1.0    │
 └──────────┘
 ```
 
@@ -45,11 +46,19 @@ All steps below use the **RunAI web UI only** — no CLI tools required.
 
 ---
 
-## Step 0: Prepare the PVC (one-time setup)
+## Step 0: Prepare the Workspace (one-time setup)
 
-Before deploying anything, you need the repo, vector index, and Jina V4
-model weights on the shared PVC. Since RunAI has no file upload UI, the
-easiest approach is a **Workspace**.
+Before deploying the Inference jobs, you need the repo cloned,
+dependencies installed, and the vector index built. Model weights
+(Qwen 7B, Jina V4, and others) are **already pre-cached** on the
+shared PVC at `/models/.cache/huggingface/` — no downloads needed.
+
+### Cluster storage layout
+
+| Path | Access | Size | Purpose |
+|------|--------|------|---------|
+| `/models/` | **Read-only** (shared) | ~744 GB | Pre-cached model weights (Qwen, Jina V4, etc.) |
+| `/home/jovyan/work/` | **Read-write** (personal) | 30 GB | Your workspace — clone repos, install deps, build indexes here |
 
 ### 0a. Create a Workspace
 
@@ -60,51 +69,111 @@ In the RunAI UI:
    - **Name:** `wattbot-setup`
    - **Image:** `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime`
    - **GPU:** `0.25` (needed for index build)
-   - **Data Sources:** select `shared-model-repository`, mount at `/workspace`
-   - **Environment:** `HF_HOME=/workspace/.cache/huggingface`
+   - **Data Sources:** select `shared-model-repository`, mount at `/models`
+   - **Environment variables:**
+
+     | Key | Value |
+     |-----|-------|
+     | `HF_HOME` | `/home/jovyan/work/.cache/huggingface` |
+     | `HF_HUB_CACHE` | `/home/jovyan/work/.cache/huggingface/hub` |
+     | `TRANSFORMERS_CACHE` | `/home/jovyan/work/.cache/huggingface/hub` |
+
 3. Create the Workspace and wait for it to start
 4. Click **Connect** > open the **terminal** (JupyterLab or shell)
 
-### 0b. Download Jina V4 model weights
-
-Qwen 7B is already on the PVC. Jina V4 needs to be downloaded once:
+### 0b. Verify GPU and check shared models
 
 ```bash
-# Download Jina V4 to the shared HF cache
-pip install uv
-uv pip install --system sentence-transformers "transformers>=4.42,<5"
-python -c "
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('jinaai/jina-embeddings-v4', trust_remote_code=True)
-print('Jina V4 downloaded successfully')
-"
+# Verify GPU is available
+nvidia-smi --query-gpu=index,name,memory.total,memory.free \
+           --format=csv,noheader
 
-# Verify (~3 GB in the HF cache)
-du -sh /workspace/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4/
+# Confirm model weights are on the shared PVC
+ls /models/.cache/huggingface/ | grep models--
+# Should list: models--jinaai--jina-embeddings-v4,
+#              models--Qwen--Qwen2.5-7B-Instruct, etc.
 ```
 
-### 0c. Clone the repo and build the index
+### 0c. Set up cache directories
+
+The shared models PVC is **read-only**, so any new downloads or cache
+writes must go to your personal workspace:
 
 ```bash
-cd /workspace
+# Create cache directories on writable storage
+mkdir -p /home/jovyan/work/.cache/huggingface/hub
+mkdir -p /home/jovyan/work/.cache/pip
+mkdir -p /home/jovyan/work/.cache/uv
+mkdir -p /home/jovyan/work/tmp
+
+# Set environment variables (add to ~/.bashrc for persistence)
+export TMPDIR=/home/jovyan/work/tmp
+export UV_CACHE_DIR=/home/jovyan/work/.cache/uv
+export PIP_CACHE_DIR=/home/jovyan/work/.cache/pip
+export HF_HOME=/home/jovyan/work/.cache/huggingface
+export HF_HUB_CACHE=/home/jovyan/work/.cache/huggingface/hub
+export TRANSFORMERS_CACHE=/home/jovyan/work/.cache/huggingface/hub
+```
+
+### 0d. Clone the repo and install dependencies
+
+```bash
+cd /home/jovyan/work
 git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 
-# Install uv + dependencies (uv is ~10-100x faster than pip)
+# Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
-uv pip install --system -e vendor/KohakuVault -e vendor/KohakuRAG -r local_requirements.txt
 
-# Build the vector index (embeds all documents — takes a few minutes)
-cd vendor/KohakuRAG
-kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
-cd ../..
+# Install vendored packages (order matters: KohakuVault before KohakuRAG)
+uv pip install --system -e vendor/KohakuVault
+uv pip install --system -e vendor/KohakuRAG
+
+# Install remaining dependencies
+uv pip install --system -r local_requirements.txt
+
+# Smoke test — verify imports work
+python -c "import kohakuvault, kohakurag; print('Imports OK')"
+```
+
+### 0e. Build the vector index
+
+```bash
+cd /home/jovyan/work/KohakuRAG_UI
+
+# Check if index already exists
+if [ -f data/embeddings/wattbot_jinav4.db ]; then
+    echo "Index already exists: $(du -h data/embeddings/wattbot_jinav4.db | cut -f1)"
+else
+    echo "Building vector index (takes a few minutes)..."
+    cd vendor/KohakuRAG
+    kogine run scripts/wattbot_build_index.py --config configs/jinav4/index.py
+    cd ../..
+fi
 
 # Verify the index was created
 ls -lh data/embeddings/wattbot_jinav4.db
 # Should be ~30+ MB
 ```
 
-### 0d. Stop the Workspace
+### 0f. Check HuggingFace token (for gated models)
+
+If you plan to use gated models (Llama 3, Gemma 2, etc.), you need an
+HF token. This is **not needed** for Qwen or Jina V4:
+
+```bash
+# Check if token is set
+if [ -n "${HF_TOKEN:-}" ]; then
+    echo "HF_TOKEN is set"
+elif [ -f ~/.cache/huggingface/token ]; then
+    echo "Found cached token"
+else
+    echo "WARNING: No HF token found."
+    echo "To fix: export HF_TOKEN='hf_your_token_here'"
+fi
+```
+
+### 0g. Stop the Workspace
 
 Once the index is built, you can **stop the Workspace** from the RunAI UI
 to free its GPU. The files persist on the PVC — the Inference jobs will
@@ -129,11 +198,11 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | Name | `wattbot-vllm` |
 | Image | `vllm/vllm-openai:latest` |
-| GPU | `0.75` |
+| GPU | `1.0` |
 | CPU | `4` |
 | Memory | `16Gi` |
 | Port | `8000` |
-| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/models`) |
 
 **Command:**
 ```bash
@@ -145,11 +214,12 @@ python -m vllm.entrypoints.openai.api_server \
 **Environment variables:**
 | Key | Value |
 |-----|-------|
-| `HF_HOME` | `/workspace/.cache/huggingface` |
+| `HF_HOME` | `/models/.cache/huggingface` |
 
-Qwen 7B weights are already on the PVC — vLLM loads them from the HF
-cache on startup (no download needed). The Data Volume is read-only,
-so vLLM can't accidentally modify or delete weights.
+Qwen 7B weights are already pre-cached on the shared PVC at
+`/models/.cache/huggingface/` — vLLM loads them directly on startup
+(no download needed). The Data Volume is read-only, so vLLM can't
+accidentally modify or delete weights.
 
 > **Note:** vLLM exposes an **OpenAI-compatible** API (`/v1/chat/completions`),
 > but it runs **entirely on your local GPU** — no OpenAI account or API
@@ -171,18 +241,18 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | Name | `wattbot-embedding` |
 | Image | `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` |
-| GPU | `0.25` |
+| GPU | `0.5` |
 | CPU | `2` |
 | Memory | `8Gi` |
 | Port | `8080` |
-| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/models`) |
 
 **Command:**
 ```bash
 # Install uv (fast Python package installer)
 pip install uv && \
 # Copy code to writable container filesystem (Data Volume is read-only)
-cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
+cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
 uv pip install --system fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
 uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
@@ -200,13 +270,14 @@ python scripts/embedding_server.py
 **Environment variables:**
 | Key | Value |
 |-----|-------|
-| `HF_HOME` | `/workspace/.cache/huggingface` |
+| `HF_HOME` | `/models/.cache/huggingface` |
 | `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v4` |
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-Jina V4 weights are already on the PVC (downloaded in Step 0b). The
-model takes ~30 seconds to load before it starts serving.
+Jina V4 weights are already pre-cached on the shared PVC at
+`/models/.cache/huggingface/`. The model takes ~30 seconds to load
+before it starts serving.
 
 **Verify:**
 ```bash
@@ -228,14 +299,14 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | CPU | `1` |
 | Memory | `2Gi` |
 | Port | `8501` |
-| Data Volume | `shared-models` (read-only, mount at `/workspace`) |
+| Data Volume | `shared-models` (read-only, mount at `/models`) |
 
 **Command:**
 ```bash
 # Install uv (fast Python package installer)
 pip install uv && \
 # Copy code + vector DB to writable container filesystem (Data Volume is read-only)
-cp -r /workspace/KohakuRAG_UI /tmp/KohakuRAG_UI && \
+cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
 uv pip install --system streamlit openai httpx numpy python-dotenv && \
 uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
@@ -259,13 +330,14 @@ https://<cluster-url>/<project>/wattbot-app/proxy/8501/
 
 ## Deployment Order
 
-1. **Step 0** — Workspace: download Jina V4, clone repo, build index, then stop
-2. **Step 1** — vLLM: loads Qwen from cache (~30s)
-3. **Step 2** — Embedding server: loads Jina V4 from cache (~30s)
+1. **Step 0** — Workspace: clone repo, install deps, build index, then stop
+2. **Step 1** — vLLM: loads Qwen from shared cache (~30s)
+3. **Step 2** — Embedding server: loads Jina V4 from shared cache (~30s)
 4. **Step 3** — Streamlit app: last, needs both services running
 
-All model weights are already cached on `shared-model-repository`.
-Restarts are fast.
+GPU budget: **1.5 GPUs** (~90 GB) total — 1.0 for vLLM, 0.5 for
+embeddings, 0 for Streamlit. All model weights are pre-cached on
+`/models/`. Restarts are fast.
 
 ---
 
@@ -274,7 +346,7 @@ Restarts are fast.
 - **vLLM OOM:** Reduce `--max-model-len` (e.g., 4096) or use `--quantization awq`
 - **Embedding server 503:** Model still loading (~30s on first request). Check logs.
 - **Streamlit can't connect:** Verify service DNS names match your job names in the RunAI UI
-- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist on `shared-model-repository`
+- **Vector DB not found:** Run Step 0 first — the file `data/embeddings/wattbot_jinav4.db` must exist in `/home/jovyan/work/KohakuRAG_UI/data/embeddings/`
 - **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
 - **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
 
@@ -285,84 +357,80 @@ Restarts are fast.
 
 ## How Data Sharing Works (PVC)
 
-All workloads share data through a single PVC that already exists on
-your cluster. It's exposed in two ways:
+The cluster has two storage areas available to all workloads:
 
-| Name | Type | Access | Used by |
-|------|------|--------|---------|
-| `shared-model-repository` | **Data Source** | Read-write | Step 0 Workspace only (downloads models, clones repo, builds index) |
-| `shared-models` | **Data Volume** | **Read-only** | Inference jobs (vLLM, embedding server, Streamlit) |
-
-Same underlying PVC, two access levels. Think of the Data Source as the
-admin door and the Data Volume as the user door.
+| Path | Type | Access | Size | Purpose |
+|------|------|--------|------|---------|
+| `/models/` | **Shared PVC** | **Read-only** | ~744 GB | Pre-cached model weights (Qwen, Jina V4, etc.) |
+| `/home/jovyan/work/` | **Personal PVC** | Read-write | 30 GB | Your workspace (repo, index, deps, cache) |
 
 ```
-shared-model-repository PVC
-     │
-     ├── Workspace mounts via Data Source (RW) → setup: clone repo, download models, build index
-     ├── vLLM mounts via Data Volume (RO)      → reads model weights from cache
-     ├── Embedding mounts via Data Volume (RO)  → reads Jina V4 weights from cache
-     └── Streamlit mounts via Data Volume (RO)  → reads vector DB + code
+/models/                                    ← shared, read-only
+└── .cache/huggingface/
+    ├── models--Qwen--Qwen2.5-7B-Instruct/
+    ├── models--Qwen--Qwen2.5-14B-Instruct/
+    ├── models--Qwen--Qwen2.5-72B-Instruct/
+    ├── models--Qwen--Qwen3.5-35B-A3B/
+    ├── models--jinaai--jina-embeddings-v4/
+    └── ...  (~744 GB total)
+
+/home/jovyan/work/                          ← personal, read-write
+├── KohakuRAG_UI/                           # git repo (cloned in Step 0)
+│   ├── app.py                              # Streamlit app
+│   ├── data/
+│   │   ├── corpus/                         # source documents
+│   │   ├── metadata.csv                    # document URLs
+│   │   └── embeddings/
+│   │       └── wattbot_jinav4.db           # vector index (built in Step 0)
+│   ├── vendor/KohakuRAG/                   # RAG library
+│   └── scripts/
+│       └── embedding_server.py             # query-time embedding server
+└── .cache/
+    └── huggingface/                        # for any new model downloads
 ```
+
+In the RunAI UI, these are exposed as:
+
+| RunAI Name | Mount Point | Access | Used by |
+|------------|-------------|--------|---------|
+| `shared-model-repository` (Data Source) | `/models` | Read-only | All workloads — pre-cached model weights |
+| Personal workspace | `/home/jovyan/work` | Read-write | Step 0 Workspace (clone, build), Inference jobs (read code + index) |
 
 **Key points:**
-- Both `shared-model-repository` (Data Source) and `shared-models`
-  (Data Volume) already exist — no need to create anything new
-- The Data Volume is **read-only**, so inference jobs can't accidentally
-  modify model weights or the vector index
-- Only the setup Workspace (Step 0) uses the read-write Data Source
-- Data persists even when jobs are stopped or deleted
+- Model weights are **already pre-cached** — no need to download Qwen
+  or Jina V4
+- The shared PVC is **read-only** — inference jobs can't accidentally
+  modify or delete weights
+- Your personal workspace persists across workspace restarts
 - The Workspace does NOT need to be running for Inference jobs to read
-  its files
+  files from the shared PVC
 
-### What lives on the PVC
+### What lives where
 
-| Item | Size | Written by |
-|------|------|------------|
-| Qwen 7B model weights | ~14 GB | Already on PVC |
-| Jina V4 model weights | ~3 GB | Downloaded in Step 0b |
-| Git repo clone | ~50 MB | Step 0 Workspace |
-| Vector index (`wattbot_jinav4.db`) | ~30 MB | Step 0 Workspace |
-
-### PVC Layout
-
-After setup, `shared-model-repository` looks like:
-
-```
-/workspace/
-├── KohakuRAG_UI/                          # git repo (cloned in Step 0)
-│   ├── app.py                             # Streamlit app
-│   ├── data/
-│   │   ├── corpus/                        # source documents
-│   │   ├── metadata.csv                   # document URLs
-│   │   └── embeddings/
-│   │       └── wattbot_jinav4.db          # vector index (built in Step 0)
-│   ├── vendor/KohakuRAG/                  # RAG library
-│   └── scripts/
-│       └── embedding_server.py            # query-time embedding server
-└── .cache/
-    └── huggingface/hub/                   # auto-downloaded model weights
-        ├── models--Qwen--Qwen2.5-7B-Instruct/
-        └── models--jinaai--jina-embeddings-v4/
-```
+| Item | Location | Size | Written by |
+|------|----------|------|------------|
+| Qwen 7B model weights | `/models/.cache/huggingface/` | ~14 GB | Pre-cached on shared PVC |
+| Qwen 14B, 72B, 3.5-35B, etc. | `/models/.cache/huggingface/` | ~744 GB total | Pre-cached on shared PVC |
+| Jina V4 model weights | `/models/.cache/huggingface/` | ~3 GB | Pre-cached on shared PVC |
+| Git repo clone | `/home/jovyan/work/KohakuRAG_UI/` | ~50 MB | Step 0 Workspace |
+| Vector index (`wattbot_jinav4.db`) | `/home/jovyan/work/KohakuRAG_UI/data/embeddings/` | ~30 MB | Step 0 Workspace |
+| Python packages + cache | `/home/jovyan/work/.cache/` | Varies | Step 0 Workspace |
 
 ---
 
 ## Data Sources vs Data Volumes
 
 The RunAI UI has two sections under **Data & Storage**: **Data Sources**
-and **Data Volumes**. You'll notice `shared-model-repository` appears in
-**both** — this is expected:
+and **Data Volumes**. The shared model repository appears as both:
 
 - **Data Sources** shows the underlying PVC (`shared-model-repository`).
-  This is the raw storage. When you attach it to a workload, you get
-  **read-write** access.
+  When you attach it to a workload, it mounts at `/models/` as
+  **read-only** — all workloads see the same pre-cached models.
 - **Data Volumes** shows `shared-models`, a shareable wrapper built on
-  top of that same PVC. When other projects mount the Data Volume, they
-  get **read-only** access.
+  top of that same PVC.
 
-Same PVC, two views. Only the setup Workspace (Step 0) uses the Data
-Source (read-write). All inference jobs use the Data Volume (read-only).
+Your personal workspace at `/home/jovyan/work/` is separate writable
+storage for code, indexes, and caches.
 
 ---
 
@@ -391,37 +459,25 @@ To restrict who can modify models on the PVC:
 
 ### Preventing accidents on the shared PVC
 
-The shared PVC holds model weights that are expensive to re-download.
-A few safeguards:
+The shared PVC holds ~744 GB of model weights that are expensive to
+re-download. Key safeguard: the shared PVC is mounted **read-only** at
+`/models/` for all workloads. Only cluster admins with direct PVC access
+can modify model weights.
 
 - **Use a naming convention.** Models live under
-  `.cache/huggingface/hub/models--<org>--<name>/`. Don't put arbitrary
-  files at the PVC root — keep it organized.
-- **Don't run `rm -rf` on `/workspace/.cache`.** If a model needs to be
-  removed, delete only the specific model directory:
-  ```bash
-  # Safe: remove one specific model
-  rm -rf /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
-
-  # DANGEROUS: never do this
-  rm -rf /workspace/.cache/
-  ```
-- **Read-only for consumers.** Projects that only need to *use* models
-  should mount the **Data Volume** (read-only), not the Data Source.
-  Only the setup/admin project needs write access.
+  `/models/.cache/huggingface/models--<org>--<name>/`. Don't put
+  arbitrary files at the PVC root — keep it organized.
 - **Document what's on the PVC.** After adding or removing a model, run
-  `du -sh /workspace/.cache/huggingface/hub/models--*/` and note the
-  change so the team knows what's available.
+  `du -sh /models/.cache/huggingface/models--*/` and note the change
+  so the team knows what's available.
 
 ---
 
 ## Adding and Changing Models
 
-Model weights live on `shared-model-repository` under
-`/workspace/.cache/huggingface/hub/`. The `shared-model-repository` PVC
-is backed by a **Data Volume** (`shared-models`) scoped to the whole
-cluster (`runai/doit-ai-cluster`), so any project can access the cached
-models.
+Model weights are pre-cached on the shared PVC at
+`/models/.cache/huggingface/`. The PVC is scoped to the whole cluster
+(`runai/doit-ai-cluster`), so any project can access the cached models.
 
 ### vLLM compatibility
 
@@ -449,20 +505,13 @@ GPUs natively, and on Ampere GPUs via FP8 Marlin (vLLM v0.9.0+).
 
 ### Adding a new model to the shared PVC
 
-1. Start any Workspace that mounts `shared-model-repository` at `/workspace`
-2. In the terminal, download the model:
+1. Contact your cluster admin — the shared PVC at `/models/` is
+   **read-only** for regular workloads. New models must be added by
+   someone with write access to the underlying PVC.
+2. Once added, verify it's cached from any workspace:
    ```bash
-   export HF_HOME=/workspace/.cache/huggingface
-   # For a HuggingFace model (vLLM-compatible):
-   pip install uv && uv pip install --system huggingface_hub
-   huggingface-cli download <org>/<model-name>
-   # Example: huggingface-cli download meta-llama/Llama-3-8B-Instruct
+   ls /models/.cache/huggingface/models--<org>--<model-name>/
    ```
-3. Verify it's cached:
-   ```bash
-   ls /workspace/.cache/huggingface/hub/models--<org>--<model-name>/
-   ```
-4. Stop the Workspace — the weights persist on the PVC
 
 ### Swapping the LLM (e.g., Qwen 7B → Llama 3 8B)
 
@@ -478,7 +527,7 @@ No code changes needed. The embedding model and vector DB are unchanged.
 Changing the embedding model requires rebuilding the vector index:
 
 1. Download the new model to the PVC (see above)
-2. Update the index build config and re-run Step 0c
+2. Update the index build config and re-run Step 0e
 3. Update `wattbot-embedding` env vars (`EMBEDDING_MODEL`, `EMBEDDING_DIM`)
 4. Restart the embedding server
 
@@ -553,8 +602,8 @@ PyTorch + CUDA container just for the UI pod.
 By splitting into three — vLLM, embedding server, Streamlit — each job
 gets exactly the resources it needs. The embedding model (Jina V4,
 ~3 GB VRAM) and the LLM (Qwen 7B, ~6-14 GB) have very different
-resource profiles, so RunAI can allocate fractional GPU to each (`0.75`
-for vLLM, `0.25` for embeddings) sharing one physical GPU efficiently.
+resource profiles, so RunAI can allocate fractional GPU to each (`1.0`
+for vLLM, `0.5` for embeddings) across the available 1.5 GPUs (~90 GB).
 The Streamlit app gets `0` GPU — just CPU and RAM.
 
 ### Alternatives considered
@@ -563,7 +612,7 @@ The Streamlit app gets `0` GPU — just CPU and RAM.
 |--------|-------------------|------|------|
 | Single Workspace job | Everything in one process (LLM + embeddings + UI) | Simple | Not persistent, no batching, wastes GPU on UI |
 | Two jobs | **Job 1:** vLLM (LLM only) — **Job 2:** Streamlit + Jina V4 embeddings bundled together | Fewer moving parts | Job 2 needs GPU for Jina V4, can't use lightweight `python:3.11-slim` image |
-| **Three jobs (chosen)** | **Job 1:** vLLM (LLM) — **Job 2:** Jina V4 (embeddings) — **Job 3:** Streamlit (UI, CPU-only) | Best resource efficiency, independent scaling | More services to configure |
+| **Three jobs (chosen)** | **Job 1:** vLLM (LLM, 1.0 GPU) — **Job 2:** Jina V4 (embeddings, 0.5 GPU) — **Job 3:** Streamlit (UI, CPU-only) | Best resource efficiency, independent scaling | More services to configure |
 
 ### Index Build vs Query Serving
 
