@@ -127,7 +127,8 @@ cd KohakuRAG_UI
 pip install uv
 
 # Create and activate a virtual environment
-uv venv --python 3.11
+# (uses whatever Python the NGC image ships — currently 3.12)
+uv venv
 source .venv/bin/activate
 python --version   # verify venv is active
 
