@@ -256,7 +256,8 @@ ls -lh /wattbot-data/embeddings/wattbot_jinav4.db
 Before splitting into 3 separate jobs, verify the entire RAG pipeline
 works end-to-end in the workspace. The embedding model is already loaded
 from the index build, so this is a quick check. Open a **JupyterLab
-notebook** (or run as a Python script) and test:
+notebook** and select the **wattbot** kernel we registered in Step 0d
+(or run as a Python script with the venv activated) and test:
 
 ```python
 import os, sys
