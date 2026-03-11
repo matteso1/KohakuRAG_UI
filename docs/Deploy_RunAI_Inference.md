@@ -342,13 +342,12 @@ Uses the official `vllm/vllm-openai` image — no pip-installing vLLM at
 runtime.
 
 > **Why not "Model: from Hugging Face"?** That inference type is a black
-> box — crashes produce no logs, it's unclear how arguments are passed,
-> and the Data & Storage step only offers a "model store" picker that
-> requires a pre-registered RunAI **data source** asset. You cannot
-> directly attach an existing PVC like `shared-models` as the model
-> store. The **Custom** inference type avoids all of this: you get full
-> logs, explicit command/arguments, and a standard **Data Volume** mount
-> where you simply pick your PVC and set a container path.
+> box — crashes produce no logs and it's unclear how arguments are
+> passed. Its initial setup shows a "model store" picker instead of
+> standard PVC mounting (though switching to **Advanced setup** does
+> reveal the normal Data & Storage section where you can attach PVCs).
+> The **Custom** inference type avoids the guesswork: you get full logs,
+> explicit command/arguments, and straightforward PVC mounting.
 
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
