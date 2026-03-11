@@ -338,9 +338,13 @@ Inference jobs mount it directly and don't depend on the Workspace running.
 
 ## Step 1: Deploy the vLLM Server
 
-RunAI has a built-in "Model: from Hugging Face" inference type that uses
-the official `vllm/vllm-openai` image. This is the recommended approach —
-no pip-installing vLLM at runtime.
+Uses the official `vllm/vllm-openai` image — no pip-installing vLLM at
+runtime.
+
+> **Note:** RunAI's "Model: from Hugging Face" inference type also uses
+> the vllm/vllm-openai image, but it's a black box — crashes produce no
+> logs and it's unclear how arguments are passed. Use the **Custom**
+> inference type instead for full control and debuggability.
 
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
@@ -350,15 +354,15 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | **Cluster** | `doit-ai-cluster` |
 | **Project** | Your project (e.g. `jupyter-endemann01`) |
-| **Inference type** | **Model: from Hugging Face** |
+| **Inference type** | **Custom** |
 | **Inference name** | `wattbot-vllm` |
-| **Model** | `Qwen/Qwen2.5-7B-Instruct` |
 
 ### 1b. Environment image
 
 | Field | Value |
 |-------|-------|
-| **Image** | Leave as default (RunAI auto-selects `vllm/vllm-openai`) |
+| **Image** | Custom image |
+| **Image URL** | `vllm/vllm-openai:latest` |
 | **Image pull** | Pull only if not already present (recommended) |
 
 ### 1c. Serving endpoint
@@ -372,8 +376,8 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 | Field | Value |
 |-------|-------|
-| **Command** | *(leave empty — the vLLM image has its own entrypoint)* |
-| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct --max-model-len 8192 --dtype auto` |
+| **Command** | `python -m vllm.entrypoints.openai.api_server` |
+| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto` |
 | **Environment variable** | Name: `HF_HOME`, Value: `/models/.cache/huggingface` |
 | **Working directory** | *(leave empty)* |
 

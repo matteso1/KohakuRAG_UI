@@ -28,17 +28,17 @@
 # ---------------------------------------------------------------------------
 # Job 1: vLLM LLM Server (Inference workload)
 # ---------------------------------------------------------------------------
-# RECOMMENDED: Use RunAI's "Model: from Hugging Face" inference type in the
-# UI. This auto-selects the official vllm/vllm-openai image and wires up the
-# model entrypoint. No command needed — just set arguments.
+# Uses the official vllm/vllm-openai image with a Custom inference type.
+# Do NOT use RunAI's "Model: from Hugging Face" type — it's a black box
+# that crashes without logs. Custom type gives full control.
 #
 # RunAI UI settings:
-#   Inference type:  Model: from Hugging Face
+#   Inference type:  Custom
 #   Name:            wattbot-vllm
-#   Model:           Qwen/Qwen2.5-7B-Instruct
-#   Image:           (auto: vllm/vllm-openai)
+#   Image:           vllm/vllm-openai:latest (custom image)
 #   Container port:  8000
-#   Arguments:       --model Qwen/Qwen2.5-7B-Instruct --max-model-len 8192 --dtype auto
+#   Command:         python -m vllm.entrypoints.openai.api_server
+#   Arguments:       --model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
 #   Env:             HF_HOME=/models/.cache/huggingface
 #   GPU:             1 (full device)
 #   CPU:             4
