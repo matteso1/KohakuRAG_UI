@@ -343,7 +343,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | Name | `wattbot-vllm` |
-| Image | `vllm/vllm-openai:latest` |
+| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
 | GPU | `1.0` |
 | CPU | `4` |
 | Memory | `16Gi` |
@@ -352,6 +352,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 **Command:**
 ```bash
+pip install vllm && \
 python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen2.5-7B-Instruct \
   --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
