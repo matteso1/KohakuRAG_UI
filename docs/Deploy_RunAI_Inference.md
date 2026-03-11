@@ -341,10 +341,14 @@ Inference jobs mount it directly and don't depend on the Workspace running.
 Uses the official `vllm/vllm-openai` image — no pip-installing vLLM at
 runtime.
 
-> **Note:** RunAI's "Model: from Hugging Face" inference type also uses
-> the vllm/vllm-openai image, but it's a black box — crashes produce no
-> logs and it's unclear how arguments are passed. Use the **Custom**
-> inference type instead for full control and debuggability.
+> **Why not "Model: from Hugging Face"?** That inference type is a black
+> box — crashes produce no logs, it's unclear how arguments are passed,
+> and the Data & Storage step only offers a "model store" picker that
+> requires a pre-registered RunAI **data source** asset. You cannot
+> directly attach an existing PVC like `shared-models` as the model
+> store. The **Custom** inference type avoids all of this: you get full
+> logs, explicit command/arguments, and a standard **Data Volume** mount
+> where you simply pick your PVC and set a container path.
 
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
@@ -391,8 +395,13 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 ### 1f. Data & storage
 
-| Data volume | Container path |
-|-------------|----------------|
+In the Advanced setup, go to Data & Storage and add a **data volume**
+(not a "data source" — that's a different RunAI concept used by the HF
+inference type). Click **+DATA VOLUME**, select the existing PVC, and
+set the container path:
+
+| Data volume (PVC) | Container path |
+|-------------------|----------------|
 | `shared-models` | `/models` |
 
 ### 1g. General
