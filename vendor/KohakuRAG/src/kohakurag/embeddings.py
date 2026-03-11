@@ -325,6 +325,7 @@ class JinaV4EmbeddingModel:
                     prompt_name="query",
                     truncate_dim=self._truncate_dim,
                     max_length=8192,
+                    show_progress_bar=False,
                 )
             if isinstance(embeddings, torch.Tensor):
                 arr = embeddings.detach().float().cpu().numpy()

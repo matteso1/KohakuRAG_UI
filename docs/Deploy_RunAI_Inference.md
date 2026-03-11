@@ -182,7 +182,10 @@ from the index build, so this is a quick check. Open a **JupyterLab
 notebook** (or run as a Python script) and test:
 
 ```python
-import sys, os
+import os
+os.chdir("/home/jovyan/work/KohakuRAG_UI")
+
+import sys
 sys.path.insert(0, "vendor/KohakuRAG/src")
 os.environ["HF_HOME"] = "/models/.cache/huggingface"
 
@@ -196,21 +199,22 @@ embedder = JinaV4EmbeddingModel()
 print("Embedding model loaded")
 
 # 2. Load vector index
-store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db")
-print(f"Vector index loaded: {store.count()} chunks")
+store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
+print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache
-llm = HuggingFaceLocalChatModel(
-    model_name="Qwen/Qwen2.5-7B-Instruct",
-    load_in_4bit=True,
+chat = HuggingFaceLocalChatModel(
+    model="Qwen/Qwen2.5-7B-Instruct",
 )
 print("LLM loaded")
 
 # 4. Run full pipeline
-pipeline = RAGPipeline(embedder=embedder, store=store, llm=llm)
-result = pipeline.query("What is WattBot?")
-print(f"\nAnswer: {result.answer}")
-print(f"Sources: {[r.ref_id for r in result.references]}")
+pipeline = RAGPipeline(embedder=embedder, store=store, chat_model=chat)
+answer = await pipeline.answer("What is WattBot?")
+print(f"\nAnswer: {answer['response']}")
+print(f"\nTop snippets:")
+for s in answer["snippets"][:3]:
+    print(f"  - {s.document_title} ({s.node_id})")
 ```
 
 If this works, you know the models, index, and code are all wired up
