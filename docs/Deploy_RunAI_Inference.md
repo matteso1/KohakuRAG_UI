@@ -197,7 +197,7 @@ print("Embedding model loaded")
 
 # 2. Load vector index
 store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
-print(f"Vector index loaded: {store.count()} chunks")
+print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache
 llm = HuggingFaceLocalChatModel(
