@@ -338,30 +338,80 @@ Inference jobs mount it directly and don't depend on the Workspace running.
 
 ## Step 1: Deploy the vLLM Server
 
+RunAI has a built-in "Model: from Hugging Face" inference type that uses
+the official `vllm/vllm-openai` image. This is the recommended approach —
+no pip-installing vLLM at runtime.
+
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+
+### 1a. Basic settings
 
 | Field | Value |
 |-------|-------|
-| Name | `wattbot-vllm` |
-| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
-| GPU | `1.0` |
-| CPU | `4` |
-| Memory | `16Gi` |
-| Port | `8000` |
-| Data Volume | `shared-models` (read-only, mount at `/models`) |
+| **Cluster** | `doit-ai-cluster` |
+| **Project** | Your project (e.g. `jupyter-endemann01`) |
+| **Inference type** | **Model: from Hugging Face** |
+| **Inference name** | `wattbot-vllm` |
+| **Model** | `Qwen/Qwen2.5-7B-Instruct` |
 
-**Command:**
-```bash
-pip install vllm && \
-python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen2.5-7B-Instruct \
-  --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
-```
+### 1b. Environment image
 
-**Environment variables:**
-| Key | Value |
-|-----|-------|
-| `HF_HOME` | `/models/.cache/huggingface` |
+| Field | Value |
+|-------|-------|
+| **Image** | Leave as default (RunAI auto-selects `vllm/vllm-openai`) |
+| **Image pull** | Pull only if not already present (recommended) |
+
+### 1c. Serving endpoint
+
+| Field | Value |
+|-------|-------|
+| **Protocol** | HTTP |
+| **Container port** | `8000` |
+
+### 1d. Runtime settings
+
+| Field | Value |
+|-------|-------|
+| **Command** | *(leave empty — the vLLM image has its own entrypoint)* |
+| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct --max-model-len 8192 --dtype auto` |
+| **Environment variable** | Name: `HF_HOME`, Value: `/models/.cache/huggingface` |
+| **Working directory** | *(leave empty)* |
+
+### 1e. Compute resources
+
+| Field | Value |
+|-------|-------|
+| **GPU devices** | `1` (full GPU) |
+| **CPU** | `4` |
+| **Memory** | `16Gi` |
+
+### 1f. Data & storage
+
+| Data volume | Container path |
+|-------------|----------------|
+| `shared-models` | `/models` |
+
+### 1g. General
+
+| Field | Value |
+|-------|-------|
+| **Priority** | `very-high` (or as appropriate) |
+
+### Expected startup time
+
+First deploy takes **5-10 minutes**:
+- **Image pull** (~2-5 min): The `vllm/vllm-openai` image is ~15 GB.
+  Subsequent deploys skip this if the image is cached on the node.
+- **Model loading** (~1-2 min): vLLM loads Qwen 7B weights (~14 GB)
+  from the shared PVC into GPU memory.
+- **Engine warmup** (~30s): vLLM compiles CUDA kernels and initializes
+  the KV cache.
+
+You'll see `Initializing` in the RunAI UI during this time — this is
+normal. The job transitions to `Running` once the HTTP health check
+passes. Subsequent restarts (same node, cached image) take ~2-3 minutes.
+
+### How it works
 
 Qwen 7B weights are already pre-cached on the shared PVC at
 `/models/.cache/huggingface/` — vLLM loads them directly on startup
@@ -382,24 +432,41 @@ curl http://wattbot-vllm:8000/v1/models
 
 ## Step 2: Deploy the Embedding Server
 
+Unlike the vLLM job (which uses RunAI's built-in HuggingFace model
+type), the embedding server is a custom FastAPI service — so we use a
+standard container image and install dependencies at startup.
+
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+
+### 2a. Basic settings
 
 | Field | Value |
 |-------|-------|
-| Name | `wattbot-embedding` |
-| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
-| GPU | `0.5` |
-| CPU | `2` |
-| Memory | `8Gi` |
-| Port | `8080` |
-| Data Volume | `shared-models` (read-only, mount at `/models`) |
-| PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
+| **Cluster** | `doit-ai-cluster` |
+| **Project** | Your project (e.g. `jupyter-endemann01`) |
+| **Inference type** | **Custom** (not "Model: from Hugging Face") |
+| **Inference name** | `wattbot-embedding` |
+
+### 2b. Environment image
+
+| Field | Value |
+|-------|-------|
+| **Image** | Custom image |
+| **Image URL** | `nvcr.io/nvidia/pytorch:25.02-py3` |
+| **Image pull** | Pull only if not already present (recommended) |
+
+### 2c. Serving endpoint
+
+| Field | Value |
+|-------|-------|
+| **Protocol** | HTTP |
+| **Container port** | `8080` |
+
+### 2d. Runtime settings
 
 **Command:**
 ```bash
-# Install uv (fast Python package installer)
 pip install uv && \
-# Copy code to writable container filesystem (Data Volume is read-only)
 cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
 uv pip install --system fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
@@ -416,18 +483,54 @@ python scripts/embedding_server.py
 > faster. Installs that take 1-3 minutes with pip finish in seconds.
 
 **Environment variables:**
-| Key | Value |
-|-----|-------|
+
+| Name | Value |
+|------|-------|
 | `HF_HOME` | `/models/.cache/huggingface` |
 | `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v4` |
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-Jina V4 weights are already pre-cached on the shared PVC at
-`/models/.cache/huggingface/`. The model takes ~30 seconds to load
-before it starts serving.
+**Working directory:** *(leave empty)*
 
-**Verify:**
+### 2e. Compute resources
+
+| Field | Value |
+|-------|-------|
+| **GPU devices** | `0.5` (fractional — Jina V4 needs ~3 GB VRAM) |
+| **CPU** | `2` |
+| **Memory** | `8Gi` |
+
+### 2f. Data & storage
+
+| Data volume | Container path | Access |
+|-------------|----------------|--------|
+| `shared-models` | `/models` | Read-only |
+| `wattbot-data` | `/wattbot-data` | Read-only |
+
+### 2g. General
+
+| Field | Value |
+|-------|-------|
+| **Priority** | `very-high` (or as appropriate) |
+
+### Expected startup time
+
+First deploy takes **3-6 minutes**:
+- **Image pull** (~2-4 min): The NGC PyTorch image is ~20 GB.
+  Subsequent deploys skip this if the image is cached on the node.
+- **Dependency install** (~30-60s): `uv` installs FastAPI,
+  sentence-transformers, etc.
+- **Model loading** (~30s): Jina V4 weights (~3 GB) load from the
+  shared PVC into GPU memory.
+
+### How it works
+
+Jina V4 weights are already pre-cached on the shared PVC at
+`/models/.cache/huggingface/`. The server loads the model into GPU
+memory and exposes a FastAPI endpoint for encoding queries into vectors.
+
+**Verify (from any other pod's terminal):**
 ```bash
 curl http://wattbot-embedding:8080/health
 # {"status": "ok"}
