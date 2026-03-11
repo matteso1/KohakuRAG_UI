@@ -202,7 +202,7 @@ print("Embedding model loaded")
 # NOTE: do NOT pass dimensions= here. If the path is wrong, we want a loud
 # error instead of silently creating a new empty DB.
 DB = f"{REPO}/data/embeddings/wattbot_jinav4.db"
-store = KVaultNodeStore(DB, table_prefix="wattbot")
+store = KVaultNodeStore(DB, table_prefix="wattbot_jv4")
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache (7B, not 72B!)
