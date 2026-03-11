@@ -141,11 +141,18 @@ uv pip install -r local_requirements.txt
 
 # Smoke test — verify imports work
 python -c "import kohakuvault, kohakurag; print('Imports OK')"
+
+# Register a named Jupyter kernel so you can select this venv in notebooks
+python -m ipykernel install --user \
+  --name wattbot \
+  --display-name "wattbot"
 ```
 
 > **Note:** Always `source .venv/bin/activate` before running any
 > subsequent steps (index build, pipeline test, etc.). This keeps
-> dependencies isolated from the container's system Python.
+> dependencies isolated from the container's system Python. In
+> JupyterLab, select the **"wattbot"** kernel to use this environment
+> in notebooks.
 
 ### 0e. Build the vector index
 
