@@ -459,9 +459,8 @@ curl http://wattbot-vllm:8000/v1/models
 
 ## Step 2: Deploy the Embedding Server
 
-Unlike the vLLM job (which uses RunAI's built-in HuggingFace model
-type), the embedding server is a custom FastAPI service — so we use a
-standard container image and install dependencies at startup.
+The embedding server is a custom FastAPI service that wraps Jina V4 —
+we use the NGC PyTorch image and install dependencies at startup.
 
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
@@ -492,20 +491,19 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 ### 2d. Runtime settings
 
-**Command:**
-```bash
-pip install uv && \
-cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
-cd /tmp/KohakuRAG_UI && \
-uv pip install --system fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
-uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
-python scripts/embedding_server.py
-```
+Inference jobs don't have access to the personal workspace
+(`/home/jovyan/work/`), so the command clones the repo at startup.
 
-> **Why copy to /tmp?** The Data Volume is read-only. `pip install`
-> and KohakuVault's SQLite WAL mode both need to write files alongside
-> the source. Copying to `/tmp` gives a writable workspace without
-> needing write access to the shared PVC.
+| Field | Value |
+|-------|-------|
+| **Command** | `bash` |
+| **Arguments** | `-c "pip install uv && git clone https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python scripts/embedding_server.py"` |
+| **Working directory** | *(leave empty)* |
+
+> **Why clone to /tmp?** Inference pods start from a clean container
+> image — no personal workspace or git repo is available. Cloning to
+> `/tmp` gives a writable workspace for the code, pip installs, and
+> any temporary files (e.g., KohakuVault's SQLite WAL).
 >
 > **Why uv?** `uv` is a drop-in replacement for `pip` that's 10-100x
 > faster. Installs that take 1-3 minutes with pip finish in seconds.
@@ -518,8 +516,6 @@ python scripts/embedding_server.py
 | `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v4` |
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
-
-**Working directory:** *(leave empty)*
 
 ### 2e. Compute resources
 
@@ -585,20 +581,10 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Data Volume | `shared-models` (read-only, mount at `/models`) |
 | PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
 
-**Command:**
-```bash
-# Install uv (fast Python package installer)
-pip install uv && \
-# Copy code to writable container filesystem (Data Volume is read-only)
-cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
-cd /tmp/KohakuRAG_UI && \
-# Symlink data dirs to the PPVC (vector DB lives on shared storage)
-ln -sf /wattbot-data/embeddings data/embeddings && \
-ln -sf /wattbot-data/corpus     data/corpus && \
-uv pip install --system streamlit openai httpx numpy python-dotenv && \
-uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
-streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
-```
+| Field | Value |
+|-------|-------|
+| **Command** | `bash` |
+| **Arguments** | `-c "pip install uv && git clone https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
 
 **Environment variables:**
 | Key | Value |
