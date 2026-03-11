@@ -203,16 +203,18 @@ store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache
-llm = HuggingFaceLocalChatModel(
+chat = HuggingFaceLocalChatModel(
     model="Qwen/Qwen2.5-7B-Instruct",
 )
 print("LLM loaded")
 
 # 4. Run full pipeline
-pipeline = RAGPipeline(embedder=embedder, store=store, llm=llm)
-result = pipeline.query("What is WattBot?")
-print(f"\nAnswer: {result.answer}")
-print(f"Sources: {[r.ref_id for r in result.references]}")
+pipeline = RAGPipeline(embedder=embedder, store=store, chat_model=chat)
+answer = await pipeline.answer("What is WattBot?")
+print(f"\nAnswer: {answer['response']}")
+print(f"\nTop snippets:")
+for s in answer["snippets"][:3]:
+    print(f"  - {s.document_title} ({s.node_id})")
 ```
 
 If this works, you know the models, index, and code are all wired up
