@@ -171,7 +171,7 @@ fi
 
 # Verify the index was created
 ls -lh data/embeddings/wattbot_jinav4.db
-# Should be ~30+ MB
+# Should be ~100-130 MB
 ```
 
 ### 0f. Test the full pipeline in a notebook
@@ -182,11 +182,11 @@ from the index build, so this is a quick check. Open a **JupyterLab
 notebook** (or run as a Python script) and test:
 
 ```python
-import os
-os.chdir("/home/jovyan/work/KohakuRAG_UI")
+import os, sys
 
-import sys
-sys.path.insert(0, "vendor/KohakuRAG/src")
+REPO = "/home/jovyan/work/KohakuRAG_UI"
+os.chdir(REPO)
+sys.path.insert(0, f"{REPO}/vendor/KohakuRAG/src")
 os.environ["HF_HOME"] = "/models/.cache/huggingface"
 
 from kohakurag import RAGPipeline
@@ -198,11 +198,14 @@ from kohakurag.llm import HuggingFaceLocalChatModel
 embedder = JinaV4EmbeddingModel()
 print("Embedding model loaded")
 
-# 2. Load vector index
-store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
+# 2. Load vector index (use absolute path — notebook CWD can be unpredictable)
+# NOTE: do NOT pass dimensions= here. If the path is wrong, we want a loud
+# error instead of silently creating a new empty DB.
+DB = f"{REPO}/data/embeddings/wattbot_jinav4.db"
+store = KVaultNodeStore(DB)
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
-# 3. Load LLM from shared cache
+# 3. Load LLM from shared cache (7B, not 72B!)
 chat = HuggingFaceLocalChatModel(
     model="Qwen/Qwen2.5-7B-Instruct",
 )
@@ -478,7 +481,7 @@ In the RunAI UI, these are exposed as:
 | Qwen 14B, 72B, 3.5-35B, etc. | `/models/.cache/huggingface/` | ~744 GB total | Pre-cached on shared PVC |
 | Jina V4 model weights | `/models/.cache/huggingface/` | ~3 GB | Pre-cached on shared PVC |
 | Git repo clone | `/home/jovyan/work/KohakuRAG_UI/` | ~50 MB | Step 0 Workspace |
-| Vector index (`wattbot_jinav4.db`) | `/home/jovyan/work/KohakuRAG_UI/data/embeddings/` | ~30 MB | Step 0 Workspace |
+| Vector index (`wattbot_jinav4.db`) | `/home/jovyan/work/KohakuRAG_UI/data/embeddings/` | ~130 MB | Step 0 Workspace |
 | Python packages + cache | `/home/jovyan/work/.cache/` | Varies | Step 0 Workspace |
 
 ---
