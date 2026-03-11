@@ -171,7 +171,7 @@ fi
 
 # Verify the index was created
 ls -lh data/embeddings/wattbot_jinav4.db
-# Should be ~30+ MB
+# Should be ~100-130 MB
 ```
 
 ### 0f. Test the full pipeline in a notebook
@@ -478,7 +478,7 @@ In the RunAI UI, these are exposed as:
 | Qwen 14B, 72B, 3.5-35B, etc. | `/models/.cache/huggingface/` | ~744 GB total | Pre-cached on shared PVC |
 | Jina V4 model weights | `/models/.cache/huggingface/` | ~3 GB | Pre-cached on shared PVC |
 | Git repo clone | `/home/jovyan/work/KohakuRAG_UI/` | ~50 MB | Step 0 Workspace |
-| Vector index (`wattbot_jinav4.db`) | `/home/jovyan/work/KohakuRAG_UI/data/embeddings/` | ~30 MB | Step 0 Workspace |
+| Vector index (`wattbot_jinav4.db`) | `/home/jovyan/work/KohakuRAG_UI/data/embeddings/` | ~130 MB | Step 0 Workspace |
 | Python packages + cache | `/home/jovyan/work/.cache/` | Varies | Step 0 Workspace |
 
 ---
