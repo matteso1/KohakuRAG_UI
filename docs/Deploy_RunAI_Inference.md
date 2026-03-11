@@ -196,7 +196,7 @@ embedder = JinaV4EmbeddingModel()
 print("Embedding model loaded")
 
 # 2. Load vector index
-store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db")
+store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
 print(f"Vector index loaded: {store.count()} chunks")
 
 # 3. Load LLM from shared cache
