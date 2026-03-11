@@ -68,7 +68,7 @@ In the RunAI UI:
 1. Go to **Workloads** > **New Workload** > **Workspace**
 2. Set:
    - **Name:** `wattbot-setup`
-   - **Image:** `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime`
+   - **Image:** `nvcr.io/nvidia/pytorch:25.02-py3`
    - **GPU:** `0.25` (needed for index build)
    - **Data Sources:** select `shared-model-repository`, mount at `/models`
    - **Environment variables:**
@@ -284,7 +284,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | Name | `wattbot-embedding` |
-| Image | `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` |
+| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
 | GPU | `0.5` |
 | CPU | `2` |
 | Memory | `8Gi` |
