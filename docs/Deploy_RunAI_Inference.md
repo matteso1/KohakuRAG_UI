@@ -497,6 +497,32 @@ embeddings, 0 for Streamlit. All model weights are pre-cached on
 - **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
 - **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
 
+### PVC won't bind / "OriginalPvcNotBound" error
+
+If you create a Data Volume in RunAI and see `OriginalPvcNotBound`, the
+underlying PVC hasn't been claimed by any pod yet. Most clusters use
+`WaitForFirstConsumer` binding mode, meaning the PVC stays `Pending`
+until a workload actually mounts it.
+
+**The fix — create the PVC with your first job:**
+
+1. **Job 1 (e.g., `wattbot-test`):** Create a new workload and
+   configure the PVC as part of that job (under **Data & Storage** >
+   **New PVC**). When the job starts, the pod claims the PVC and it
+   binds automatically.
+2. **Next job:** Now go to **Data & Storage** > **Data Volumes** and
+   create a Data Volume referencing the already-bound PVC. Attach
+   that Data Volume to your next workload — it will mount successfully
+   because the PVC is already bound.
+
+**Why this happens:** RunAI's Data Volume wizard creates the PVC
+object, but with `WaitForFirstConsumer`, Kubernetes won't actually
+bind it to a storage backend until a pod schedules that references
+it. Creating the Data Volume *before* any pod uses it leaves the PVC
+in a `Pending` state, which RunAI reports as `OriginalPvcNotBound`.
+The workaround is to let a job create and claim the PVC first, then
+wrap it in a Data Volume afterward.
+
 ---
 ---
 
