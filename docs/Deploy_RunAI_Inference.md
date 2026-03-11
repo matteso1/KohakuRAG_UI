@@ -62,25 +62,27 @@ workloads in the same project.
 | `corpus/` | Parsed JSON documents | wattbot-setup (Step 0) | Rebuild only |
 | `pdfs/` | Downloaded source PDFs | wattbot-setup (Step 0) | Rebuild only |
 
-### Create the PPVC
+### Create the Data Volume
 
-In the RunAI UI:
+In the RunAI UI (v2.23+):
 
-1. Go to **Data & Storage** > **PVCs** (or **Project PVCs** depending
-   on your UI version)
-2. Create a new PVC:
-   - **Name:** `wattbot-data`
-   - **Storage class:** *(use your cluster's default, e.g. `nfs-client`
-     or `local-path` — check with your admin)*
-   - **Access mode:** `ReadWriteMany` (RWX) if available, otherwise
-     `ReadWriteOnce` (RWO) — RWX allows multiple jobs to mount
-     simultaneously
-   - **Size:** `1 Gi` (generous for ~130 MB index + corpus + PDFs)
-3. Save / create the PVC
+1. Go to **Data & Storage** > **Data Volumes** > **New Data Volume**
+2. Configure the data origin:
+   - **Scope:** Select your project scope
+     (e.g. `runai/doit-ai-cluster/default/<your-project>`)
+   - **PVC name:** `wattbot-data-pvc` *(enter a new name — this creates
+     a new PVC for the data volume)*
+3. Set the data volume identity:
+   - **Data volume name:** `wattbot-data`
+   - **Description:** "Shared vector index, corpus, and PDFs for WattBot RAG"
+4. Set scopes:
+   - Share with the project so all workloads in the project can mount it
+5. Create the Data Volume
 
-> **Note:** The exact UI flow may vary by Run:ai version. If you don't
-> see a "PVC" option, look under **Data Volumes** or ask your cluster
-> admin to create a PPVC named `wattbot-data` in your project.
+> **Note:** The Data Volume wraps an underlying PVC. You don't need to
+> create the PVC separately — the Data Volume wizard creates it for you.
+> If your cluster requires a specific storage class or access mode,
+> check with your admin.
 
 ### Mount path convention
 
@@ -94,8 +96,8 @@ All workloads mount this PPVC at **`/mnt/wattbot-data`**:
 └── pdfs/                             # cached source PDFs
 ```
 
-When attaching the PPVC to a workload in the RunAI UI, set:
-- **Data source:** `wattbot-data`
+When attaching the Data Volume to a workload in the RunAI UI, set:
+- **Data volume:** `wattbot-data`
 - **Mount path:** `/mnt/wattbot-data`
 - **Access:** Read-write for `wattbot-setup`, read-only for inference jobs
 
@@ -125,9 +127,9 @@ In the RunAI UI:
    - **Name:** `wattbot-setup`
    - **Image:** `nvcr.io/nvidia/pytorch:25.02-py3`
    - **GPU:** `0.25` (needed for index build)
-   - **Data Sources:**
+   - **Data Volumes:**
      - `shared-model-repository` → mount at `/models` (read-only)
-     - `wattbot-data` PPVC → mount at `/mnt/wattbot-data` (**read-write**)
+     - `wattbot-data` → mount at `/mnt/wattbot-data` (**read-write**)
    - **Environment variables:**
 
      | Key | Value |
