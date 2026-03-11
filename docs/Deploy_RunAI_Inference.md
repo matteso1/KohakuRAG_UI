@@ -382,12 +382,21 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
 ### 1d. Runtime settings
 
+The `vllm/vllm-openai` image has a built-in entrypoint that launches the
+API server — you only need to pass `--model` as an argument. No command
+is required.
+
 | Field | Value |
 |-------|-------|
-| **Command** | `python -m vllm.entrypoints.openai.api_server` |
-| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto` |
+| **Command** | *(leave empty — image default launches the API server)* |
+| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct` |
 | **Environment variable** | Name: `HF_HOME`, Value: `/models/.cache/huggingface` |
 | **Working directory** | *(leave empty)* |
+
+> **Note:** The image defaults to `--host 0.0.0.0` and uses the
+> container port from the serving endpoint config. If you need to
+> tune memory usage, add `--max-model-len 8192` or `--dtype float16`
+> to the Arguments field. For a first deploy, just `--model` is enough.
 
 ### 1e. Compute resources
 
