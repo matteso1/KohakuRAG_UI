@@ -126,7 +126,7 @@ In the RunAI UI:
 2. Set:
    - **Name:** `wattbot-setup`
    - **Image:** `nvcr.io/nvidia/pytorch:25.02-py3`
-   - **GPU:** `0.25` (needed for index build)
+   - **GPU:** `1.0` (PyTorch + JinaV4 model need most of a GPU's memory)
    - **Data Volumes:**
      - `shared-model-repository` → mount at `/models` (read-only)
      - `wattbot-data` → mount at `/wattbot-data` (**read-write**)
@@ -256,7 +256,8 @@ ls -lh /wattbot-data/embeddings/wattbot_jinav4.db
 Before splitting into 3 separate jobs, verify the entire RAG pipeline
 works end-to-end in the workspace. The embedding model is already loaded
 from the index build, so this is a quick check. Open a **JupyterLab
-notebook** (or run as a Python script) and test:
+notebook** and select the **wattbot** kernel we registered in Step 0d
+(or run as a Python script with the venv activated) and test:
 
 ```python
 import os, sys
@@ -290,7 +291,7 @@ print("LLM loaded")
 
 # 4. Run full pipeline
 pipeline = RAGPipeline(embedder=embedder, store=store, chat_model=chat)
-answer = await pipeline.answer("What is WattBot?")
+answer = await pipeline.answer("How much energy to train an LLM (ballpark)?")
 print(f"\nAnswer: {answer['response']}")
 print(f"\nTop snippets:")
 for s in answer["snippets"][:3]:
@@ -337,29 +338,107 @@ Inference jobs mount it directly and don't depend on the Workspace running.
 
 ## Step 1: Deploy the vLLM Server
 
+Uses the official `vllm/vllm-openai` image — no pip-installing vLLM at
+runtime.
+
+> **Why not "Model: from Hugging Face"?** That inference type is a black
+> box — crashes produce no logs and it's unclear how arguments are
+> passed. It also has a **Model store** field (separate from Data &
+> Storage) that expects a specially registered RunAI data source — the
+> `shared-models` PVC doesn't qualify and can't be selected. While you
+> can still attach `shared-models` as a regular data volume via Advanced
+> setup's Data & Storage section, the empty model store likely causes
+> the HF type to download the model to ephemeral storage, leading to
+> crashes or silent failures. The **Custom** inference type avoids all
+> of this: full logs, explicit command/arguments, and straightforward
+> PVC mounting — no "model store" abstraction needed.
+
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+
+### 1a. Basic settings
 
 | Field | Value |
 |-------|-------|
-| Name | `wattbot-vllm` |
-| Image | `vllm/vllm-openai:latest` |
-| GPU | `1.0` |
-| CPU | `4` |
-| Memory | `16Gi` |
-| Port | `8000` |
-| Data Volume | `shared-models` (read-only, mount at `/models`) |
+| **Cluster** | `doit-ai-cluster` |
+| **Project** | Your project (e.g. `jupyter-endemann01`) |
+| **Inference type** | **Custom** |
+| **Inference name** | `wattbot-vllm` |
 
-**Command:**
-```bash
-python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen2.5-7B-Instruct \
-  --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
-```
+### 1b. Environment image
 
-**Environment variables:**
-| Key | Value |
-|-----|-------|
-| `HF_HOME` | `/models/.cache/huggingface` |
+| Field | Value |
+|-------|-------|
+| **Image** | Custom image |
+| **Image URL** | `vllm/vllm-openai:latest` |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — public Docker Hub image)* |
+
+### 1c. Serving endpoint
+
+| Field | Value |
+|-------|-------|
+| **Protocol** | HTTP |
+| **Container port** | `8000` |
+
+### 1d. Runtime settings
+
+The `vllm/vllm-openai` image has a built-in entrypoint that launches the
+API server — you only need to pass `--model` as an argument. No command
+is required.
+
+| Field | Value |
+|-------|-------|
+| **Command** | *(leave empty — image default launches the API server)* |
+| **Arguments** | `--model Qwen/Qwen2.5-7B-Instruct` |
+| **Environment variable** | Name: `HF_HOME`, Value: `/models/.cache/huggingface` |
+| **Working directory** | *(leave empty)* |
+
+> **Note:** The image defaults to `--host 0.0.0.0` and uses the
+> container port from the serving endpoint config. If you need to
+> tune memory usage, add `--max-model-len 8192` or `--dtype float16`
+> to the Arguments field. For a first deploy, just `--model` is enough.
+
+### 1e. Compute resources
+
+| Field | Value |
+|-------|-------|
+| **GPU devices** | `1` (full GPU) |
+| **GPU fractioning** | *(leave disabled — using full device)* |
+| **CPU request** | `4` cores |
+| **CPU memory request** | `16 GB` |
+| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
+
+### 1f. Data & storage
+
+Under **Data & storage**, select the `shared-models` data volume and
+set the container path. (In Custom inference type, data volumes appear
+directly in the initial setup form — no need for Advanced setup.)
+
+| Data volume name | Container path |
+|------------------|----------------|
+| `shared-models` | `/models` |
+
+### 1g. General
+
+| Field | Value |
+|-------|-------|
+| **Priority** | `very-high` (or as appropriate) |
+
+### Expected startup time
+
+First deploy takes **5-10 minutes**:
+- **Image pull** (~2-5 min): The `vllm/vllm-openai` image is ~15 GB.
+  Subsequent deploys skip this if the image is cached on the node.
+- **Model loading** (~1-2 min): vLLM loads Qwen 7B weights (~14 GB)
+  from the shared PVC into GPU memory.
+- **Engine warmup** (~30s): vLLM compiles CUDA kernels and initializes
+  the KV cache.
+
+You'll see `Initializing` in the RunAI UI during this time — this is
+normal. The job transitions to `Running` once the HTTP health check
+passes. Subsequent restarts (same node, cached image) take ~2-3 minutes.
+
+### How it works
 
 Qwen 7B weights are already pre-cached on the shared PVC at
 `/models/.cache/huggingface/` — vLLM loads them directly on startup
@@ -380,24 +459,42 @@ curl http://wattbot-vllm:8000/v1/models
 
 ## Step 2: Deploy the Embedding Server
 
+Unlike the vLLM job (which uses RunAI's built-in HuggingFace model
+type), the embedding server is a custom FastAPI service — so we use a
+standard container image and install dependencies at startup.
+
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+
+### 2a. Basic settings
 
 | Field | Value |
 |-------|-------|
-| Name | `wattbot-embedding` |
-| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
-| GPU | `0.5` |
-| CPU | `2` |
-| Memory | `8Gi` |
-| Port | `8080` |
-| Data Volume | `shared-models` (read-only, mount at `/models`) |
-| PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
+| **Cluster** | `doit-ai-cluster` |
+| **Project** | Your project (e.g. `jupyter-endemann01`) |
+| **Inference type** | **Custom** (not "Model: from Hugging Face") |
+| **Inference name** | `wattbot-embedding` |
+
+### 2b. Environment image
+
+| Field | Value |
+|-------|-------|
+| **Image** | Custom image |
+| **Image URL** | `nvcr.io/nvidia/pytorch:25.02-py3` |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — or select NGC credential if required by your cluster)* |
+
+### 2c. Serving endpoint
+
+| Field | Value |
+|-------|-------|
+| **Protocol** | HTTP |
+| **Container port** | `8080` |
+
+### 2d. Runtime settings
 
 **Command:**
 ```bash
-# Install uv (fast Python package installer)
 pip install uv && \
-# Copy code to writable container filesystem (Data Volume is read-only)
 cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
 uv pip install --system fastapi uvicorn httpx sentence-transformers "transformers>=4.42,<5" accelerate && \
@@ -414,18 +511,58 @@ python scripts/embedding_server.py
 > faster. Installs that take 1-3 minutes with pip finish in seconds.
 
 **Environment variables:**
-| Key | Value |
-|-----|-------|
+
+| Name | Value |
+|------|-------|
 | `HF_HOME` | `/models/.cache/huggingface` |
 | `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v4` |
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-Jina V4 weights are already pre-cached on the shared PVC at
-`/models/.cache/huggingface/`. The model takes ~30 seconds to load
-before it starts serving.
+**Working directory:** *(leave empty)*
 
-**Verify:**
+### 2e. Compute resources
+
+| Field | Value |
+|-------|-------|
+| **GPU devices** | `1` |
+| **GPU fractioning** | Enabled — set to `50%` of device (Jina V4 needs ~3 GB VRAM). The UI will show "0.33–0.66 GPUs" as the allocated range. |
+| **CPU request** | `2` cores |
+| **CPU memory request** | `8 GB` |
+| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
+
+### 2f. Data & storage
+
+Under **Data & storage**, add the data volumes and set container paths:
+
+| Data volume name | Container path |
+|------------------|----------------|
+| `shared-models` | `/models` |
+| `wattbot-data` | `/wattbot-data` |
+
+### 2g. General
+
+| Field | Value |
+|-------|-------|
+| **Priority** | `very-high` (or as appropriate) |
+
+### Expected startup time
+
+First deploy takes **3-6 minutes**:
+- **Image pull** (~2-4 min): The NGC PyTorch image is ~20 GB.
+  Subsequent deploys skip this if the image is cached on the node.
+- **Dependency install** (~30-60s): `uv` installs FastAPI,
+  sentence-transformers, etc.
+- **Model loading** (~30s): Jina V4 weights (~3 GB) load from the
+  shared PVC into GPU memory.
+
+### How it works
+
+Jina V4 weights are already pre-cached on the shared PVC at
+`/models/.cache/huggingface/`. The server loads the model into GPU
+memory and exposes a FastAPI endpoint for encoding queries into vectors.
+
+**Verify (from any other pod's terminal):**
 ```bash
 curl http://wattbot-embedding:8080/health
 # {"status": "ok"}

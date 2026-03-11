@@ -13,12 +13,12 @@
 #   │  vLLM    │  │  Embedding   │
 #   │  LLM     │  │  Server      │
 #   │  Port    │  │  Port 8080   │
-#   │  8000    │  │  GPU 0.25    │
-#   │  GPU 0.75│  └──────────────┘
+#   │  8000    │  │  GPU 0.50    │
+#   │  GPU 1.0 │  └──────────────┘
 #   └──────────┘
 #
-# All 3 services on 1 GPU (fractional allocation).
-# vLLM gets the lion's share since LLM inference is the bottleneck.
+# All 3 services on 1.5 GPUs (fractional allocation).
+# vLLM gets a full GPU since LLM inference is the bottleneck.
 #
 # NOTE: These are reference configs. Adapt image names, PVC names, and
 # resource fractions to your cluster. You can also create these via the
@@ -28,26 +28,41 @@
 # ---------------------------------------------------------------------------
 # Job 1: vLLM LLM Server (Inference workload)
 # ---------------------------------------------------------------------------
-# Uses the official vLLM image. Serves an OpenAI-compatible API.
-# Model weights are pulled from HuggingFace on first start (cached on PVC).
+# Uses the official vllm/vllm-openai image with a Custom inference type.
+# Do NOT use RunAI's "Model: from Hugging Face" type — it's a black box
+# that crashes without logs. Custom type gives full control.
 #
-# CLI equivalent:
+# RunAI UI settings:
+#   Inference type:  Custom
+#   Name:            wattbot-vllm
+#   Image:           vllm/vllm-openai:latest (custom image)
+#   Container port:  8000
+#   Command:         python -m vllm.entrypoints.openai.api_server
+#   Arguments:       --model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8000 --max-model-len 8192 --dtype auto
+#   Env:             HF_HOME=/models/.cache/huggingface
+#   GPU:             1 (full device)
+#   CPU:             4
+#   Memory:          16Gi
+#   Data volume:     shared-models -> /models
+#
+# CLI equivalent (if not using the UI):
 #   runai submit wattbot-vllm \
 #     --type inference \
 #     --image vllm/vllm-openai:latest \
-#     --gpu 0.75 \
+#     --gpu 1.0 \
 #     --cpu 4 \
 #     --memory 16Gi \
-#     --pvc wattbot-pvc:/data \
-#     --env HF_HOME=/data/.cache/huggingface \
+#     --pvc shared-models:/models \
+#     --env HF_HOME=/models/.cache/huggingface \
 #     --port 8000 \
 #     --command -- python -m vllm.entrypoints.openai.api_server \
 #       --model Qwen/Qwen2.5-7B-Instruct \
 #       --host 0.0.0.0 \
 #       --port 8000 \
 #       --max-model-len 8192 \
-#       --dtype auto \
-#       --quantization awq
+#       --dtype auto
+#
+# Startup time: 5-10 min (first deploy, image pull ~15 GB) / 2-3 min (cached)
 #
 # IMPORTANT: Choose quantization based on your GPU VRAM:
 #   - 80GB (A100): --dtype bfloat16 (no quantization needed for 7B)
@@ -63,8 +78,8 @@
 # CLI equivalent:
 #   runai submit wattbot-embedding \
 #     --type inference \
-#     --image kohakurag-embedding:latest \
-#     --gpu 0.25 \
+#     --image nvcr.io/nvidia/pytorch:25.02-py3 \
+#     --gpu 0.50 \
 #     --cpu 2 \
 #     --memory 8Gi \
 #     --pvc wattbot-pvc:/data \
