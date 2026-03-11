@@ -70,7 +70,7 @@ In the RunAI UI (v2.23+):
 2. Configure the data origin:
    - **Scope:** Select your project scope
      (e.g. `runai/doit-ai-cluster/default/<your-project>`)
-   - **PVC name:** `wattbot-data-pvc` *(enter a new name — this creates
+   - **PVC name:** `wattbot-data` *(enter a new name — this creates
      a new PVC for the data volume)*
 3. Set the data volume identity:
    - **Data volume name:** `wattbot-data`
