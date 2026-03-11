@@ -126,16 +126,25 @@ cd KohakuRAG_UI
 # Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
 
+# Create and activate a virtual environment
+uv venv --python 3.11
+source .venv/bin/activate
+python --version   # verify venv is active
+
 # Install vendored packages (order matters: KohakuVault before KohakuRAG)
-uv pip install --system -e vendor/KohakuVault
-uv pip install --system -e vendor/KohakuRAG
+uv pip install -e vendor/KohakuVault
+uv pip install -e vendor/KohakuRAG
 
 # Install remaining dependencies
-uv pip install --system -r local_requirements.txt
+uv pip install -r local_requirements.txt
 
 # Smoke test — verify imports work
 python -c "import kohakuvault, kohakurag; print('Imports OK')"
 ```
+
+> **Note:** Always `source .venv/bin/activate` before running any
+> subsequent steps (index build, pipeline test, etc.). This keeps
+> dependencies isolated from the container's system Python.
 
 ### 0e. Build the vector index
 
