@@ -86,10 +86,10 @@ In the RunAI UI (v2.23+):
 
 ### Mount path convention
 
-All workloads mount this PPVC at **`/mnt/wattbot-data`**:
+All workloads mount this PPVC at **`/wattbot-data`**:
 
 ```
-/mnt/wattbot-data/                    ← PPVC mount point
+/wattbot-data/                    ← PPVC mount point
 ├── embeddings/
 │   └── wattbot_jinav4.db            # vector index
 ├── corpus/                           # parsed JSON docs
@@ -98,7 +98,7 @@ All workloads mount this PPVC at **`/mnt/wattbot-data`**:
 
 When attaching the Data Volume to a workload in the RunAI UI, set:
 - **Data volume:** `wattbot-data`
-- **Mount path:** `/mnt/wattbot-data`
+- **Mount path:** `/wattbot-data`
 - **Access:** Read-write for `wattbot-setup`, read-only for inference jobs
 
 ---
@@ -115,7 +115,7 @@ shared PVC at `/models/.cache/huggingface/` — no downloads needed.
 | Path | Type | Access | Size | Purpose |
 |------|------|--------|------|---------|
 | `/models/` | Shared Data Volume | **Read-only** | ~744 GB | Pre-cached model weights (Qwen, Jina V4, etc.) |
-| `/mnt/wattbot-data/` | **Project PVC** | **RW** (setup) / **RO** (inference) | 1 GB | Vector index, corpus, PDFs — shared across all jobs |
+| `/wattbot-data/` | **Project PVC** | **RW** (setup) / **RO** (inference) | 1 GB | Vector index, corpus, PDFs — shared across all jobs |
 | `/home/jovyan/work/` | Personal workspace | Read-write | 30 GB | Git repo, Python deps, cache |
 
 ### 0a. Create a Workspace
@@ -129,7 +129,7 @@ In the RunAI UI:
    - **GPU:** `0.25` (needed for index build)
    - **Data Volumes:**
      - `shared-model-repository` → mount at `/models` (read-only)
-     - `wattbot-data` → mount at `/mnt/wattbot-data` (**read-write**)
+     - `wattbot-data` → mount at `/wattbot-data` (**read-write**)
    - **Environment variables:**
 
      | Key | Value |
@@ -223,19 +223,19 @@ the build scripts' relative paths still work.
 cd /home/jovyan/work/KohakuRAG_UI
 
 # Create directories on the PPVC
-mkdir -p /mnt/wattbot-data/embeddings
-mkdir -p /mnt/wattbot-data/corpus
-mkdir -p /mnt/wattbot-data/pdfs
+mkdir -p /wattbot-data/embeddings
+mkdir -p /wattbot-data/corpus
+mkdir -p /wattbot-data/pdfs
 
 # Symlink repo data dirs to the PPVC (so kogine writes to shared storage)
 rm -rf data/embeddings data/corpus data/pdfs
-ln -s /mnt/wattbot-data/embeddings data/embeddings
-ln -s /mnt/wattbot-data/corpus     data/corpus
-ln -s /mnt/wattbot-data/pdfs       data/pdfs
+ln -s /wattbot-data/embeddings data/embeddings
+ln -s /wattbot-data/corpus     data/corpus
+ln -s /wattbot-data/pdfs       data/pdfs
 
 # Check if index already exists on the PPVC
-if [ -f /mnt/wattbot-data/embeddings/wattbot_jinav4.db ]; then
-    echo "Index already exists: $(du -h /mnt/wattbot-data/embeddings/wattbot_jinav4.db | cut -f1)"
+if [ -f /wattbot-data/embeddings/wattbot_jinav4.db ]; then
+    echo "Index already exists: $(du -h /wattbot-data/embeddings/wattbot_jinav4.db | cut -f1)"
 else
     echo "Building vector index (takes a few minutes)..."
     cd vendor/KohakuRAG
@@ -244,7 +244,7 @@ else
 fi
 
 # Verify the index was created
-ls -lh /mnt/wattbot-data/embeddings/wattbot_jinav4.db
+ls -lh /wattbot-data/embeddings/wattbot_jinav4.db
 # Should be ~100-130 MB
 ```
 
@@ -275,7 +275,7 @@ print("Embedding model loaded")
 # 2. Load vector index from the PPVC
 # NOTE: do NOT pass dimensions= here. If the path is wrong, we want a loud
 # error instead of silently creating a new empty DB.
-DB = "/mnt/wattbot-data/embeddings/wattbot_jinav4.db"
+DB = "/wattbot-data/embeddings/wattbot_jinav4.db"
 store = KVaultNodeStore(DB, table_prefix="wattbot_jv4")
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
@@ -388,7 +388,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Memory | `8Gi` |
 | Port | `8080` |
 | Data Volume | `shared-models` (read-only, mount at `/models`) |
-| PPVC | `wattbot-data` (read-only, mount at `/mnt/wattbot-data`) |
+| PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
 
 **Command:**
 ```bash
@@ -443,7 +443,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Memory | `2Gi` |
 | Port | `8501` |
 | Data Volume | `shared-models` (read-only, mount at `/models`) |
-| PPVC | `wattbot-data` (read-only, mount at `/mnt/wattbot-data`) |
+| PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
 
 **Command:**
 ```bash
@@ -453,8 +453,8 @@ pip install uv && \
 cp -r /home/jovyan/work/KohakuRAG_UI /tmp/KohakuRAG_UI && \
 cd /tmp/KohakuRAG_UI && \
 # Symlink data dirs to the PPVC (vector DB lives on shared storage)
-ln -sf /mnt/wattbot-data/embeddings data/embeddings && \
-ln -sf /mnt/wattbot-data/corpus     data/corpus && \
+ln -sf /wattbot-data/embeddings data/embeddings && \
+ln -sf /wattbot-data/corpus     data/corpus && \
 uv pip install --system streamlit openai httpx numpy python-dotenv && \
 uv pip install --system vendor/KohakuVault vendor/KohakuRAG && \
 streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
@@ -493,7 +493,7 @@ embeddings, 0 for Streamlit. All model weights are pre-cached on
 - **vLLM OOM:** Reduce `--max-model-len` (e.g., 4096) or use `--quantization awq`
 - **Embedding server 503:** Model still loading (~30s on first request). Check logs.
 - **Streamlit can't connect:** Verify service DNS names match your job names in the RunAI UI
-- **Vector DB not found:** Run Step 0 first — `wattbot_jinav4.db` must exist on the PPVC at `/mnt/wattbot-data/embeddings/`. Also verify the PPVC is mounted in your workload.
+- **Vector DB not found:** Run Step 0 first — `wattbot_jinav4.db` must exist on the PPVC at `/wattbot-data/embeddings/`. Also verify the PPVC is mounted in your workload.
 - **Mismatch errors:** Ensure `EMBEDDING_DIM=1024` matches what was used during index build
 - **Job keeps crashing:** Check logs in RunAI UI (click job > Logs tab). Common causes: OOM, missing files, image pull failure
 
@@ -509,7 +509,7 @@ The cluster has three storage areas:
 | Path | Type | Access | Size | Purpose |
 |------|------|--------|------|---------|
 | `/models/` | **Shared Data Volume** | **Read-only** | ~744 GB | Pre-cached model weights (Qwen, Jina V4, etc.) |
-| `/mnt/wattbot-data/` | **Project PVC (PPVC)** | RW (setup) / RO (inference) | 1 GB | Vector index, corpus, PDFs — shared across all jobs |
+| `/wattbot-data/` | **Project PVC (PPVC)** | RW (setup) / RO (inference) | 1 GB | Vector index, corpus, PDFs — shared across all jobs |
 | `/home/jovyan/work/` | **Personal workspace** | Read-write | 30 GB | Git repo, Python deps, cache |
 
 ```
@@ -522,7 +522,7 @@ The cluster has three storage areas:
     ├── models--jinaai--jina-embeddings-v4/
     └── ...  (~744 GB total)
 
-/mnt/wattbot-data/                          ← PPVC, shared across jobs
+/wattbot-data/                          ← PPVC, shared across jobs
 ├── embeddings/
 │   └── wattbot_jinav4.db                   # vector index (~130 MB)
 ├── corpus/                                 # parsed JSON documents
@@ -533,9 +533,9 @@ The cluster has three storage areas:
 │   ├── app.py                              # Streamlit app
 │   ├── data/
 │   │   ├── metadata.csv                    # document URLs
-│   │   ├── embeddings -> /mnt/wattbot-data/embeddings  # symlink
-│   │   ├── corpus -> /mnt/wattbot-data/corpus          # symlink
-│   │   └── pdfs -> /mnt/wattbot-data/pdfs              # symlink
+│   │   ├── embeddings -> /wattbot-data/embeddings  # symlink
+│   │   ├── corpus -> /wattbot-data/corpus          # symlink
+│   │   └── pdfs -> /wattbot-data/pdfs              # symlink
 │   ├── vendor/KohakuRAG/                   # RAG library
 │   └── scripts/
 │       └── embedding_server.py             # query-time embedding server
@@ -548,7 +548,7 @@ In the RunAI UI, these are exposed as:
 | RunAI Name | Mount Point | Access | Used by |
 |------------|-------------|--------|---------|
 | `shared-model-repository` (Data Source) | `/models` | Read-only | All workloads — pre-cached model weights |
-| `wattbot-data` (Project PVC) | `/mnt/wattbot-data` | RW for setup, RO for inference | Vector index, corpus, PDFs |
+| `wattbot-data` (Project PVC) | `/wattbot-data` | RW for setup, RO for inference | Vector index, corpus, PDFs |
 | Personal workspace | `/home/jovyan/work` | Read-write | Step 0 Workspace (clone, build) |
 
 **Key points:**
@@ -569,9 +569,9 @@ In the RunAI UI, these are exposed as:
 | Qwen 7B model weights | `/models/.cache/huggingface/` | ~14 GB | Pre-cached on shared Data Volume |
 | Qwen 14B, 72B, 3.5-35B, etc. | `/models/.cache/huggingface/` | ~744 GB total | Pre-cached on shared Data Volume |
 | Jina V4 model weights | `/models/.cache/huggingface/` | ~3 GB | Pre-cached on shared Data Volume |
-| Vector index (`wattbot_jinav4.db`) | `/mnt/wattbot-data/embeddings/` | ~130 MB | Step 0 Workspace (on PPVC) |
-| Parsed corpus (JSON) | `/mnt/wattbot-data/corpus/` | ~50 MB | Step 0 Workspace (on PPVC) |
-| Cached PDFs | `/mnt/wattbot-data/pdfs/` | ~200 MB | Step 0 Workspace (on PPVC) |
+| Vector index (`wattbot_jinav4.db`) | `/wattbot-data/embeddings/` | ~130 MB | Step 0 Workspace (on PPVC) |
+| Parsed corpus (JSON) | `/wattbot-data/corpus/` | ~50 MB | Step 0 Workspace (on PPVC) |
+| Cached PDFs | `/wattbot-data/pdfs/` | ~200 MB | Step 0 Workspace (on PPVC) |
 | Git repo clone | `/home/jovyan/work/KohakuRAG_UI/` | ~50 MB | Step 0 Workspace |
 | Python packages + cache | `/home/jovyan/work/.cache/` | Varies | Step 0 Workspace |
 
