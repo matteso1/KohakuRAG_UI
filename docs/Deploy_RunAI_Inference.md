@@ -182,7 +182,10 @@ from the index build, so this is a quick check. Open a **JupyterLab
 notebook** (or run as a Python script) and test:
 
 ```python
-import sys, os
+import os
+os.chdir("/home/jovyan/work/KohakuRAG_UI")
+
+import sys
 sys.path.insert(0, "vendor/KohakuRAG/src")
 os.environ["HF_HOME"] = "/models/.cache/huggingface"
 
@@ -201,8 +204,7 @@ print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache
 llm = HuggingFaceLocalChatModel(
-    model_name="Qwen/Qwen2.5-7B-Instruct",
-    load_in_4bit=True,
+    model="Qwen/Qwen2.5-7B-Instruct",
 )
 print("LLM loaded")
 
