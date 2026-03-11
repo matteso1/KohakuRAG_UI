@@ -37,9 +37,10 @@ are already pre-cached on the shared PVC — no downloads needed.
 └──────────┘
 ```
 
-**Query flow:** User asks a question → Streamlit sends it to the
-Embedding Server → gets a vector back → searches the pre-built vector
-DB → sends question + retrieved context to vLLM → displays the answer
+**Query flow:** User asks a question → Streamlit [`wattbot-app`] sends
+it to the Embedding Server [`wattbot-embedding`] → gets a vector back →
+searches the pre-built vector DB → sends question + retrieved context to
+vLLM [`wattbot-vllm`] → Streamlit [`wattbot-app`] displays the answer
 with citations.
 
 All steps below use the **RunAI web UI only** — no CLI tools required.
