@@ -291,7 +291,7 @@ print("LLM loaded")
 
 # 4. Run full pipeline
 pipeline = RAGPipeline(embedder=embedder, store=store, chat_model=chat)
-answer = await pipeline.answer("What is WattBot?")
+answer = await pipeline.answer("How much energy to train an LLM (ballpark)?")
 print(f"\nAnswer: {answer['response']}")
 print(f"\nTop snippets:")
 for s in answer["snippets"][:3]:
