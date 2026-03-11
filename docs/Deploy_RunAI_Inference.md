@@ -126,7 +126,7 @@ In the RunAI UI:
 2. Set:
    - **Name:** `wattbot-setup`
    - **Image:** `nvcr.io/nvidia/pytorch:25.02-py3`
-   - **GPU:** `0.25` (needed for index build)
+   - **GPU:** `1.0` (PyTorch + JinaV4 model need most of a GPU's memory)
    - **Data Volumes:**
      - `shared-model-repository` → mount at `/models` (read-only)
      - `wattbot-data` → mount at `/wattbot-data` (**read-write**)
