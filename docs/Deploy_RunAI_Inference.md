@@ -370,7 +370,8 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | **Image** | Custom image |
 | **Image URL** | `vllm/vllm-openai:latest` |
-| **Image pull** | Pull only if not already present (recommended) |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — public Docker Hub image)* |
 
 ### 1c. Serving endpoint
 
@@ -393,18 +394,19 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | **GPU devices** | `1` (full GPU) |
-| **CPU** | `4` |
-| **Memory** | `16Gi` |
+| **GPU fractioning** | *(leave disabled — using full device)* |
+| **CPU request** | `4` cores |
+| **CPU memory request** | `16 GB` |
+| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
 
 ### 1f. Data & storage
 
-In the Advanced setup, go to Data & Storage and add a **data volume**
-(not a "data source" — that's a different RunAI concept used by the HF
-inference type). Click **+DATA VOLUME**, select the existing PVC, and
-set the container path:
+Under **Data & storage**, select the `shared-models` data volume and
+set the container path. (In Custom inference type, data volumes appear
+directly in the initial setup form — no need for Advanced setup.)
 
-| Data volume (PVC) | Container path |
-|-------------------|----------------|
+| Data volume name | Container path |
+|------------------|----------------|
 | `shared-models` | `/models` |
 
 ### 1g. General
@@ -469,7 +471,8 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | **Image** | Custom image |
 | **Image URL** | `nvcr.io/nvidia/pytorch:25.02-py3` |
-| **Image pull** | Pull only if not already present (recommended) |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — or select NGC credential if required by your cluster)* |
 
 ### 2c. Serving endpoint
 
@@ -513,16 +516,20 @@ python scripts/embedding_server.py
 
 | Field | Value |
 |-------|-------|
-| **GPU devices** | `0.5` (fractional — Jina V4 needs ~3 GB VRAM) |
-| **CPU** | `2` |
-| **Memory** | `8Gi` |
+| **GPU devices** | `1` |
+| **GPU fractioning** | Enabled — set to `50%` of device (Jina V4 needs ~3 GB VRAM). The UI will show "0.33–0.66 GPUs" as the allocated range. |
+| **CPU request** | `2` cores |
+| **CPU memory request** | `8 GB` |
+| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
 
 ### 2f. Data & storage
 
-| Data volume | Container path | Access |
-|-------------|----------------|--------|
-| `shared-models` | `/models` | Read-only |
-| `wattbot-data` | `/wattbot-data` | Read-only |
+Under **Data & storage**, add the data volumes and set container paths:
+
+| Data volume name | Container path |
+|------------------|----------------|
+| `shared-models` | `/models` |
+| `wattbot-data` | `/wattbot-data` |
 
 ### 2g. General
 
