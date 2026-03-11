@@ -199,8 +199,10 @@ embedder = JinaV4EmbeddingModel()
 print("Embedding model loaded")
 
 # 2. Load vector index (use absolute path — notebook CWD can be unpredictable)
+# NOTE: do NOT pass dimensions= here. If the path is wrong, we want a loud
+# error instead of silently creating a new empty DB.
 DB = f"{REPO}/data/embeddings/wattbot_jinav4.db"
-store = KVaultNodeStore(DB, dimensions=1024)
+store = KVaultNodeStore(DB)
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
 # 3. Load LLM from shared cache (7B, not 72B!)
