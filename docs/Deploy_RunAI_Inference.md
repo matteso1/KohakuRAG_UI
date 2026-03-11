@@ -68,7 +68,7 @@ In the RunAI UI:
 1. Go to **Workloads** > **New Workload** > **Workspace**
 2. Set:
    - **Name:** `wattbot-setup`
-   - **Image:** `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime`
+   - **Image:** `nvcr.io/nvidia/pytorch:25.02-py3`
    - **GPU:** `0.25` (needed for index build)
    - **Data Sources:** select `shared-model-repository`, mount at `/models`
    - **Environment variables:**
@@ -126,16 +126,33 @@ cd KohakuRAG_UI
 # Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
 
+# Create and activate a virtual environment
+# (uses whatever Python the NGC image ships — currently 3.12)
+uv venv
+source .venv/bin/activate
+python --version   # verify venv is active
+
 # Install vendored packages (order matters: KohakuVault before KohakuRAG)
-uv pip install --system -e vendor/KohakuVault
-uv pip install --system -e vendor/KohakuRAG
+uv pip install -e vendor/KohakuVault
+uv pip install -e vendor/KohakuRAG
 
 # Install remaining dependencies
-uv pip install --system -r local_requirements.txt
+uv pip install -r local_requirements.txt
 
 # Smoke test — verify imports work
 python -c "import kohakuvault, kohakurag; print('Imports OK')"
+
+# Register a named Jupyter kernel so you can select this venv in notebooks
+python -m ipykernel install --user \
+  --name wattbot \
+  --display-name "wattbot"
 ```
+
+> **Note:** Always `source .venv/bin/activate` before running any
+> subsequent steps (index build, pipeline test, etc.). This keeps
+> dependencies isolated from the container's system Python. In
+> JupyterLab, select the **"wattbot"** kernel to use this environment
+> in notebooks.
 
 ### 0e. Build the vector index
 
@@ -284,7 +301,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | Name | `wattbot-embedding` |
-| Image | `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` |
+| Image | `nvcr.io/nvidia/pytorch:25.02-py3` |
 | GPU | `0.5` |
 | CPU | `2` |
 | Memory | `8Gi` |
