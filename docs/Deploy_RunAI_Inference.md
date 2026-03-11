@@ -157,7 +157,50 @@ ls -lh data/embeddings/wattbot_jinav4.db
 # Should be ~30+ MB
 ```
 
-### 0f. Check HuggingFace token (for gated models)
+### 0f. Test the full pipeline in a notebook
+
+Before splitting into 3 separate jobs, verify the entire RAG pipeline
+works end-to-end in the workspace. The embedding model is already loaded
+from the index build, so this is a quick check. Open a **JupyterLab
+notebook** (or run as a Python script) and test:
+
+```python
+import sys, os
+sys.path.insert(0, "vendor/KohakuRAG/src")
+os.environ["HF_HOME"] = "/models/.cache/huggingface"
+
+from kohakurag import RAGPipeline
+from kohakurag.datastore import KVaultNodeStore
+from kohakurag.embeddings import JinaV4EmbeddingModel
+from kohakurag.llm import HuggingFaceLocalChatModel
+
+# 1. Load embedding model (already cached from index build)
+embedder = JinaV4EmbeddingModel()
+print("Embedding model loaded")
+
+# 2. Load vector index
+store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db")
+print(f"Vector index loaded: {store.count()} chunks")
+
+# 3. Load LLM from shared cache
+llm = HuggingFaceLocalChatModel(
+    model_name="Qwen/Qwen2.5-7B-Instruct",
+    load_in_4bit=True,
+)
+print("LLM loaded")
+
+# 4. Run full pipeline
+pipeline = RAGPipeline(embedder=embedder, store=store, llm=llm)
+result = pipeline.query("What is WattBot?")
+print(f"\nAnswer: {result.answer}")
+print(f"Sources: {[r.ref_id for r in result.references]}")
+```
+
+If this works, you know the models, index, and code are all wired up
+correctly. Any issues here are much easier to debug than across 3
+separate inference jobs.
+
+### 0g. Check HuggingFace token (for gated models)
 
 If you plan to use gated models (Llama 3, Gemma 2, etc.), you need an
 HF token. This is **not needed** for Qwen or Jina V4:
@@ -174,9 +217,9 @@ else
 fi
 ```
 
-### 0g. Stop the Workspace
+### 0h. Stop the Workspace
 
-Once the index is built, you can **stop the Workspace** from the RunAI UI
+Once the pipeline test passes, you can **stop the Workspace** from the RunAI UI
 to free its GPU. The files persist on the PVC — the Inference jobs will
 read them.
 
