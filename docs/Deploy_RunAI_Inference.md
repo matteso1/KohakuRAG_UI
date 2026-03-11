@@ -182,11 +182,11 @@ from the index build, so this is a quick check. Open a **JupyterLab
 notebook** (or run as a Python script) and test:
 
 ```python
-import os
-os.chdir("/home/jovyan/work/KohakuRAG_UI")
+import os, sys
 
-import sys
-sys.path.insert(0, "vendor/KohakuRAG/src")
+REPO = "/home/jovyan/work/KohakuRAG_UI"
+os.chdir(REPO)
+sys.path.insert(0, f"{REPO}/vendor/KohakuRAG/src")
 os.environ["HF_HOME"] = "/models/.cache/huggingface"
 
 from kohakurag import RAGPipeline
@@ -198,11 +198,12 @@ from kohakurag.llm import HuggingFaceLocalChatModel
 embedder = JinaV4EmbeddingModel()
 print("Embedding model loaded")
 
-# 2. Load vector index
-store = KVaultNodeStore("data/embeddings/wattbot_jinav4.db", dimensions=1024)
+# 2. Load vector index (use absolute path — notebook CWD can be unpredictable)
+DB = f"{REPO}/data/embeddings/wattbot_jinav4.db"
+store = KVaultNodeStore(DB, dimensions=1024)
 print(f"Vector index loaded: {len(store._vectors)} chunks")
 
-# 3. Load LLM from shared cache
+# 3. Load LLM from shared cache (7B, not 72B!)
 chat = HuggingFaceLocalChatModel(
     model="Qwen/Qwen2.5-7B-Instruct",
 )
