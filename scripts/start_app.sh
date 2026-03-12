@@ -2,43 +2,34 @@
 # Bootstrap script for the Streamlit app on RunAI.
 # Keeps the workspace command short to avoid UI field truncation.
 #
-# Usage (RunAI Workspace — private repo, tarball pre-downloaded):
+# Usage (RunAI Workspace):
 #   Command:   bash
-#   Arguments: -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && bash /tmp/KohakuRAG_UI-rag-poweredge/scripts/start_app.sh"
+#   Arguments: -c "bash /home/jovyan/work/KohakuRAG_UI/scripts/start_app.sh"
 #
-# The script detects if it's running from an already-extracted repo
-# and skips the download step.
+# The script uses the repo already cloned on the personal PVC from Step 0.
+# No GitHub download needed — the code is on the shared filesystem.
 set -euo pipefail
 
-REPO_DIR="/tmp/KohakuRAG_UI"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Where Step 0 cloned the repo (personal workspace PVC)
+REPO_DIR="${APP_REPO_DIR:-/home/jovyan/work/KohakuRAG_UI}"
 
-# If running from an extracted tarball (e.g. /tmp/KohakuRAG_UI-rag-poweredge/scripts/),
-# use that directory directly instead of downloading again.
-if [[ "$SCRIPT_DIR" == /tmp/KohakuRAG_UI-*/scripts ]]; then
-    EXTRACTED_DIR="${SCRIPT_DIR%/scripts}"
-    echo "[start_app] Using pre-extracted repo at ${EXTRACTED_DIR}"
-    mv "$EXTRACTED_DIR" "$REPO_DIR" 2>/dev/null || true
-else
-    # Standalone mode: download the repo
-    BRANCH="${APP_BRANCH:-rag-poweredge}"
-    DIR_NAME="KohakuRAG_UI-${BRANCH//\//-}"
-
-    echo "[start_app] Installing uv..."
-    pip install uv 2>&1 | tail -1
-
-    echo "[start_app] Downloading repo (branch: ${BRANCH})..."
-    curl -sL "https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/${BRANCH}.tar.gz" \
-      | tar xz -C /tmp
-    mv "/tmp/${DIR_NAME}" "$REPO_DIR"
+if [[ ! -d "$REPO_DIR" ]]; then
+    echo "[start_app] ERROR: Repo not found at ${REPO_DIR}"
+    echo "[start_app] Run Step 0 first to clone the repo."
+    exit 1
 fi
 
-# Ensure uv is available
-command -v uv >/dev/null 2>&1 || { pip install uv 2>&1 | tail -1; }
-
+echo "[start_app] Using repo at ${REPO_DIR}"
 cd "$REPO_DIR"
 
+# Ensure uv is available
+command -v uv >/dev/null 2>&1 || {
+    echo "[start_app] Installing uv..."
+    pip install uv 2>&1 | tail -1
+}
+
 echo "[start_app] Symlinking data from PPVC..."
+mkdir -p data
 ln -sf /wattbot-data/embeddings data/embeddings
 ln -sf /wattbot-data/corpus data/corpus
 
