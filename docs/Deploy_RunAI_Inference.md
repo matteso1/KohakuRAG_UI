@@ -617,9 +617,13 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
 | `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
 
-**Access the app:** Check the RunAI UI for the ingress URL. Typically:
+**Access the app:** Check the RunAI UI for the ingress URL. The pattern is:
 ```
-https://<cluster-url>/<project>/wattbot-app/proxy/8501/
+https://<cluster-host>/<project>/<job-name>/proxy/<port>/
+```
+For example:
+```
+https://deepthought.doit.wisc.edu/jupyter-endemann01/wattbot-app/proxy/8501/
 ```
 
 ---
