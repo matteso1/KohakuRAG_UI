@@ -91,8 +91,13 @@ async def startup():
 
 @app.get("/health")
 async def health():
+    """Always return 200 so Knative's readiness probe doesn't kill the container.
+
+    Callers that need to know if the model is actually ready should check
+    /info or POST /embed (which returns 503 while loading).
+    """
     if _embedder is None:
-        raise HTTPException(status_code=503, detail="Model not loaded yet")
+        return {"status": "loading"}
     return {"status": "ok"}
 
 
