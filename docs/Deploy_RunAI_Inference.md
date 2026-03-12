@@ -530,7 +530,7 @@ Inference jobs don't have access to the personal workspace
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && git clone https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && git clone -b rag-poweredge https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
 > **Why clone to /tmp?** Inference pods start from a clean container
@@ -617,7 +617,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && git clone https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
+| **Arguments** | `-c "pip install uv && git clone -b rag-poweredge https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
 
 **Environment variables:**
 | Key | Value |
