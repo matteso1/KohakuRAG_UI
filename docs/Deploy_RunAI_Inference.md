@@ -591,25 +591,52 @@ curl http://wattbot-embedding:8080/health
 
 ## Step 3: Deploy the Streamlit App
 
+The Streamlit UI connects to the vLLM and embedding services via internal
+cluster DNS. We use the same `vllm/vllm-openai` image as the other two
+services — it has PyTorch, `curl`, and everything Streamlit needs
+pre-installed.
+
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+
+### 3a. Basic settings
 
 | Field | Value |
 |-------|-------|
-| Name | `wattbot-app` |
-| Image | `python:3.11-slim` |
-| GPU | `0` (none) |
-| CPU | `1` |
-| Memory | `2Gi` |
-| Port | `8501` |
-| Data Volume | `shared-models` (read-only, mount at `/models`) |
-| PPVC | `wattbot-data` (read-only, mount at `/wattbot-data`) |
+| **Cluster** | `doit-ai-cluster` |
+| **Project** | Your project (e.g. `jupyter-endemann01`) |
+| **Inference type** | **Custom** |
+| **Inference name** | `wattbot-app` |
+
+### 3b. Environment image
+
+| Field | Value |
+|-------|-------|
+| **Image** | Custom image |
+| **Image URL** | `vllm/vllm-openai:latest` |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — public Docker Hub image)* |
+
+### 3c. Serving endpoint
+
+| Field | Value |
+|-------|-------|
+| **Protocol** | HTTP |
+| **Container port** | `8501` |
+
+### 3d. Runtime settings
 
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && git clone -b rag-poweredge https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
+| **Working directory** | *(leave empty)* |
+
+> **Using a different branch?** Same as Step 2d — replace `rag-poweredge`
+> in both the URL and the `mv` command. Slashes in branch names become
+> dashes in the extracted directory name.
 
 **Environment variables:**
+
 | Key | Value |
 |-----|-------|
 | `RAG_MODE` | `remote` |
@@ -617,14 +644,63 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
 | `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
 
-**Access the app:** Check the RunAI UI for the ingress URL. The pattern is:
+### 3e. Compute resources
+
+| Field | Value |
+|-------|-------|
+| **GPU devices** | `0` (no GPU — Streamlit is CPU-only) |
+| **CPU request** | `1` core |
+| **CPU memory request** | `2 GB` |
+| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
+
+### 3f. Data & storage
+
+| Data volume name | Container path |
+|------------------|----------------|
+| `wattbot-data` | `/wattbot-data` |
+
+> **Note:** The Streamlit app does not need the `shared-models` volume —
+> it doesn't load any ML models directly. It connects to vLLM and the
+> embedding server via HTTP.
+
+### 3g. General
+
+| Field | Value |
+|-------|-------|
+| **Priority** | `very-high` (or as appropriate) |
+
+### Expected startup time
+
+First deploy takes **2-4 minutes**:
+- **Image pull** (~0s): If the vLLM image is already cached on the node
+  (from Steps 1-2), this is instant.
+- **Dependency install** (~30-60s): `uv` installs Streamlit, OpenAI
+  client, and a few small packages. KohakuVault/KohakuRAG are installed
+  from the vendored source.
+- **Streamlit startup** (~5s): The app starts and begins listening on
+  port 8501.
+
+### Access the app
+
+Inference workloads in RunAI use **Knative serving** — the URL is
+assigned by the cluster's ingress controller, not the workspace proxy
+pattern. Check the RunAI UI for the ingress URL:
+
+1. Go to **Workloads** > click on `wattbot-app`
+2. Look for the **URL** or **Endpoint** in the job details panel
+
+The URL pattern for inference jobs is typically:
 ```
-https://<cluster-host>/<project>/<job-name>/proxy/<port>/
+https://wattbot-app-<project>.<cluster-domain>/
 ```
 For example:
 ```
-https://deepthought.doit.wisc.edu/jupyter-endemann01/wattbot-app/proxy/8501/
+https://wattbot-app-jupyter-endemann01.deepthought.doit.wisc.edu/
 ```
+
+> **Note:** The URL does NOT use the `/proxy/8501/` pattern — that's for
+> Workspace workloads only. Inference jobs get their own Knative route
+> with a dedicated hostname.
 
 ---
 
