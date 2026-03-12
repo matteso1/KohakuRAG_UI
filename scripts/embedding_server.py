@@ -23,14 +23,19 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-# Add vendor paths so kohakurag imports work
+# Import embeddings module directly to avoid kohakurag.__init__ pulling in
+# kohakuvault (a Rust extension that isn't needed for the embedding server).
+import importlib.util as _ilu
+
 _repo_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_repo_root / "vendor" / "KohakuRAG" / "src"))
+_emb_path = _repo_root / "vendor" / "KohakuRAG" / "src" / "kohakurag" / "embeddings.py"
+_spec = _ilu.spec_from_file_location("kohakurag.embeddings", _emb_path)
+_mod = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+JinaV4EmbeddingModel = _mod.JinaV4EmbeddingModel
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-from kohakurag.embeddings import JinaV4EmbeddingModel
 
 # ---------------------------------------------------------------------------
 # Configuration from environment
