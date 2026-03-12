@@ -459,8 +459,17 @@ curl http://wattbot-vllm:8000/v1/models
 
 ## Step 2: Deploy the Embedding Server
 
-The embedding server is a custom FastAPI service that wraps Jina V4 —
-we use the NGC PyTorch image and install dependencies at startup.
+The embedding server is a custom FastAPI service that wraps Jina V4.
+We use the same `vllm/vllm-openai` image as the vLLM server — it
+already has PyTorch, CUDA, and `curl` pre-installed, so only a handful
+of lightweight Python packages need to be added at startup.
+
+> **Why the vLLM image?** Using one image for both services means
+> fewer image pulls and less storage on each node. The vLLM image
+> (~15 GB) ships with PyTorch + CUDA, which is everything the
+> embedding server needs. The NGC PyTorch image
+> (`nvcr.io/nvidia/pytorch:25.02-py3`, ~20 GB) also works but is
+> larger and adds no benefit here.
 
 In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 
@@ -478,9 +487,9 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | Field | Value |
 |-------|-------|
 | **Image** | Custom image |
-| **Image URL** | `nvcr.io/nvidia/pytorch:25.02-py3` |
+| **Image URL** | `vllm/vllm-openai:latest` |
 | **Image pull** | Pull the image only if it's not already present on the host (recommended) |
-| **Image pull secret** | *(leave empty — or select NGC credential if required by your cluster)* |
+| **Image pull secret** | *(leave empty — public Docker Hub image)* |
 
 ### 2c. Serving endpoint
 
@@ -492,18 +501,21 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 ### 2d. Runtime settings
 
 Inference jobs don't have access to the personal workspace
-(`/home/jovyan/work/`), so the command clones the repo at startup.
+(`/home/jovyan/work/`), so the command downloads the repo as a
+tarball and installs dependencies at startup.
 
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && git clone -b rag-poweredge https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
-> **Why clone to /tmp?** Inference pods start from a clean container
-> image — no personal workspace or git repo is available. Cloning to
-> `/tmp` gives a writable workspace for the code, pip installs, and
-> any temporary files (e.g., KohakuVault's SQLite WAL).
+> **Why `curl` tarball instead of `git clone`?** The vLLM image
+> doesn't include `git`. Downloading a tarball via `curl` (which is
+> pre-installed) avoids needing to install git at runtime.
+>
+> **Why `python3` not `python`?** The vLLM image provides `python3`
+> but does not alias it to `python`.
 >
 > **Why uv?** `uv` is a drop-in replacement for `pip` that's 10-100x
 > faster. Installs that take 1-3 minutes with pip finish in seconds.
@@ -544,11 +556,12 @@ Under **Data & storage**, add the data volumes and set container paths:
 
 ### Expected startup time
 
-First deploy takes **3-6 minutes**:
-- **Image pull** (~2-4 min): The NGC PyTorch image is ~20 GB.
-  Subsequent deploys skip this if the image is cached on the node.
+First deploy takes **3-5 minutes**:
+- **Image pull** (~2-3 min): If the vLLM image is already cached on
+  the node (from Step 1), this is instant. Otherwise ~15 GB download.
 - **Dependency install** (~30-60s): `uv` installs FastAPI,
-  sentence-transformers, etc.
+  sentence-transformers, etc. (only a few lightweight packages —
+  PyTorch is already in the image).
 - **Model loading** (~30s): Jina V4 weights (~3 GB) load from the
   shared PVC into GPU memory.
 
