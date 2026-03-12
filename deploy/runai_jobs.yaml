@@ -74,12 +74,19 @@
 # Job 2: Embedding Server (Inference workload)
 # ---------------------------------------------------------------------------
 # Serves Jina V4 embeddings via FastAPI.
+# Uses the same vllm/vllm-openai image as the vLLM server — one image for
+# both services means fewer image pulls and less node storage.
 #
 # IMPORTANT: The embedding server only needs kohakurag/embeddings.py (pure
 # Python). Do NOT pip-install vendor/KohakuVault or vendor/KohakuRAG — the
 # KohakuRAG package __init__.py imports kohakuvault (a Rust extension) which
 # triggers a slow Rust/maturin build that will fail in most container images.
 # The embedding_server.py script loads embeddings.py directly via importlib.
+#
+# NOTE on the vLLM image:
+#   - Uses `python3` (not `python`) — there is no `python` alias
+#   - Does not include `git` — use `curl` tarball instead of `git clone`
+#   - Has `curl`, `pip`, PyTorch, and CUDA pre-installed
 #
 # ---------------------------------------------------------------------------
 # Pre-deploy testing (run locally before submitting to RunAI)
@@ -90,11 +97,13 @@
 # Step 1: Test the startup command locally (any machine with Python 3.10+):
 #
 #   rm -rf /tmp/KohakuRAG_UI && \
-#   git clone -b <your-branch> https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && \
+#   curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/<your-branch>.tar.gz \
+#     | tar xz -C /tmp && \
+#   mv /tmp/KohakuRAG_UI-<your-branch> /tmp/KohakuRAG_UI && \
 #   cd /tmp/KohakuRAG_UI && \
 #   uv pip install --system fastapi uvicorn httpx numpy \
 #     sentence-transformers 'transformers>=4.42,<5' accelerate && \
-#   python scripts/embedding_server.py
+#   python3 scripts/embedding_server.py
 #
 #   Expected output: "[embedding_server] Model loaded in Xs. Serving on 0.0.0.0:8080"
 #   The server should start without import errors. Ctrl+C to stop.
@@ -114,36 +123,44 @@
 # Only proceed to RunAI deployment once all steps pass locally.
 # ---------------------------------------------------------------------------
 #
+# RunAI UI settings:
+#   Inference type:  Custom
+#   Name:            wattbot-embedding
+#   Image:           vllm/vllm-openai:latest (same image as vLLM server)
+#   Container port:  8080
+#   Command:         bash
+#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"
+#   Env:             HF_HOME=/models/.cache/huggingface
+#                    EMBEDDING_MODEL=jinaai/jina-embeddings-v4
+#                    EMBEDDING_DIM=1024
+#                    EMBEDDING_TASK=retrieval
+#   GPU:             0.50 (fractional)
+#   CPU:             2
+#   Memory:          8Gi
+#   Data volume:     shared-models -> /models
+#
 # CLI equivalent:
 #   runai submit wattbot-embedding \
 #     --type inference \
-#     --image nvcr.io/nvidia/pytorch:25.02-py3 \
+#     --image vllm/vllm-openai:latest \
 #     --gpu 0.50 \
 #     --cpu 2 \
 #     --memory 8Gi \
-#     --pvc wattbot-pvc:/data \
-#     --env HF_HOME=/data/.cache/huggingface \
+#     --pvc shared-models:/models \
+#     --env HF_HOME=/models/.cache/huggingface \
 #     --env EMBEDDING_MODEL=jinaai/jina-embeddings-v4 \
 #     --env EMBEDDING_DIM=1024 \
-#     --port 8080
-#
-# Or using the git-clone approach (no Docker build needed):
-#   runai submit wattbot-embedding \
-#     --type inference \
-#     --image pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime \
-#     --gpu 0.25 \
-#     --cpu 2 \
-#     --memory 8Gi \
-#     --pvc wattbot-pvc:/workspace \
-#     --env HF_HOME=/workspace/.cache/huggingface \
+#     --env EMBEDDING_TASK=retrieval \
 #     --port 8080 \
 #     --command -- /bin/bash -c \
 #       "pip install uv && \
-#        git clone -b <your-branch> https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && \
+#        curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz \
+#          | tar xz -C /tmp && \
+#        mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && \
 #        cd /tmp/KohakuRAG_UI && \
-#        uv pip install --system fastapi uvicorn httpx numpy \
+#        uv pip install --system fastapi uvicorn httpx \
 #          sentence-transformers 'transformers>=4.42,<5' accelerate && \
-#        python scripts/embedding_server.py"
+#        python3 scripts/embedding_server.py"
 
 # ---------------------------------------------------------------------------
 # Job 3: Streamlit App (Inference workload, CPU only)
