@@ -2,22 +2,41 @@
 # Bootstrap script for the Streamlit app on RunAI.
 # Keeps the workspace command short to avoid UI field truncation.
 #
-# Usage (as RunAI Workspace command):
-#   bash -c "curl -sL https://raw.githubusercontent.com/qualiaMachine/KohakuRAG_UI/rag-poweredge/scripts/start_app.sh | bash"
+# Usage (RunAI Workspace — private repo, tarball pre-downloaded):
+#   Command:   bash
+#   Arguments: -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && bash /tmp/KohakuRAG_UI-rag-poweredge/scripts/start_app.sh"
+#
+# The script detects if it's running from an already-extracted repo
+# and skips the download step.
 set -euo pipefail
 
-BRANCH="${APP_BRANCH:-rag-poweredge}"
-# GitHub converts slashes to dashes in tarball directory names
-DIR_NAME="KohakuRAG_UI-${BRANCH//\//-}"
+REPO_DIR="/tmp/KohakuRAG_UI"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "[start_app] Installing uv..."
-pip install uv 2>&1 | tail -1
+# If running from an extracted tarball (e.g. /tmp/KohakuRAG_UI-rag-poweredge/scripts/),
+# use that directory directly instead of downloading again.
+if [[ "$SCRIPT_DIR" == /tmp/KohakuRAG_UI-*/scripts ]]; then
+    EXTRACTED_DIR="${SCRIPT_DIR%/scripts}"
+    echo "[start_app] Using pre-extracted repo at ${EXTRACTED_DIR}"
+    mv "$EXTRACTED_DIR" "$REPO_DIR" 2>/dev/null || true
+else
+    # Standalone mode: download the repo
+    BRANCH="${APP_BRANCH:-rag-poweredge}"
+    DIR_NAME="KohakuRAG_UI-${BRANCH//\//-}"
 
-echo "[start_app] Downloading repo (branch: ${BRANCH})..."
-curl -sL "https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/${BRANCH}.tar.gz" \
-  | tar xz -C /tmp
-mv "/tmp/${DIR_NAME}" /tmp/KohakuRAG_UI
-cd /tmp/KohakuRAG_UI
+    echo "[start_app] Installing uv..."
+    pip install uv 2>&1 | tail -1
+
+    echo "[start_app] Downloading repo (branch: ${BRANCH})..."
+    curl -sL "https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/${BRANCH}.tar.gz" \
+      | tar xz -C /tmp
+    mv "/tmp/${DIR_NAME}" "$REPO_DIR"
+fi
+
+# Ensure uv is available
+command -v uv >/dev/null 2>&1 || { pip install uv 2>&1 | tail -1; }
+
+cd "$REPO_DIR"
 
 echo "[start_app] Symlinking data from PPVC..."
 ln -sf /wattbot-data/embeddings data/embeddings
