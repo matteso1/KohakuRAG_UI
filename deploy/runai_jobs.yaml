@@ -75,6 +75,45 @@
 # ---------------------------------------------------------------------------
 # Serves Jina V4 embeddings via FastAPI.
 #
+# IMPORTANT: The embedding server only needs kohakurag/embeddings.py (pure
+# Python). Do NOT pip-install vendor/KohakuVault or vendor/KohakuRAG — the
+# KohakuRAG package __init__.py imports kohakuvault (a Rust extension) which
+# triggers a slow Rust/maturin build that will fail in most container images.
+# The embedding_server.py script loads embeddings.py directly via importlib.
+#
+# ---------------------------------------------------------------------------
+# Pre-deploy testing (run locally before submitting to RunAI)
+# ---------------------------------------------------------------------------
+# These steps catch import errors, missing dependencies, and startup crashes
+# BEFORE you waste time on a 5-min container deploy cycle.
+#
+# Step 1: Test the startup command locally (any machine with Python 3.10+):
+#
+#   rm -rf /tmp/KohakuRAG_UI && \
+#   git clone -b <your-branch> https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && \
+#   cd /tmp/KohakuRAG_UI && \
+#   uv pip install --system fastapi uvicorn httpx numpy \
+#     sentence-transformers 'transformers>=4.42,<5' accelerate && \
+#   python scripts/embedding_server.py
+#
+#   Expected output: "[embedding_server] Model loaded in Xs. Serving on 0.0.0.0:8080"
+#   The server should start without import errors. Ctrl+C to stop.
+#
+# Step 2: Smoke-test the /health endpoint (in a second terminal):
+#
+#   curl http://localhost:8080/health
+#   # Expected: {"status":"ok"}
+#
+# Step 3 (optional): Test an actual embedding call:
+#
+#   curl -X POST http://localhost:8080/embed \
+#     -H "Content-Type: application/json" \
+#     -d '{"texts": ["hello world"]}'
+#   # Expected: {"embeddings":[[...]], "dimension":1024, "count":1, ...}
+#
+# Only proceed to RunAI deployment once all steps pass locally.
+# ---------------------------------------------------------------------------
+#
 # CLI equivalent:
 #   runai submit wattbot-embedding \
 #     --type inference \
@@ -88,7 +127,7 @@
 #     --env EMBEDDING_DIM=1024 \
 #     --port 8080
 #
-# Or using the PVC-based approach (no Docker build needed):
+# Or using the git-clone approach (no Docker build needed):
 #   runai submit wattbot-embedding \
 #     --type inference \
 #     --image pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime \
@@ -97,11 +136,13 @@
 #     --memory 8Gi \
 #     --pvc wattbot-pvc:/workspace \
 #     --env HF_HOME=/workspace/.cache/huggingface \
-#     --env PYTHONPATH=/workspace/KohakuRAG_UI/vendor/KohakuRAG/src \
 #     --port 8080 \
 #     --command -- /bin/bash -c \
-#       "pip install fastapi uvicorn httpx sentence-transformers && \
-#        cd /workspace/KohakuRAG_UI && \
+#       "pip install uv && \
+#        git clone -b <your-branch> https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && \
+#        cd /tmp/KohakuRAG_UI && \
+#        uv pip install --system fastapi uvicorn httpx numpy \
+#          sentence-transformers 'transformers>=4.42,<5' accelerate && \
 #        python scripts/embedding_server.py"
 
 # ---------------------------------------------------------------------------
