@@ -510,6 +510,16 @@ tarball and installs dependencies at startup.
 | **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
+> **Using a different branch?** Replace `rag-poweredge` in **both**
+> the URL and the `mv` command. If the branch has slashes (e.g.
+> `claude/my-feature`), use the full name in the URL but replace
+> slashes with dashes in the `mv` target (GitHub converts `/` → `-`
+> in tarball directory names):
+> ```
+> # URL:  .../refs/heads/claude/my-feature.tar.gz   (slashes OK)
+> # mv:   KohakuRAG_UI-claude-my-feature            (slashes become dashes)
+> ```
+>
 > **Why `curl` tarball instead of `git clone`?** The vLLM image
 > doesn't include `git`. Downloading a tarball via `curl` (which is
 > pre-installed) avoids needing to install git at runtime.
