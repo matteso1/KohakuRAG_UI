@@ -1,13 +1,19 @@
 # Deploying WattBot RAG on RunAI (Inference Jobs)
 
-Production deployment using 3 RunAI **Inference** workloads across
-1.5 GPUs (~90 GB), with vLLM for high-throughput LLM serving.
+Production deployment using 2 RunAI **Inference** workloads + 1
+**Workspace** across 1.5 GPUs (~90 GB), with vLLM for high-throughput
+LLM serving.
 
-| Job | What it does | GPU | Port |
-|-----|-------------|-----|------|
-| **`wattbot-vllm`** | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 1.0 | 8000 |
-| **`wattbot-embedding`** | Encodes user questions into vectors (Jina V4) for DB lookup | 0.5 | 8080 |
-| **`wattbot-app`** | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
+| Workload | Type | What it does | GPU | Port |
+|----------|------|-------------|-----|------|
+| **`wattbot-vllm`** | Inference | Serves the LLM (Qwen 7B) via vLLM's OpenAI-compatible API | 1.0 | 8000 |
+| **`wattbot-embedding`** | Inference | Encodes user questions into vectors (Jina V4) for DB lookup | 0.5 | 8080 |
+| **`wattbot-app`** | Workspace | Streamlit UI — connects to the other two via HTTP | 0 | 8501 |
+
+The GPU services use Inference workloads (always-on, autoscalable). The
+Streamlit UI uses a Workspace because Workspaces provide browser-accessible
+proxy URLs, while Inference workloads on most clusters only expose internal
+Knative routes.
 
 All three mount the shared model repository at `/models/` (read-only)
 and share one physical GPU via RunAI's fractional allocation. A one-time
@@ -592,11 +598,20 @@ curl http://wattbot-embedding:8080/health
 ## Step 3: Deploy the Streamlit App
 
 The Streamlit UI connects to the vLLM and embedding services via internal
-cluster DNS. We use the same `vllm/vllm-openai` image as the other two
-services — it has PyTorch, `curl`, and everything Streamlit needs
-pre-installed.
+cluster DNS. Unlike the GPU services (Steps 1-2), the Streamlit app is
+deployed as a **Workspace** — not an Inference workload — because
+Workspaces provide browser-accessible URLs via the RunAI proxy, while
+Inference workloads on most clusters only expose internal Knative routes
+that aren't reachable from a browser.
 
-In the RunAI UI: **Workloads** > **New Workload** > **Inference**
+> **Why Workspace instead of Inference?** Inference workloads use Knative
+> serving, which requires wildcard DNS and ingress configuration that many
+> clusters don't have for external browser access. Workspaces get a
+> reliable proxy URL (`/proxy/<port>/`) that works out of the box. Since
+> the Streamlit app needs no GPU and no autoscaling, a Workspace is the
+> right fit.
+
+In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 
 ### 3a. Basic settings
 
@@ -604,8 +619,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 |-------|-------|
 | **Cluster** | `doit-ai-cluster` |
 | **Project** | Your project (e.g. `jupyter-endemann01`) |
-| **Inference type** | **Custom** |
-| **Inference name** | `wattbot-app` |
+| **Workspace name** | `wattbot-app` |
 
 ### 3b. Environment image
 
@@ -616,14 +630,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | **Image pull** | Pull the image only if it's not already present on the host (recommended) |
 | **Image pull secret** | *(leave empty — public Docker Hub image)* |
 
-### 3c. Serving endpoint
-
-| Field | Value |
-|-------|-------|
-| **Protocol** | HTTP |
-| **Container port** | `8501` |
-
-### 3d. Runtime settings
+### 3c. Runtime settings
 
 | Field | Value |
 |-------|-------|
@@ -644,16 +651,15 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 | `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
 | `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
 
-### 3e. Compute resources
+### 3d. Compute resources
 
 | Field | Value |
 |-------|-------|
 | **GPU devices** | `0` (no GPU — Streamlit is CPU-only) |
 | **CPU request** | `1` core |
 | **CPU memory request** | `2 GB` |
-| **Replica autoscaling** | Min `1`, Max `1` (no autoscaling) |
 
-### 3f. Data & storage
+### 3e. Data & storage
 
 | Data volume name | Container path |
 |------------------|----------------|
@@ -663,7 +669,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Inference**
 > it doesn't load any ML models directly. It connects to vLLM and the
 > embedding server via HTTP.
 
-### 3g. General
+### 3f. General
 
 | Field | Value |
 |-------|-------|
@@ -682,25 +688,19 @@ First deploy takes **2-4 minutes**:
 
 ### Access the app
 
-Inference workloads in RunAI use **Knative serving** — the URL is
-assigned by the cluster's ingress controller, not the workspace proxy
-pattern. Check the RunAI UI for the ingress URL:
+Once the Workspace is running, access it via the RunAI proxy URL:
 
-1. Go to **Workloads** > click on `wattbot-app`
-2. Look for the **URL** or **Endpoint** in the job details panel
+```
+https://<cluster-host>/<project>/<workspace-name>/proxy/8501/
+```
 
-The URL pattern for inference jobs is typically:
-```
-https://wattbot-app-<project>.<cluster-domain>/
-```
 For example:
 ```
-https://wattbot-app-jupyter-endemann01.deepthought.doit.wisc.edu/
+https://deepthought.doit.wisc.edu/jupyter-endemann01/wattbot-app/proxy/8501/
 ```
 
-> **Note:** The URL does NOT use the `/proxy/8501/` pattern — that's for
-> Workspace workloads only. Inference jobs get their own Knative route
-> with a dedicated hostname.
+You can also click **Connect** on the Workspace in the RunAI UI to
+get the base URL, then append `/proxy/8501/`.
 
 ---
 
