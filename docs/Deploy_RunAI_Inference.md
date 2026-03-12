@@ -302,7 +302,40 @@ If this works, you know the models, index, and code are all wired up
 correctly. Any issues here are much easier to debug than across 3
 separate inference jobs.
 
-### 0g. Check HuggingFace token (for gated models)
+### 0g. Test the Streamlit app
+
+Before tearing down the Workspace, launch the full Streamlit app to verify
+everything works end-to-end — models, vector DB, and the UI itself. This
+catches issues that are much easier to debug here than across 3 separate
+Inference jobs.
+
+```bash
+cd /home/jovyan/work/KohakuRAG_UI
+source .venv/bin/activate
+
+streamlit run app.py \
+    --server.port=8501 \
+    --server.address=0.0.0.0 \
+    --server.headless=true
+```
+
+Access the app through the Workspace's URL in the RunAI UI (click
+**Connect** > look for the proxied port). The app runs in **local mode**
+by default — it loads the LLM and embedding model directly on the
+Workspace GPU and uses the vector DB at `data/embeddings/` (symlinked to
+the PPVC).
+
+Try a question like *"How much energy to train an LLM?"* and verify you
+get an answer with citations. Once you're satisfied, `Ctrl+C` to stop
+the app.
+
+> **Tip:** This uses the same `app.py` that runs in production — the only
+> difference is that in production it runs in `remote` mode (talking to
+> vLLM and the embedding server over HTTP), while here it loads models
+> directly. If the app works here, the only thing that can go wrong in
+> production is network connectivity between the 3 jobs.
+
+### 0h. Check HuggingFace token (for gated models)
 
 If you plan to use gated models (Llama 3, Gemma 2, etc.), you need an
 HF token. This is **not needed** for Qwen or Jina V4:
@@ -319,7 +352,7 @@ else
 fi
 ```
 
-### 0h. Stop the Workspace
+### 0i. Stop the Workspace
 
 Once the pipeline test passes, you can **stop the Workspace** from the RunAI UI
 to free its GPU. The vector index persists on the PPVC (`wattbot-data`) —
