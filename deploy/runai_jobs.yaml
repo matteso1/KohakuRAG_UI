@@ -163,40 +163,30 @@
 #        python3 scripts/embedding_server.py"
 
 # ---------------------------------------------------------------------------
-# Job 3: Streamlit App (Inference workload, CPU only)
+# Job 3: Streamlit App (Workspace, CPU only)
 # ---------------------------------------------------------------------------
 # The UI layer. Connects to vLLM and embedding services via internal DNS.
 #
-# CLI equivalent:
-#   runai submit wattbot-app \
-#     --type inference \
-#     --image kohakurag-streamlit:latest \
-#     --cpu 1 \
-#     --memory 2Gi \
-#     --pvc wattbot-pvc:/data \
-#     --env RAG_MODE=remote \
-#     --env VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \
-#     --env VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
-#     --env EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \
-#     --port 8501
+# NOTE: This is a Workspace (not Inference) because Workspaces provide
+# browser-accessible proxy URLs. Inference workloads use Knative serving
+# which requires wildcard DNS that most clusters don't expose externally.
 #
-# Or using the PVC-based approach (no Docker build needed):
-#   runai submit wattbot-app \
-#     --type inference \
-#     --image python:3.11-slim \
-#     --cpu 1 \
-#     --memory 2Gi \
-#     --pvc wattbot-pvc:/workspace \
-#     --env RAG_MODE=remote \
-#     --env VLLM_BASE_URL=http://wattbot-vllm:8000/v1 \
-#     --env VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct \
-#     --env EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080 \
-#     --port 8501 \
-#     --command -- /bin/bash -c \
-#       "pip install streamlit openai httpx numpy python-dotenv && \
-#        cd /workspace/KohakuRAG_UI && \
-#        pip install -e vendor/KohakuVault && \
-#        pip install -e vendor/KohakuRAG && \
-#        streamlit run app.py --server.port=8501 --server.address=0.0.0.0 \
-#          --server.headless=true --server.enableCORS=false \
-#          --server.enableXsrfProtection=false"
+# Uses the same vllm/vllm-openai image as the other services.
+# Same caveats: `python3` (not `python`), no `git` (use `curl` tarball).
+#
+# RunAI UI settings:
+#   Workload type:   Workspace
+#   Name:            wattbot-app
+#   Image:           vllm/vllm-openai:latest (same image as other services)
+#   Command:         bash
+#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"
+#   Env:             RAG_MODE=remote
+#                    VLLM_BASE_URL=http://wattbot-vllm:8000/v1
+#                    VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+#                    EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080
+#   GPU:             0 (none)
+#   CPU:             1
+#   Memory:          2Gi
+#   Data volume:     wattbot-data -> /wattbot-data
+#
+# Access URL: https://<cluster-host>/<project>/wattbot-app/proxy/8501/
