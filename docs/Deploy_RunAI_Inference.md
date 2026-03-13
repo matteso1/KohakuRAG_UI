@@ -189,7 +189,7 @@ git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 
 # Switch to the PowerEdge setup branch (has RunAI-specific fixes)
-git checkout claude/rag-poweredge-setup-wM2Fz
+git checkout claude/rag-powered-edge-setup-5GKiv
 
 # Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
@@ -546,13 +546,13 @@ tarball and installs dependencies at startup.
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
-> **Using a different branch?** Replace `rag-poweredge` in **both**
-> the URL and the `mv` command. If the branch has slashes (e.g.
-> `claude/my-feature`), use the full name in the URL but replace
-> slashes with dashes in the `mv` target (GitHub converts `/` → `-`
+> **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv` in the URL
+> and `claude-rag-powered-edge-setup-5GKiv` in the `mv` command with your branch name.
+> If the branch has slashes (e.g. `claude/my-feature`), use the full name in the URL
+> but replace slashes with dashes in the `mv` target (GitHub converts `/` → `-`
 > in tarball directory names):
 > ```
 > # URL:  .../refs/heads/claude/my-feature.tar.gz   (slashes OK)
@@ -656,6 +656,15 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 
 ### 3b. Environment image
 
+Two images are tested. Pick whichever is already cached on your cluster:
+
+| Image | Pros | Cons |
+|-------|------|------|
+| `vllm/vllm-openai:latest` | Already pulled for Steps 1-2; smaller | No `git`, only `python3` (not `python`) |
+| `nvcr.io/nvidia/pytorch:25.02-py3` | Has `git`, `python` alias, full CUDA toolkit | Larger (~15 GB); needs PEP 668 workaround |
+
+**Option A — vllm/vllm-openai (default)**
+
 | Field | Value |
 |-------|-------|
 | **Image** | Custom image |
@@ -663,17 +672,44 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 | **Image pull** | Pull the image only if it's not already present on the host (recommended) |
 | **Image pull secret** | *(leave empty — public Docker Hub image)* |
 
+**Option B — NGC PyTorch**
+
+| Field | Value |
+|-------|-------|
+| **Image** | Custom image |
+| **Image URL** | `nvcr.io/nvidia/pytorch:25.02-py3` |
+| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
+| **Image pull secret** | *(leave empty — public NGC image)* |
+
 ### 3c. Runtime settings
+
+Pick the command that matches your image choice from 3b.
+
+**Option A — vllm/vllm-openai (uses `curl` tarball, `python3`)**
 
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/rag-poweredge.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-rag-poweredge /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
 | **Working directory** | *(leave empty)* |
 
-> **Using a different branch?** Same as Step 2d — replace `rag-poweredge`
-> in both the URL and the `mv` command. Slashes in branch names become
-> dashes in the extracted directory name.
+**Option B — NGC PyTorch (uses `git clone`, `python`)**
+
+| Field | Value |
+|-------|-------|
+| **Command** | `bash` |
+| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
+| **Working directory** | *(leave empty)* |
+
+> **NGC PEP 668 note:** The `rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED`
+> removes the Debian PEP 668 marker file that blocks `uv pip install --system`.
+> This is safe in an ephemeral container — system Python is the only Python
+> available, and we need to install packages into it.
+
+> **Using a different branch?** Same as Step 2d — replace `claude/rag-powered-edge-setup-5GKiv`
+> in the URL/clone command. For the vllm image (Option A), also replace
+> `claude-rag-powered-edge-setup-5GKiv` in the `mv` command (slashes become dashes
+> in the extracted directory name).
 
 **Environment variables:**
 
