@@ -129,7 +129,7 @@
 #   Image:           vllm/vllm-openai:latest (same image as vLLM server)
 #   Container port:  8080
 #   Command:         bash
-#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"
+#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"
 #   Env:             HF_HOME=/tmp/hf_cache
 #                    EMBEDDING_MODEL=jinaai/jina-embeddings-v4
 #                    EMBEDDING_DIM=1024
@@ -154,9 +154,9 @@
 #     --port 8080 \
 #     --command -- /bin/bash -c \
 #       "pip install uv && \
-#        curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz \
+#        curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz \
 #          | tar xz -C /tmp && \
-#        mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && \
+#        mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && \
 #        cd /tmp/KohakuRAG_UI && \
 #        uv pip install --system fastapi uvicorn httpx numpy \
 #          sentence-transformers 'transformers>=4.42,<5' accelerate && \
@@ -181,7 +181,7 @@
 #   Image:           nvcr.io/nvidia/pytorch:25.02-py3
 #   Tool:            Custom URL -> "streamlit" -> port 8501
 #   Command:         bash
-#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"
+#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-poweredge-setup-wM2Fz --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"
 #   Env:             RAG_MODE=remote
 #                    VLLM_BASE_URL=http://<vllm-name>.runai-<project>.svc.cluster.local/v1
 #                    VLLM_MODEL=<model-loaded-by-vllm>

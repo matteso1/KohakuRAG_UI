@@ -189,7 +189,7 @@ git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 
 # Switch to the PowerEdge setup branch (has RunAI-specific fixes)
-git checkout claude/rag-powered-edge-setup-5GKiv
+git checkout claude/rag-poweredge-setup-wM2Fz
 
 # Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
@@ -546,11 +546,11 @@ tarball and installs dependencies at startup.
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
-> **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv` in the URL
-> and `claude-rag-powered-edge-setup-5GKiv` in the `mv` command with your branch name.
+> **Using a different branch?** Replace `claude/rag-poweredge-setup-wM2Fz` in the URL
+> and `claude-rag-poweredge-setup-wM2Fz` in the `mv` command with your branch name.
 > If the branch has slashes (e.g. `claude/my-feature`), use the full name in the URL
 > but replace slashes with dashes in the `mv` target (GitHub converts `/` → `-`
 > in tarball directory names):
@@ -681,7 +681,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"` |
+| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-poweredge-setup-wM2Fz --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"` |
 | **Working directory** | *(leave empty)* |
 
 > **What the command does:**
@@ -692,7 +692,7 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 > 5. Installs Python deps + vendored KohakuVault/KohakuRAG
 > 6. Starts Streamlit with proxy-compatible settings
 >
-> **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv`
+> **Using a different branch?** Replace `claude/rag-poweredge-setup-wM2Fz`
 > in the `git clone` command.
 
 **Environment variables:**
