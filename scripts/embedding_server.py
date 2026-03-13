@@ -83,8 +83,8 @@ async def startup():
         task=TASK,
         truncate_dim=DIM,
     )
-    # Force model load (it's lazy by default)
-    _ = _embedder.dimension
+    # Force model load at startup so we fail fast if model is missing
+    _embedder._ensure_model()
     elapsed = time.time() - t0
     print(f"[embedding_server] Model loaded in {elapsed:.1f}s. Serving on {HOST}:{PORT}", flush=True)
 

@@ -285,13 +285,9 @@ class JinaV4EmbeddingModel:
             return
 
         # Load JinaV4 model
-        # local_files_only=True skips HF Hub download machinery (no lock
-        # files, no .incomplete temps) — required when the HF cache is on
-        # a read-only filesystem (e.g. shared PVC).
         model = AutoModel.from_pretrained(
             self._model_name,
             trust_remote_code=True,
-            local_files_only=True,
         )
         model = model.to(self._device, dtype=self._dtype)
         model.eval().requires_grad_(False)
