@@ -52,6 +52,22 @@ DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 HOST = os.environ.get("EMBEDDING_HOST", "0.0.0.0")
 PORT = int(os.environ.get("EMBEDDING_PORT", "8080"))
 
+# Startup diagnostics — print cache paths so we can verify the mount
+_hf_home = os.environ.get("HF_HOME", "NOT SET")
+_hf_hub = os.environ.get("HF_HUB_CACHE", "NOT SET")
+print(f"[embedding_server] HF_HOME={_hf_home}", flush=True)
+print(f"[embedding_server] HF_HUB_CACHE={_hf_hub}", flush=True)
+_pvc_check = "/models"
+if os.path.isdir(_pvc_check):
+    print(f"[embedding_server] /models exists, contents: {os.listdir(_pvc_check)}", flush=True)
+    _cache_path = "/models/.cache/huggingface/hub"
+    if os.path.isdir(_cache_path):
+        print(f"[embedding_server] {_cache_path} contents: {os.listdir(_cache_path)}", flush=True)
+    else:
+        print(f"[embedding_server] WARNING: {_cache_path} does not exist!", flush=True)
+else:
+    print(f"[embedding_server] WARNING: /models does not exist! PVC not mounted?", flush=True)
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------

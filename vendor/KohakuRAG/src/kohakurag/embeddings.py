@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, Sequence
 
@@ -284,15 +285,63 @@ class JinaV4EmbeddingModel:
         if self._model is not None:
             return
 
-        # Load JinaV4 model
-        # local_files_only=True skips HF Hub download machinery (no lock
-        # files, no .incomplete temps) — required when the HF cache is on
-        # a read-only filesystem (e.g. shared PVC).
-        model = AutoModel.from_pretrained(
-            self._model_name,
-            trust_remote_code=True,
-            local_files_only=True,
+        # Resolve HF hub cache directory explicitly so we don't rely on
+        # env-var import-time resolution inside huggingface_hub.
+        hf_home = os.environ.get(
+            "HF_HOME", os.path.expanduser("~/.cache/huggingface")
         )
+        hub_cache = os.environ.get("HF_HUB_CACHE", os.path.join(hf_home, "hub"))
+
+        print(
+            f"[embeddings] Loading {self._model_name} "
+            f"(HF_HOME={hf_home}, hub_cache={hub_cache})",
+            flush=True,
+        )
+
+        # Strategy 1: normal from_pretrained with explicit cache_dir
+        try:
+            model = AutoModel.from_pretrained(
+                self._model_name,
+                trust_remote_code=True,
+                local_files_only=True,
+                cache_dir=hub_cache,
+            )
+        except Exception as e1:
+            print(f"[embeddings] cache_dir lookup failed: {e1}", flush=True)
+
+            # Strategy 2: load directly from snapshot directory
+            model_dir = f"models--{self._model_name.replace('/', '--')}"
+            snapshots_dir = os.path.join(hub_cache, model_dir, "snapshots")
+            print(
+                f"[embeddings] Trying snapshot fallback at {snapshots_dir}",
+                flush=True,
+            )
+
+            if not os.path.isdir(snapshots_dir):
+                # List what's actually in hub_cache for diagnostics
+                if os.path.isdir(hub_cache):
+                    contents = os.listdir(hub_cache)
+                    print(f"[embeddings] hub_cache contents: {contents}", flush=True)
+                else:
+                    print(f"[embeddings] hub_cache dir does not exist!", flush=True)
+                raise RuntimeError(
+                    f"Cannot find model {self._model_name} in cache at {hub_cache}"
+                ) from e1
+
+            snapshots = sorted(os.listdir(snapshots_dir))
+            if not snapshots:
+                raise RuntimeError(
+                    f"snapshots dir is empty: {snapshots_dir}"
+                ) from e1
+
+            snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
+            print(f"[embeddings] Loading from snapshot: {snapshot_path}", flush=True)
+            model = AutoModel.from_pretrained(
+                snapshot_path,
+                trust_remote_code=True,
+                local_files_only=True,
+            )
+
         model = model.to(self._device, dtype=self._dtype)
         model.eval().requires_grad_(False)
         self._model = model
