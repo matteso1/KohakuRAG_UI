@@ -181,10 +181,13 @@
 #   Command:         bash
 #   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"
 #   Env:             RAG_MODE=remote
-#                    VLLM_BASE_URL=http://wattbot-vllm:8000/v1
-#                    VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
-#                    EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080
+#                    VLLM_BASE_URL=http://<vllm-name>.runai-<project>.svc.cluster.local/v1
+#                    VLLM_MODEL=<model-loaded-by-vllm>
+#                    EMBEDDING_SERVICE_URL=http://<embedding-name>.runai-<project>.svc.cluster.local
 #                    STREAMLIT_BASE_PATH=/<project>/<workspace-name>/proxy/8501
+#   NOTE: Inference workloads use Knative (envoy). You MUST use the FQDN
+#         (workload.runai-project.svc.cluster.local) on port 80 (no port
+#         number). Short names like wattbot-vllm:8000 return envoy 404.
 #   GPU:             0 (none)
 #   CPU:             1
 #   Memory:          2Gi

@@ -693,10 +693,28 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 | Key | Value |
 |-----|-------|
 | `RAG_MODE` | `remote` |
-| `VLLM_BASE_URL` | `http://wattbot-vllm:8000/v1` |
-| `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
-| `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
+| `VLLM_BASE_URL` | `http://<vllm-name>.<runai-namespace>.svc.cluster.local/v1` |
+| `VLLM_MODEL` | *(must match the model loaded by vLLM — e.g. `Qwen/Qwen2.5-7B-Instruct`)* |
+| `EMBEDDING_SERVICE_URL` | `http://<embedding-name>.<runai-namespace>.svc.cluster.local` |
 | `STREAMLIT_BASE_PATH` | `/<project>/<workspace-name>/proxy/8501` |
+
+> **Knative DNS for Inference workloads:** RunAI Inference workloads use
+> Knative serving, which routes through **port 80** (not the container
+> port) and requires the **fully-qualified service name** as the hostname.
+> Short names like `wattbot-vllm:8000` will not work — envoy returns 404
+> because it can't match the route without the namespace in the Host header.
+>
+> The format is: `<workload-name>.runai-<project>.svc.cluster.local`
+>
+> Example (project `jupyter-endemann01`, workloads `wattbot-vllm` and `wattbot-embedding`):
+> - `VLLM_BASE_URL=http://wattbot-vllm.runai-jupyter-endemann01.svc.cluster.local/v1`
+> - `EMBEDDING_SERVICE_URL=http://wattbot-embedding.runai-jupyter-endemann01.svc.cluster.local`
+>
+> **No port number** — Knative maps port 80 → container port automatically.
+>
+> **`VLLM_MODEL`** must match the `--model` argument used when launching
+> vLLM in Step 1. Check with:
+> `curl http://<vllm-fqdn>/v1/models`
 
 > **`STREAMLIT_BASE_PATH`** tells Streamlit the proxy subpath so
 > WebSocket connections route correctly. Replace `<project>` with your
