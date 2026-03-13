@@ -738,7 +738,24 @@ Pick the command that matches your image choice from 3b.
 > it doesn't load any ML models directly. It connects to vLLM and the
 > embedding server via HTTP.
 
-### 3f. General
+### 3f. Connection (Tool)
+
+The Workspace needs a **connection method** so the RunAI proxy routes
+traffic to port 8501. Without this, the proxy URL returns 404.
+
+| Field | Value |
+|-------|-------|
+| **Tool type** | Custom URL |
+| **Name** | `streamlit` (or any name) |
+| **Container port** | `8501` |
+
+> **Blank page on first load?** After the workspace starts, the proxy URL
+> may initially show a blank white page titled "Streamlit". This means the
+> HTML loaded but the WebSocket hasn't connected yet. Wait 10-20 seconds
+> and refresh — the app should render fully. This only happens on the very
+> first load after startup.
+
+### 3g. General
 
 | Field | Value |
 |-------|-------|
