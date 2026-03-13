@@ -309,7 +309,9 @@ class JinaV4EmbeddingModel:
         except Exception as e1:
             print(f"[embeddings] cache_dir lookup failed: {e1}", flush=True)
 
-            # Strategy 2: load directly from snapshot directory
+            # Strategy 2: load directly from snapshot directory.
+            # Do NOT pass local_files_only — path is local, and the flag
+            # interferes with trust_remote_code resolution.
             model_dir = f"models--{self._model_name.replace('/', '--')}"
             snapshots_dir = os.path.join(hub_cache, model_dir, "snapshots")
             print(
@@ -318,14 +320,13 @@ class JinaV4EmbeddingModel:
             )
 
             if not os.path.isdir(snapshots_dir):
-                # List what's actually in hub_cache for diagnostics
                 if os.path.isdir(hub_cache):
                     contents = os.listdir(hub_cache)
                     print(f"[embeddings] hub_cache contents: {contents}", flush=True)
                 else:
                     print(f"[embeddings] hub_cache dir does not exist!", flush=True)
                 raise RuntimeError(
-                    f"Cannot find model {self._model_name} in cache at {hub_cache}"
+                    f"Cannot find model {self._model_name} in {hub_cache}"
                 ) from e1
 
             snapshots = sorted(os.listdir(snapshots_dir))
@@ -339,7 +340,6 @@ class JinaV4EmbeddingModel:
             model = AutoModel.from_pretrained(
                 snapshot_path,
                 trust_remote_code=True,
-                local_files_only=True,
             )
 
         model = model.to(self._device, dtype=self._dtype)

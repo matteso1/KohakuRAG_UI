@@ -23,6 +23,16 @@ import time
 from pathlib import Path
 from typing import Sequence
 
+# Auto-detect HF cache on shared PVC and set offline mode env vars
+# BEFORE any HuggingFace / transformers imports, so they are picked up
+# at import-time constant resolution.
+_PVC_HF_CACHE = "/models/.cache/huggingface"
+if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HOME"] = _PVC_HF_CACHE
+# Block all outgoing HF requests — we load exclusively from cache.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 # Import embeddings module directly to avoid kohakurag.__init__ pulling in
 # kohakuvault (a Rust extension that isn't needed for the embedding server).
 import importlib.util as _ilu
@@ -40,12 +50,6 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
-# Auto-detect HF cache on the shared PVC if HF_HOME isn't already set
-_PVC_HF_CACHE = "/models/.cache/huggingface"
-if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
-    os.environ["HF_HOME"] = _PVC_HF_CACHE
-    print(f"[embedding_server] Auto-set HF_HOME={_PVC_HF_CACHE}", flush=True)
-
 MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
 TASK = os.environ.get("EMBEDDING_TASK", "retrieval")
 DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
