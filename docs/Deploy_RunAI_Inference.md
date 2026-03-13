@@ -656,24 +656,6 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 
 ### 3b. Environment image
 
-Two images are tested. Pick whichever is already cached on your cluster:
-
-| Image | Pros | Cons |
-|-------|------|------|
-| `vllm/vllm-openai:latest` | Already pulled for Steps 1-2; smaller | No `git`, only `python3` (not `python`) |
-| `nvcr.io/nvidia/pytorch:25.02-py3` | Has `git`, `python` alias, full CUDA toolkit | Larger (~15 GB); needs PEP 668 workaround |
-
-**Option A — vllm/vllm-openai (default)**
-
-| Field | Value |
-|-------|-------|
-| **Image** | Custom image |
-| **Image URL** | `vllm/vllm-openai:latest` |
-| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
-| **Image pull secret** | *(leave empty — public Docker Hub image)* |
-
-**Option B — NGC PyTorch**
-
 | Field | Value |
 |-------|-------|
 | **Image** | Custom image |
@@ -681,35 +663,30 @@ Two images are tested. Pick whichever is already cached on your cluster:
 | **Image pull** | Pull the image only if it's not already present on the host (recommended) |
 | **Image pull secret** | *(leave empty — public NGC image)* |
 
+> **Why NGC PyTorch?** This image has `git` and a `python` alias, making
+> the startup command simpler. It needs a one-time PEP 668 workaround
+> (see 3c below). The `vllm/vllm-openai` image also works but requires
+> `curl` tarball download instead of `git clone` and uses `python3` not
+> `python`.
+
 ### 3c. Runtime settings
 
-Pick the command that matches your image choice from 3b.
-
-**Option A — vllm/vllm-openai (uses `curl` tarball, `python3`)**
-
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
+| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"` |
 | **Working directory** | *(leave empty)* |
 
-**Option B — NGC PyTorch (uses `git clone`, `python`)**
-
-| Field | Value |
-|-------|-------|
-| **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
-| **Working directory** | *(leave empty)* |
-
-> **NGC PEP 668 note:** The `rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED`
-> removes the Debian PEP 668 marker file that blocks `uv pip install --system`.
-> This is safe in an ephemeral container — system Python is the only Python
-> available, and we need to install packages into it.
-
-> **Using a different branch?** Same as Step 2d — replace `claude/rag-powered-edge-setup-5GKiv`
-> in the URL/clone command. For the vllm image (Option A), also replace
-> `claude-rag-powered-edge-setup-5GKiv` in the `mv` command (slashes become dashes
-> in the extracted directory name).
+> **What the command does:**
+> 1. Installs `uv` (fast Python package installer)
+> 2. Removes the PEP 668 `EXTERNALLY-MANAGED` marker (safe in ephemeral containers)
+> 3. Clones the repo to ephemeral `/tmp` (not on PVC)
+> 4. Symlinks data dirs to the shared PPVC
+> 5. Installs Python deps + vendored KohakuVault/KohakuRAG
+> 6. Starts Streamlit with proxy-compatible settings
+>
+> **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv`
+> in the `git clone` command.
 
 **Environment variables:**
 
@@ -719,6 +696,14 @@ Pick the command that matches your image choice from 3b.
 | `VLLM_BASE_URL` | `http://wattbot-vllm:8000/v1` |
 | `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
 | `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
+| `STREAMLIT_BASE_PATH` | `/<project>/<workspace-name>/proxy/8501` |
+
+> **`STREAMLIT_BASE_PATH`** tells Streamlit the proxy subpath so
+> WebSocket connections route correctly. Replace `<project>` with your
+> RunAI project (e.g. `jupyter-endemann01`) and `<workspace-name>` with
+> the workspace name you chose in 3a (e.g. `wattbot-app`).
+>
+> Example: `/jupyter-endemann01/wattbot-app/proxy/8501`
 
 ### 3d. Compute resources
 

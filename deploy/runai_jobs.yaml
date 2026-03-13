@@ -171,33 +171,26 @@
 # browser-accessible proxy URLs. Inference workloads use Knative serving
 # which requires wildcard DNS that most clusters don't expose externally.
 #
-# Two images work. Pick whichever is cached on your cluster:
-#   Option A: vllm/vllm-openai:latest — smaller, reuses Steps 1-2 image
-#   Option B: nvcr.io/nvidia/pytorch:25.02-py3 — has git, python alias
+# Proven working config (NGC PyTorch image):
 #
 # RunAI UI settings:
 #   Workload type:   Workspace
 #   Name:            wattbot-app
-#   GPU:             0 (none)
-#   CPU:             1
-#   Memory:          2Gi
-#   Data volume:     wattbot-data -> /wattbot-data
+#   Image:           nvcr.io/nvidia/pytorch:25.02-py3
+#   Tool:            Custom URL -> "streamlit" -> port 8501
+#   Command:         bash
+#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"
 #   Env:             RAG_MODE=remote
 #                    VLLM_BASE_URL=http://wattbot-vllm:8000/v1
 #                    VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
 #                    EMBEDDING_SERVICE_URL=http://wattbot-embedding:8080
+#                    STREAMLIT_BASE_PATH=/<project>/<workspace-name>/proxy/8501
+#   GPU:             0 (none)
+#   CPU:             1
+#   Memory:          2Gi
+#   Data volume:     wattbot-data -> /wattbot-data
 #
-# --- Option A: vllm/vllm-openai:latest ---
-#   Image:           vllm/vllm-openai:latest
-#   Command:         bash
-#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"
+#   rm -f EXTERNALLY-MANAGED removes the Debian PEP 668 marker that
+#   blocks uv pip install --system. Safe in ephemeral containers.
 #
-# --- Option B: nvcr.io/nvidia/pytorch:25.02-py3 ---
-#   Image:           nvcr.io/nvidia/pytorch:25.02-py3
-#   Command:         bash
-#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"
-#   NOTE: rm -f EXTERNALLY-MANAGED removes the Debian PEP 668 marker that
-#         blocks uv pip install --system. Safe in ephemeral containers.
-#         NGC image uses `python` (not `python3`) and has `git`.
-#
-# Access URL: https://<cluster-host>/<project>/wattbot-app/proxy/8501/
+# Access URL: https://<cluster-host>/<project>/<workspace-name>/proxy/8501/
