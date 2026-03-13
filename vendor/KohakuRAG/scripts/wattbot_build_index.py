@@ -12,6 +12,7 @@ Usage:
 import asyncio
 import csv
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -24,6 +25,7 @@ from kohakurag import (
 )
 from kohakurag.datastore import KVaultNodeStore
 from kohakurag.embeddings import JinaEmbeddingModel, JinaV4EmbeddingModel
+from kohakurag.remote import RemoteEmbeddingModel
 
 BedrockEmbeddingModel = None  # Lazy-loaded in create_embedder()
 
@@ -47,6 +49,7 @@ embedding_dim = None  # For JinaV4: 128, 256, 512, 1024, 2048; For bedrock: 256,
 embedding_task = "retrieval"  # For JinaV4: "retrieval", "text-matching", "code"
 bedrock_profile = None  # AWS SSO profile (for bedrock embeddings)
 bedrock_region = None  # AWS region (for bedrock embeddings)
+embedding_service_url = None  # Remote embedding server URL (for embedding_model="remote")
 
 # Paragraph embedding mode
 # Options:
@@ -256,7 +259,13 @@ def create_embedder():
     """Create embedder based on module-level config."""
     global BedrockEmbeddingModel
 
-    if embedding_model == "bedrock":
+    if embedding_model == "remote":
+        url = embedding_service_url or os.environ.get(
+            "EMBEDDING_SERVICE_URL", "http://localhost:8080"
+        )
+        print(f"Using remote embedding server at {url}")
+        return RemoteEmbeddingModel(base_url=url)
+    elif embedding_model == "bedrock":
         if BedrockEmbeddingModel is None:
             try:
                 from llm_bedrock import BedrockEmbeddingModel as _cls
@@ -426,6 +435,7 @@ if __name__ == "__main__":
         "metadata", "docs_dir", "db", "table_prefix", "use_citations",
         "pdf_dir", "embedding_model", "embedding_dim", "embedding_task",
         "paragraph_embedding_mode", "bedrock_profile", "bedrock_region",
+        "embedding_service_url",
     ]:
         if hasattr(_config_mod, _key):
             setattr(_this, _key, getattr(_config_mod, _key))
