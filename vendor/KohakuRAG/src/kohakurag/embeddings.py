@@ -280,18 +280,35 @@ class JinaV4EmbeddingModel:
         if hasattr(self, "_executor"):
             self._executor.shutdown(wait=False)
 
+    @staticmethod
+    def _find_snapshot(model_name: str) -> str | None:
+        """Locate the snapshot directory for *model_name* in the HF cache."""
+        hf_home = os.environ.get(
+            "HF_HOME", os.path.expanduser("~/.cache/huggingface")
+        )
+        hub_cache = os.environ.get(
+            "HF_HUB_CACHE", os.path.join(hf_home, "hub")
+        )
+        model_dir = f"models--{model_name.replace('/', '--')}"
+        snapshots_dir = os.path.join(hub_cache, model_dir, "snapshots")
+        if not os.path.isdir(snapshots_dir):
+            return None
+        snapshots = sorted(os.listdir(snapshots_dir))
+        if not snapshots:
+            return None
+        return os.path.join(snapshots_dir, snapshots[-1])
+
     def _ensure_model(self) -> None:
         """Lazy-load the model on first use."""
         if self._model is not None:
             return
 
-        # Resolve HF hub cache directory explicitly so we don't rely on
-        # env-var import-time resolution inside huggingface_hub.
         hf_home = os.environ.get(
             "HF_HOME", os.path.expanduser("~/.cache/huggingface")
         )
-        hub_cache = os.environ.get("HF_HUB_CACHE", os.path.join(hf_home, "hub"))
-
+        hub_cache = os.environ.get(
+            "HF_HUB_CACHE", os.path.join(hf_home, "hub")
+        )
         print(
             f"[embeddings] Loading {self._model_name} "
             f"(HF_HOME={hf_home}, hub_cache={hub_cache})",
@@ -307,40 +324,71 @@ class JinaV4EmbeddingModel:
                 cache_dir=hub_cache,
             )
         except Exception as e1:
-            print(f"[embeddings] cache_dir lookup failed: {e1}", flush=True)
+            print(f"[embeddings] Strategy 1 failed: {e1}", flush=True)
 
-            # Strategy 2: load directly from snapshot directory.
-            # Do NOT pass local_files_only — path is local, and the flag
-            # interferes with trust_remote_code resolution.
-            model_dir = f"models--{self._model_name.replace('/', '--')}"
-            snapshots_dir = os.path.join(hub_cache, model_dir, "snapshots")
-            print(
-                f"[embeddings] Trying snapshot fallback at {snapshots_dir}",
-                flush=True,
-            )
-
-            if not os.path.isdir(snapshots_dir):
+            # Strategy 2: find snapshot, dump diagnostics, and load the
+            # custom model class manually.
+            snapshot_path = self._find_snapshot(self._model_name)
+            if snapshot_path is None:
                 if os.path.isdir(hub_cache):
-                    contents = os.listdir(hub_cache)
-                    print(f"[embeddings] hub_cache contents: {contents}", flush=True)
+                    print(f"[embeddings] hub_cache contents: {os.listdir(hub_cache)}", flush=True)
                 else:
-                    print(f"[embeddings] hub_cache dir does not exist!", flush=True)
+                    print("[embeddings] hub_cache dir does not exist!", flush=True)
                 raise RuntimeError(
                     f"Cannot find model {self._model_name} in {hub_cache}"
                 ) from e1
 
-            snapshots = sorted(os.listdir(snapshots_dir))
-            if not snapshots:
-                raise RuntimeError(
-                    f"snapshots dir is empty: {snapshots_dir}"
-                ) from e1
+            # --- diagnostics ---
+            snap_files = os.listdir(snapshot_path)
+            print(f"[embeddings] Snapshot dir: {snapshot_path}", flush=True)
+            print(f"[embeddings] Snapshot contents: {snap_files}", flush=True)
 
-            snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
-            print(f"[embeddings] Loading from snapshot: {snapshot_path}", flush=True)
-            model = AutoModel.from_pretrained(
-                snapshot_path,
-                trust_remote_code=True,
-            )
+            import json
+            config_path = os.path.join(snapshot_path, "config.json")
+            if os.path.isfile(config_path):
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                print(f"[embeddings] config.json model_type={cfg.get('model_type')}", flush=True)
+                print(f"[embeddings] config.json auto_map={cfg.get('auto_map')}", flush=True)
+            else:
+                print("[embeddings] WARNING: no config.json in snapshot!", flush=True)
+                raise RuntimeError(f"No config.json in {snapshot_path}") from e1
+
+            # Strategy 2a: add snapshot to sys.path so trust_remote_code
+            # can resolve the custom .py modules, then retry.
+            import sys
+            if snapshot_path not in sys.path:
+                sys.path.insert(0, snapshot_path)
+                print(f"[embeddings] Added {snapshot_path} to sys.path", flush=True)
+
+            try:
+                model = AutoModel.from_pretrained(
+                    snapshot_path,
+                    trust_remote_code=True,
+                )
+            except Exception as e2:
+                print(f"[embeddings] Strategy 2a failed: {e2}", flush=True)
+
+                # Strategy 2b: manually import the custom class from auto_map
+                auto_map = cfg.get("auto_map", {})
+                auto_model_entry = auto_map.get("AutoModel", "")
+                if "--" in auto_model_entry:
+                    # Format: "jinaai/jina-embeddings-v4--module.ClassName"
+                    auto_model_entry = auto_model_entry.split("--", 1)[1]
+                if "." in auto_model_entry:
+                    mod_name, cls_name = auto_model_entry.rsplit(".", 1)
+                    print(f"[embeddings] Strategy 2b: importing {mod_name}.{cls_name}", flush=True)
+                    import importlib
+                    custom_mod = importlib.import_module(mod_name)
+                    custom_cls = getattr(custom_mod, cls_name)
+                    model = custom_cls.from_pretrained(
+                        snapshot_path,
+                        trust_remote_code=True,
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Cannot resolve auto_map entry: {auto_model_entry}"
+                    ) from e2
 
         model = model.to(self._device, dtype=self._dtype)
         model.eval().requires_grad_(False)
