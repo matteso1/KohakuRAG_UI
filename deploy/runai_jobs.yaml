@@ -129,8 +129,8 @@
 #   Image:           vllm/vllm-openai:latest (same image as vLLM server)
 #   Container port:  8080
 #   Command:         bash
-#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"
-#   Env:             HF_HOME=/tmp/hf_cache
+#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"
+#   Env:             HF_HOME=/models/.cache/huggingface
 #                    EMBEDDING_MODEL=jinaai/jina-embeddings-v4
 #                    EMBEDDING_DIM=1024
 #                    EMBEDDING_TASK=retrieval
@@ -147,7 +147,7 @@
 #     --cpu 2 \
 #     --memory 8Gi \
 #     --pvc shared-models:/models \
-#     --env HF_HOME=/tmp/hf_cache \
+#     --env HF_HOME=/models/.cache/huggingface \
 #     --env EMBEDDING_MODEL=jinaai/jina-embeddings-v4 \
 #     --env EMBEDDING_DIM=1024 \
 #     --env EMBEDDING_TASK=retrieval \
@@ -160,8 +160,6 @@
 #        cd /tmp/KohakuRAG_UI && \
 #        uv pip install --system fastapi uvicorn httpx numpy \
 #          sentence-transformers 'transformers>=4.42,<5' accelerate && \
-#        mkdir -p /tmp/hf_cache/hub && \
-#        ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && \
 #        python3 scripts/embedding_server.py"
 
 # ---------------------------------------------------------------------------
