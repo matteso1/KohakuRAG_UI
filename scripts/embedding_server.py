@@ -23,6 +23,69 @@ import time
 from pathlib import Path
 from typing import Sequence
 
+# Auto-detect HF cache on shared PVC and set offline mode env vars
+# BEFORE any HuggingFace / transformers imports, so they are picked up
+# at import-time constant resolution.
+_PVC_HF_CACHE = "/models/.cache/huggingface"
+if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HOME"] = _PVC_HF_CACHE
+# The full model lives directly under HF_HOME (not HF_HOME/hub/) because
+# the download used HF_HOME as the cache root.  Point HF_HUB_CACHE there
+# so from_pretrained finds models--org--name at the right level.
+if "HF_HUB_CACHE" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HUB_CACHE"] = _PVC_HF_CACHE
+# Transformers caches dynamic modules (trust_remote_code .py files) under
+# HF_HOME/modules/.  The PVC is read-only, so redirect to /tmp.
+os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
+
+# ---------------------------------------------------------------------------
+# TEMP WORKAROUND: The shared PVC has jina-embeddings-v4 weights but is
+# missing the adapters/ directory (admin needs to re-download).  If adapters
+# aren't in the snapshot, download them to /wattbot-data/ (writable PPVC)
+# before going offline.  Remove this block once the admin fixes the shared PVC.
+# ---------------------------------------------------------------------------
+def _ensure_adapters_on_ppvc():
+    """Download jina-v4 adapters to /wattbot-data/ if missing from snapshot."""
+    ppvc_adapters = "/wattbot-data/jina-v4-adapters/adapters"
+    if os.path.isdir(ppvc_adapters):
+        print(f"[embedding_server] Adapters already on PPVC: {ppvc_adapters}", flush=True)
+        os.environ.setdefault("JINA_ADAPTERS_DIR", ppvc_adapters)
+        return
+
+    # Check if adapters are already in the snapshot (admin fixed the PVC)
+    hf_cache = os.environ.get("HF_HUB_CACHE", os.environ.get("HF_HOME", ""))
+    snap_dir = os.path.join(hf_cache, "models--jinaai--jina-embeddings-v4", "snapshots")
+    if os.path.isdir(snap_dir):
+        snaps = sorted(os.listdir(snap_dir))
+        if snaps and os.path.isdir(os.path.join(snap_dir, snaps[-1], "adapters")):
+            print("[embedding_server] Adapters found in snapshot, no download needed", flush=True)
+            return
+
+    # PPVC writable?
+    ppvc_root = "/wattbot-data"
+    if not os.path.isdir(ppvc_root):
+        print("[embedding_server] WARNING: /wattbot-data not mounted, cannot download adapters", flush=True)
+        return
+
+    print("[embedding_server] Adapters missing — downloading to PPVC (one-time)...", flush=True)
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(
+            "jinaai/jina-embeddings-v4",
+            allow_patterns=["adapters/*"],
+            local_dir="/wattbot-data/jina-v4-adapters",
+        )
+        os.environ.setdefault("JINA_ADAPTERS_DIR", ppvc_adapters)
+        print(f"[embedding_server] Adapters downloaded to {ppvc_adapters}", flush=True)
+    except Exception as e:
+        print(f"[embedding_server] WARNING: adapter download failed: {e}", flush=True)
+
+_ensure_adapters_on_ppvc()
+
+# Block all outgoing HF requests — we load exclusively from cache.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 # Import embeddings module directly to avoid kohakurag.__init__ pulling in
 # kohakuvault (a Rust extension that isn't needed for the embedding server).
 import importlib.util as _ilu
@@ -40,17 +103,27 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
-# Auto-detect HF cache on the shared PVC if HF_HOME isn't already set
-_PVC_HF_CACHE = "/models/.cache/huggingface"
-if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
-    os.environ["HF_HOME"] = _PVC_HF_CACHE
-    print(f"[embedding_server] Auto-set HF_HOME={_PVC_HF_CACHE}", flush=True)
-
 MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
 TASK = os.environ.get("EMBEDDING_TASK", "retrieval")
 DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 HOST = os.environ.get("EMBEDDING_HOST", "0.0.0.0")
 PORT = int(os.environ.get("EMBEDDING_PORT", "8080"))
+
+# Startup diagnostics — print cache paths so we can verify the mount
+_hf_home = os.environ.get("HF_HOME", "NOT SET")
+_hf_hub = os.environ.get("HF_HUB_CACHE", "NOT SET")
+print(f"[embedding_server] HF_HOME={_hf_home}", flush=True)
+print(f"[embedding_server] HF_HUB_CACHE={_hf_hub}", flush=True)
+_pvc_check = "/models"
+if os.path.isdir(_pvc_check):
+    print(f"[embedding_server] /models exists, contents: {os.listdir(_pvc_check)}", flush=True)
+    _cache_path = "/models/.cache/huggingface/hub"
+    if os.path.isdir(_cache_path):
+        print(f"[embedding_server] {_cache_path} contents: {os.listdir(_cache_path)}", flush=True)
+    else:
+        print(f"[embedding_server] WARNING: {_cache_path} does not exist!", flush=True)
+else:
+    print(f"[embedding_server] WARNING: /models does not exist! PVC not mounted?", flush=True)
 
 # ---------------------------------------------------------------------------
 # FastAPI app

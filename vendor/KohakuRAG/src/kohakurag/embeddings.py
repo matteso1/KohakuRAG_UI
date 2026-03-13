@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, Sequence
 
@@ -279,20 +280,167 @@ class JinaV4EmbeddingModel:
         if hasattr(self, "_executor"):
             self._executor.shutdown(wait=False)
 
+    @staticmethod
+    def _find_snapshot(model_name: str) -> str | None:
+        """Locate the snapshot directory for *model_name* in the HF cache."""
+        hf_home = os.environ.get(
+            "HF_HOME", os.path.expanduser("~/.cache/huggingface")
+        )
+        hub_cache = os.environ.get(
+            "HF_HUB_CACHE", os.path.join(hf_home, "hub")
+        )
+        model_dir = f"models--{model_name.replace('/', '--')}"
+        snapshots_dir = os.path.join(hub_cache, model_dir, "snapshots")
+        if not os.path.isdir(snapshots_dir):
+            return None
+        snapshots = sorted(os.listdir(snapshots_dir))
+        if not snapshots:
+            return None
+        return os.path.join(snapshots_dir, snapshots[-1])
+
+    @staticmethod
+    def _prepare_snapshot(snapshot_path: str) -> str:
+        """If adapters/ is missing from a read-only snapshot, build a merged
+        directory in /tmp that symlinks all original files plus any adapters
+        found at a fallback location (JINA_ADAPTERS_DIR env var or
+        /tmp/jina-embeddings-v4/adapters).
+
+        Returns the path to use for model loading (original or merged).
+        """
+        adapters_in_snap = os.path.join(snapshot_path, "adapters")
+        if os.path.isdir(adapters_in_snap):
+            return snapshot_path  # already present
+
+        # Check fallback locations for adapters
+        fallback = os.environ.get(
+            "JINA_ADAPTERS_DIR",
+            "/tmp/jina-embeddings-v4/adapters",
+        )
+        if not os.path.isdir(fallback):
+            print(
+                f"[embeddings] WARNING: adapters/ missing from snapshot and "
+                f"fallback {fallback} not found",
+                flush=True,
+            )
+            return snapshot_path  # let downstream error naturally
+
+        print(
+            f"[embeddings] Merging read-only snapshot with adapters from {fallback}",
+            flush=True,
+        )
+        merged = "/tmp/jina-merged-snapshot"
+        os.makedirs(merged, exist_ok=True)
+
+        # Symlink every file/dir from the original snapshot
+        for entry in os.listdir(snapshot_path):
+            src = os.path.join(snapshot_path, entry)
+            dst = os.path.join(merged, entry)
+            if not os.path.exists(dst):
+                os.symlink(src, dst)
+
+        # Symlink the adapters directory
+        dst_adapters = os.path.join(merged, "adapters")
+        if not os.path.exists(dst_adapters):
+            os.symlink(fallback, dst_adapters)
+
+        print(f"[embeddings] Merged snapshot at {merged}", flush=True)
+        return merged
+
     def _ensure_model(self) -> None:
         """Lazy-load the model on first use."""
         if self._model is not None:
             return
 
-        # Load JinaV4 model
-        # local_files_only=True skips HF Hub download machinery (no lock
-        # files, no .incomplete temps) — required when the HF cache is on
-        # a read-only filesystem (e.g. shared PVC).
-        model = AutoModel.from_pretrained(
-            self._model_name,
-            trust_remote_code=True,
-            local_files_only=True,
+        hf_home = os.environ.get(
+            "HF_HOME", os.path.expanduser("~/.cache/huggingface")
         )
+        hub_cache = os.environ.get(
+            "HF_HUB_CACHE", os.path.join(hf_home, "hub")
+        )
+        print(
+            f"[embeddings] Loading {self._model_name} "
+            f"(HF_HOME={hf_home}, hub_cache={hub_cache})",
+            flush=True,
+        )
+
+        # Strategy 1: normal from_pretrained with explicit cache_dir
+        try:
+            model = AutoModel.from_pretrained(
+                self._model_name,
+                trust_remote_code=True,
+                local_files_only=True,
+                cache_dir=hub_cache,
+            )
+        except Exception as e1:
+            print(f"[embeddings] Strategy 1 failed: {e1}", flush=True)
+
+            # Strategy 2: find snapshot, dump diagnostics, and load the
+            # custom model class manually.
+            snapshot_path = self._find_snapshot(self._model_name)
+            if snapshot_path is None:
+                if os.path.isdir(hub_cache):
+                    print(f"[embeddings] hub_cache contents: {os.listdir(hub_cache)}", flush=True)
+                else:
+                    print("[embeddings] hub_cache dir does not exist!", flush=True)
+                raise RuntimeError(
+                    f"Cannot find model {self._model_name} in {hub_cache}"
+                ) from e1
+
+            # --- diagnostics ---
+            snap_files = os.listdir(snapshot_path)
+            print(f"[embeddings] Snapshot dir: {snapshot_path}", flush=True)
+            print(f"[embeddings] Snapshot contents: {snap_files}", flush=True)
+
+            import json
+            config_path = os.path.join(snapshot_path, "config.json")
+            if os.path.isfile(config_path):
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                print(f"[embeddings] config.json model_type={cfg.get('model_type')}", flush=True)
+                print(f"[embeddings] config.json auto_map={cfg.get('auto_map')}", flush=True)
+            else:
+                print("[embeddings] WARNING: no config.json in snapshot!", flush=True)
+                raise RuntimeError(f"No config.json in {snapshot_path}") from e1
+
+            # Merge adapters from fallback location if needed
+            snapshot_path = self._prepare_snapshot(snapshot_path)
+
+            # Strategy 2a: add snapshot to sys.path so trust_remote_code
+            # can resolve the custom .py modules, then retry.
+            import sys
+            if snapshot_path not in sys.path:
+                sys.path.insert(0, snapshot_path)
+                print(f"[embeddings] Added {snapshot_path} to sys.path", flush=True)
+
+            try:
+                model = AutoModel.from_pretrained(
+                    snapshot_path,
+                    trust_remote_code=True,
+                )
+            except Exception as e2:
+                print(f"[embeddings] Strategy 2a failed: {e2}", flush=True)
+
+                # Strategy 2b: manually import the custom class from auto_map
+                auto_map = cfg.get("auto_map", {})
+                auto_model_entry = auto_map.get("AutoModel", "")
+                if "--" in auto_model_entry:
+                    # Format: "jinaai/jina-embeddings-v4--module.ClassName"
+                    auto_model_entry = auto_model_entry.split("--", 1)[1]
+                if "." in auto_model_entry:
+                    mod_name, cls_name = auto_model_entry.rsplit(".", 1)
+                    print(f"[embeddings] Strategy 2b: importing {mod_name}.{cls_name}", flush=True)
+                    import importlib
+                    custom_mod = importlib.import_module(mod_name)
+                    custom_cls = getattr(custom_mod, cls_name)
+                    model = custom_cls.from_pretrained(
+                        snapshot_path,
+                        trust_remote_code=True,
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Cannot resolve auto_map entry: {auto_model_entry}"
+                    ) from e2
+
         model = model.to(self._device, dtype=self._dtype)
         model.eval().requires_grad_(False)
         self._model = model
