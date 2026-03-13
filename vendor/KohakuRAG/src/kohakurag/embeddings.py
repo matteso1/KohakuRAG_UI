@@ -298,6 +298,54 @@ class JinaV4EmbeddingModel:
             return None
         return os.path.join(snapshots_dir, snapshots[-1])
 
+    @staticmethod
+    def _prepare_snapshot(snapshot_path: str) -> str:
+        """If adapters/ is missing from a read-only snapshot, build a merged
+        directory in /tmp that symlinks all original files plus any adapters
+        found at a fallback location (JINA_ADAPTERS_DIR env var or
+        /tmp/jina-embeddings-v4/adapters).
+
+        Returns the path to use for model loading (original or merged).
+        """
+        adapters_in_snap = os.path.join(snapshot_path, "adapters")
+        if os.path.isdir(adapters_in_snap):
+            return snapshot_path  # already present
+
+        # Check fallback locations for adapters
+        fallback = os.environ.get(
+            "JINA_ADAPTERS_DIR",
+            "/tmp/jina-embeddings-v4/adapters",
+        )
+        if not os.path.isdir(fallback):
+            print(
+                f"[embeddings] WARNING: adapters/ missing from snapshot and "
+                f"fallback {fallback} not found",
+                flush=True,
+            )
+            return snapshot_path  # let downstream error naturally
+
+        print(
+            f"[embeddings] Merging read-only snapshot with adapters from {fallback}",
+            flush=True,
+        )
+        merged = "/tmp/jina-merged-snapshot"
+        os.makedirs(merged, exist_ok=True)
+
+        # Symlink every file/dir from the original snapshot
+        for entry in os.listdir(snapshot_path):
+            src = os.path.join(snapshot_path, entry)
+            dst = os.path.join(merged, entry)
+            if not os.path.exists(dst):
+                os.symlink(src, dst)
+
+        # Symlink the adapters directory
+        dst_adapters = os.path.join(merged, "adapters")
+        if not os.path.exists(dst_adapters):
+            os.symlink(fallback, dst_adapters)
+
+        print(f"[embeddings] Merged snapshot at {merged}", flush=True)
+        return merged
+
     def _ensure_model(self) -> None:
         """Lazy-load the model on first use."""
         if self._model is not None:
@@ -353,6 +401,9 @@ class JinaV4EmbeddingModel:
             else:
                 print("[embeddings] WARNING: no config.json in snapshot!", flush=True)
                 raise RuntimeError(f"No config.json in {snapshot_path}") from e1
+
+            # Merge adapters from fallback location if needed
+            snapshot_path = self._prepare_snapshot(snapshot_path)
 
             # Strategy 2a: add snapshot to sys.path so trust_remote_code
             # can resolve the custom .py modules, then retry.
