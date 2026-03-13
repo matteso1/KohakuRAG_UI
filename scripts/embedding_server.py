@@ -40,33 +40,13 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
-_raw_model = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
+# Auto-detect HF cache on the shared PVC if HF_HOME isn't already set
+_PVC_HF_CACHE = "/models/.cache/huggingface"
+if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HOME"] = _PVC_HF_CACHE
+    print(f"[embedding_server] Auto-set HF_HOME={_PVC_HF_CACHE}", flush=True)
 
-
-def _resolve_model_path(name: str) -> str:
-    """Resolve an HF repo ID to a local path if the model exists on disk.
-
-    Checks (in order):
-      1. If ``name`` is already a local directory, use it as-is.
-      2. ``/models/<name>``          (e.g. /models/jinaai/jina-embeddings-v4)
-      3. ``/models/<short_name>``    (e.g. /models/jina-embeddings-v4)
-    Falls back to the original name (let HF resolve it).
-    """
-    if os.path.isdir(name):
-        return name
-
-    candidates = [os.path.join("/models", name)]
-    if "/" in name:
-        candidates.append(os.path.join("/models", name.split("/", 1)[1]))
-
-    for path in candidates:
-        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "config.json")):
-            return path
-
-    return name
-
-
-MODEL_NAME = _resolve_model_path(_raw_model)
+MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
 TASK = os.environ.get("EMBEDDING_TASK", "retrieval")
 DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 HOST = os.environ.get("EMBEDDING_HOST", "0.0.0.0")
