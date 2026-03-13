@@ -189,7 +189,7 @@ git clone https://github.com/qualiaMachine/KohakuRAG_UI.git
 cd KohakuRAG_UI
 
 # Switch to the PowerEdge setup branch (has RunAI-specific fixes)
-git checkout claude/rag-powered-edge-setup-5GKiv
+git checkout claude/rag-poweredge-setup-wM2Fz
 
 # Install uv (fast Python package installer, ~10-100x faster than pip)
 pip install uv
@@ -546,11 +546,11 @@ tarball and installs dependencies at startup.
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
-> **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv` in the URL
-> and `claude-rag-powered-edge-setup-5GKiv` in the `mv` command with your branch name.
+> **Using a different branch?** Replace `claude/rag-poweredge-setup-wM2Fz` in the URL
+> and `claude-rag-poweredge-setup-wM2Fz` in the `mv` command with your branch name.
 > If the branch has slashes (e.g. `claude/my-feature`), use the full name in the URL
 > but replace slashes with dashes in the `mv` target (GitHub converts `/` → `-`
 > in tarball directory names):
@@ -656,24 +656,6 @@ In the RunAI UI: **Workloads** > **New Workload** > **Workspace**
 
 ### 3b. Environment image
 
-Two images are tested. Pick whichever is already cached on your cluster:
-
-| Image | Pros | Cons |
-|-------|------|------|
-| `vllm/vllm-openai:latest` | Already pulled for Steps 1-2; smaller | No `git`, only `python3` (not `python`) |
-| `nvcr.io/nvidia/pytorch:25.02-py3` | Has `git`, `python` alias, full CUDA toolkit | Larger (~15 GB); needs PEP 668 workaround |
-
-**Option A — vllm/vllm-openai (default)**
-
-| Field | Value |
-|-------|-------|
-| **Image** | Custom image |
-| **Image URL** | `vllm/vllm-openai:latest` |
-| **Image pull** | Pull the image only if it's not already present on the host (recommended) |
-| **Image pull secret** | *(leave empty — public Docker Hub image)* |
-
-**Option B — NGC PyTorch**
-
 | Field | Value |
 |-------|-------|
 | **Image** | Custom image |
@@ -681,44 +663,65 @@ Two images are tested. Pick whichever is already cached on your cluster:
 | **Image pull** | Pull the image only if it's not already present on the host (recommended) |
 | **Image pull secret** | *(leave empty — public NGC image)* |
 
+> **Why NGC PyTorch?** This image has `git` and a `python` alias, making
+> the startup command simpler. It needs a one-time PEP 668 workaround
+> (see 3c below). The `vllm/vllm-openai` image also works but requires
+> `curl` tarball download instead of `git clone` and uses `python3` not
+> `python`.
+
 ### 3c. Runtime settings
 
-Pick the command that matches your image choice from 3b.
-
-**Option A — vllm/vllm-openai (uses `curl` tarball, `python3`)**
-
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
+| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-poweredge-setup-wM2Fz --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false --server.baseUrlPath=\$STREAMLIT_BASE_PATH"` |
 | **Working directory** | *(leave empty)* |
 
-**Option B — NGC PyTorch (uses `git clone`, `python`)**
-
-| Field | Value |
-|-------|-------|
-| **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"` |
-| **Working directory** | *(leave empty)* |
-
-> **NGC PEP 668 note:** The `rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED`
-> removes the Debian PEP 668 marker file that blocks `uv pip install --system`.
-> This is safe in an ephemeral container — system Python is the only Python
-> available, and we need to install packages into it.
-
-> **Using a different branch?** Same as Step 2d — replace `claude/rag-powered-edge-setup-5GKiv`
-> in the URL/clone command. For the vllm image (Option A), also replace
-> `claude-rag-powered-edge-setup-5GKiv` in the `mv` command (slashes become dashes
-> in the extracted directory name).
+> **What the command does:**
+> 1. Installs `uv` (fast Python package installer)
+> 2. Removes the PEP 668 `EXTERNALLY-MANAGED` marker (safe in ephemeral containers)
+> 3. Clones the repo to ephemeral `/tmp` (not on PVC)
+> 4. Symlinks data dirs to the shared PPVC
+> 5. Installs Python deps + vendored KohakuVault/KohakuRAG
+> 6. Starts Streamlit with proxy-compatible settings
+>
+> **Using a different branch?** Replace `claude/rag-poweredge-setup-wM2Fz`
+> in the `git clone` command.
 
 **Environment variables:**
 
 | Key | Value |
 |-----|-------|
 | `RAG_MODE` | `remote` |
-| `VLLM_BASE_URL` | `http://wattbot-vllm:8000/v1` |
-| `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` |
-| `EMBEDDING_SERVICE_URL` | `http://wattbot-embedding:8080` |
+| `VLLM_BASE_URL` | `http://<vllm-name>.<runai-namespace>.svc.cluster.local/v1` |
+| `VLLM_MODEL` | *(must match the model loaded by vLLM — e.g. `Qwen/Qwen2.5-7B-Instruct`)* |
+| `EMBEDDING_SERVICE_URL` | `http://<embedding-name>.<runai-namespace>.svc.cluster.local` |
+| `STREAMLIT_BASE_PATH` | `/<project>/<workspace-name>/proxy/8501` |
+
+> **Knative DNS for Inference workloads:** RunAI Inference workloads use
+> Knative serving, which routes through **port 80** (not the container
+> port) and requires the **fully-qualified service name** as the hostname.
+> Short names like `wattbot-vllm:8000` will not work — envoy returns 404
+> because it can't match the route without the namespace in the Host header.
+>
+> The format is: `<workload-name>.runai-<project>.svc.cluster.local`
+>
+> Example (project `jupyter-endemann01`, workloads `wattbot-vllm` and `wattbot-embedding`):
+> - `VLLM_BASE_URL=http://wattbot-vllm.runai-jupyter-endemann01.svc.cluster.local/v1`
+> - `EMBEDDING_SERVICE_URL=http://wattbot-embedding.runai-jupyter-endemann01.svc.cluster.local`
+>
+> **No port number** — Knative maps port 80 → container port automatically.
+>
+> **`VLLM_MODEL`** must match the `--model` argument used when launching
+> vLLM in Step 1. Check with:
+> `curl http://<vllm-fqdn>/v1/models`
+
+> **`STREAMLIT_BASE_PATH`** tells Streamlit the proxy subpath so
+> WebSocket connections route correctly. Replace `<project>` with your
+> RunAI project (e.g. `jupyter-endemann01`) and `<workspace-name>` with
+> the workspace name you chose in 3a (e.g. `wattbot-app`).
+>
+> Example: `/jupyter-endemann01/wattbot-app/proxy/8501`
 
 ### 3d. Compute resources
 
@@ -738,7 +741,24 @@ Pick the command that matches your image choice from 3b.
 > it doesn't load any ML models directly. It connects to vLLM and the
 > embedding server via HTTP.
 
-### 3f. General
+### 3f. Connection (Tool)
+
+The Workspace needs a **connection method** so the RunAI proxy routes
+traffic to port 8501. Without this, the proxy URL returns 404.
+
+| Field | Value |
+|-------|-------|
+| **Tool type** | Custom URL |
+| **Name** | `streamlit` (or any name) |
+| **Container port** | `8501` |
+
+> **Blank page on first load?** After the workspace starts, the proxy URL
+> may initially show a blank white page titled "Streamlit". This means the
+> HTML loaded but the WebSocket hasn't connected yet. Wait 10-20 seconds
+> and refresh — the app should render fully. This only happens on the very
+> first load after startup.
+
+### 3g. General
 
 | Field | Value |
 |-------|-------|
