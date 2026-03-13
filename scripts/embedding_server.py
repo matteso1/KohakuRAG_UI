@@ -29,6 +29,11 @@ from typing import Sequence
 _PVC_HF_CACHE = "/models/.cache/huggingface"
 if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
     os.environ["HF_HOME"] = _PVC_HF_CACHE
+# The full model lives directly under HF_HOME (not HF_HOME/hub/) because
+# the download used HF_HOME as the cache root.  Point HF_HUB_CACHE there
+# so from_pretrained finds models--org--name at the right level.
+if "HF_HUB_CACHE" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HUB_CACHE"] = _PVC_HF_CACHE
 # Block all outgoing HF requests — we load exclusively from cache.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
