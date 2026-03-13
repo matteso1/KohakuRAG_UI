@@ -578,6 +578,12 @@ tarball and installs dependencies at startup.
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
+> **Note:** If the shared PVC is missing the Jina V4 `adapters/` directory,
+> the embedding server will auto-download them to `/wattbot-data/jina-v4-adapters/`
+> on first startup (requires `/wattbot-data` mounted read-write and internet
+> access). Subsequent starts skip the download. Once the admin re-downloads
+> the complete model to the shared PVC, this fallback is no longer needed.
+
 ### 2e. Compute resources
 
 | Field | Value |
