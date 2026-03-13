@@ -40,6 +40,12 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
+# Auto-detect HF cache on the shared PVC if HF_HOME isn't already set
+_PVC_HF_CACHE = "/models/.cache/huggingface"
+if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
+    os.environ["HF_HOME"] = _PVC_HF_CACHE
+    print(f"[embedding_server] Auto-set HF_HOME={_PVC_HF_CACHE}", flush=True)
+
 MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
 TASK = os.environ.get("EMBEDDING_TASK", "retrieval")
 DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
@@ -83,8 +89,8 @@ async def startup():
         task=TASK,
         truncate_dim=DIM,
     )
-    # Force model load (it's lazy by default)
-    _ = _embedder.dimension
+    # Force model load at startup so we fail fast if model is missing
+    _embedder._ensure_model()
     elapsed = time.time() - t0
     print(f"[embedding_server] Model loaded in {elapsed:.1f}s. Serving on {HOST}:{PORT}", flush=True)
 
