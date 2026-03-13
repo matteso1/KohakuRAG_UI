@@ -28,10 +28,16 @@ command -v uv >/dev/null 2>&1 || {
     pip install uv 2>&1 | tail -1
 }
 
-echo "[start_app] Symlinking data from PPVC..."
-mkdir -p data
-ln -sf /wattbot-data/embeddings data/embeddings
-ln -sf /wattbot-data/corpus data/corpus
+# Data symlinks (data/embeddings -> /wattbot-data/embeddings, etc.)
+# are already set up by Step 0. Only create them if missing.
+if [[ ! -e data/embeddings ]]; then
+    echo "[start_app] Creating data symlinks..."
+    mkdir -p data
+    ln -sf /wattbot-data/embeddings data/embeddings
+    ln -sf /wattbot-data/corpus data/corpus
+else
+    echo "[start_app] Data symlinks already exist, skipping."
+fi
 
 echo "[start_app] Installing dependencies..."
 uv pip install --system streamlit openai httpx numpy python-dotenv
