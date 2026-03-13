@@ -41,17 +41,12 @@ os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
 # ---------------------------------------------------------------------------
 # TEMP WORKAROUND: The shared PVC has jina-embeddings-v4 weights but is
 # missing the adapters/ directory (admin needs to re-download).  If adapters
-# aren't in the snapshot, download them to /wattbot-data/ (writable PPVC)
-# before going offline.  Remove this block once the admin fixes the shared PVC.
+# aren't in the snapshot, download them to /tmp before going offline.
+# This re-downloads on each cold start (~few hundred MB) but avoids needing
+# write access to any PVC.  Remove once the admin fixes the shared PVC.
 # ---------------------------------------------------------------------------
-def _ensure_adapters_on_ppvc():
-    """Download jina-v4 adapters to /wattbot-data/ if missing from snapshot."""
-    ppvc_adapters = "/wattbot-data/jina-v4-adapters/adapters"
-    if os.path.isdir(ppvc_adapters):
-        print(f"[embedding_server] Adapters already on PPVC: {ppvc_adapters}", flush=True)
-        os.environ.setdefault("JINA_ADAPTERS_DIR", ppvc_adapters)
-        return
-
+def _ensure_adapters():
+    """Download jina-v4 adapters to /tmp if missing from snapshot."""
     # Check if adapters are already in the snapshot (admin fixed the PVC)
     hf_cache = os.environ.get("HF_HUB_CACHE", os.environ.get("HF_HOME", ""))
     snap_dir = os.path.join(hf_cache, "models--jinaai--jina-embeddings-v4", "snapshots")
@@ -61,26 +56,26 @@ def _ensure_adapters_on_ppvc():
             print("[embedding_server] Adapters found in snapshot, no download needed", flush=True)
             return
 
-    # PPVC writable?
-    ppvc_root = "/wattbot-data"
-    if not os.path.isdir(ppvc_root):
-        print("[embedding_server] WARNING: /wattbot-data not mounted, cannot download adapters", flush=True)
+    tmp_adapters = "/tmp/jina-embeddings-v4/adapters"
+    if os.path.isdir(tmp_adapters):
+        print(f"[embedding_server] Adapters already at {tmp_adapters}", flush=True)
+        os.environ.setdefault("JINA_ADAPTERS_DIR", tmp_adapters)
         return
 
-    print("[embedding_server] Adapters missing — downloading to PPVC (one-time)...", flush=True)
+    print("[embedding_server] Adapters missing — downloading to /tmp...", flush=True)
     try:
         from huggingface_hub import snapshot_download
         snapshot_download(
             "jinaai/jina-embeddings-v4",
             allow_patterns=["adapters/*"],
-            local_dir="/wattbot-data/jina-v4-adapters",
+            local_dir="/tmp/jina-embeddings-v4",
         )
-        os.environ.setdefault("JINA_ADAPTERS_DIR", ppvc_adapters)
-        print(f"[embedding_server] Adapters downloaded to {ppvc_adapters}", flush=True)
+        os.environ.setdefault("JINA_ADAPTERS_DIR", tmp_adapters)
+        print(f"[embedding_server] Adapters downloaded to {tmp_adapters}", flush=True)
     except Exception as e:
         print(f"[embedding_server] WARNING: adapter download failed: {e}", flush=True)
 
-_ensure_adapters_on_ppvc()
+_ensure_adapters()
 
 # Block all outgoing HF requests — we load exclusively from cache.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
