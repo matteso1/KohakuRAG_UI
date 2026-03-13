@@ -34,6 +34,9 @@ if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
 # so from_pretrained finds models--org--name at the right level.
 if "HF_HUB_CACHE" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
     os.environ["HF_HUB_CACHE"] = _PVC_HF_CACHE
+# Transformers caches dynamic modules (trust_remote_code .py files) under
+# HF_HOME/modules/.  The PVC is read-only, so redirect to /tmp.
+os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
 # Block all outgoing HF requests — we load exclusively from cache.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
