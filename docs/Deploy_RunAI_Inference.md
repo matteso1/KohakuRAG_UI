@@ -546,7 +546,7 @@ tarball and installs dependencies at startup.
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-poweredge-setup-wM2Fz.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-poweredge-setup-wM2Fz /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate huggingface_hub peft && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
 > **Using a different branch?** Replace `claude/rag-poweredge-setup-wM2Fz` in the URL
@@ -579,10 +579,12 @@ tarball and installs dependencies at startup.
 | `EMBEDDING_TASK` | `retrieval` |
 
 > **Note:** If the shared PVC is missing the Jina V4 `adapters/` directory,
-> the embedding server will auto-download them to `/wattbot-data/jina-v4-adapters/`
-> on first startup (requires `/wattbot-data` mounted read-write and internet
-> access). Subsequent starts skip the download. Once the admin re-downloads
+> the embedding server will auto-download them to `/tmp` on startup (requires
+> internet access). This re-downloads on each cold start (~few hundred MB)
+> but avoids needing write access to any PVC. Once the admin re-downloads
 > the complete model to the shared PVC, this fallback is no longer needed.
+> The startup command also installs `peft` (required by the Jina V4 model
+> code for LoRA adapter support).
 
 ### 2e. Compute resources
 
