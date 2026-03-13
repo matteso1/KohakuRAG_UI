@@ -40,7 +40,33 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
-MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
+_raw_model = os.environ.get("EMBEDDING_MODEL", "jinaai/jina-embeddings-v4")
+
+
+def _resolve_model_path(name: str) -> str:
+    """Resolve an HF repo ID to a local path if the model exists on disk.
+
+    Checks (in order):
+      1. If ``name`` is already a local directory, use it as-is.
+      2. ``/models/<name>``          (e.g. /models/jinaai/jina-embeddings-v4)
+      3. ``/models/<short_name>``    (e.g. /models/jina-embeddings-v4)
+    Falls back to the original name (let HF resolve it).
+    """
+    if os.path.isdir(name):
+        return name
+
+    candidates = [os.path.join("/models", name)]
+    if "/" in name:
+        candidates.append(os.path.join("/models", name.split("/", 1)[1]))
+
+    for path in candidates:
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "config.json")):
+            return path
+
+    return name
+
+
+MODEL_NAME = _resolve_model_path(_raw_model)
 TASK = os.environ.get("EMBEDDING_TASK", "retrieval")
 DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 HOST = os.environ.get("EMBEDDING_HOST", "0.0.0.0")
