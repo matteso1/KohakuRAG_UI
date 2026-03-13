@@ -190,12 +190,12 @@
 # --- Option A: vllm/vllm-openai:latest ---
 #   Image:           vllm/vllm-openai:latest
 #   Command:         bash
-#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"
+#   Arguments:       -c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"
 #
 # --- Option B: nvcr.io/nvidia/pytorch:25.02-py3 ---
 #   Image:           nvcr.io/nvidia/pytorch:25.02-py3
 #   Command:         bash
-#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"
+#   Arguments:       -c "pip install uv && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && git clone -b claude/rag-powered-edge-setup-5GKiv --depth 1 https://github.com/qualiaMachine/KohakuRAG_UI.git /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && ln -sf /wattbot-data/embeddings data/embeddings && ln -sf /wattbot-data/corpus data/corpus && uv pip install --system streamlit openai httpx numpy python-dotenv && uv pip install --system vendor/KohakuVault vendor/KohakuRAG && python -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"
 #   NOTE: rm -f EXTERNALLY-MANAGED removes the Debian PEP 668 marker that
 #         blocks uv pip install --system. Safe in ephemeral containers.
 #         NGC image uses `python` (not `python3`) and has `git`.
