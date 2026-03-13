@@ -546,7 +546,7 @@ tarball and installs dependencies at startup.
 | Field | Value |
 |-------|-------|
 | **Command** | `bash` |
-| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx sentence-transformers 'transformers>=4.42,<5' accelerate && python3 scripts/embedding_server.py"` |
+| **Arguments** | `-c "pip install uv && curl -sL https://github.com/qualiaMachine/KohakuRAG_UI/archive/refs/heads/claude/rag-powered-edge-setup-5GKiv.tar.gz | tar xz -C /tmp && mv /tmp/KohakuRAG_UI-claude-rag-powered-edge-setup-5GKiv /tmp/KohakuRAG_UI && cd /tmp/KohakuRAG_UI && uv pip install --system fastapi uvicorn httpx numpy sentence-transformers 'transformers>=4.42,<5' accelerate && mkdir -p /tmp/hf_cache/hub && ln -sf /models/.cache/huggingface/hub/models--jinaai--jina-embeddings-v4 /tmp/hf_cache/hub/ && python3 scripts/embedding_server.py"` |
 | **Working directory** | *(leave empty)* |
 
 > **Using a different branch?** Replace `claude/rag-powered-edge-setup-5GKiv` in the URL
@@ -558,6 +558,13 @@ tarball and installs dependencies at startup.
 > # URL:  .../refs/heads/claude/my-feature.tar.gz   (slashes OK)
 > # mv:   KohakuRAG_UI-claude-my-feature            (slashes become dashes)
 > ```
+>
+> **Why the `mkdir` + `ln -sf` before starting?** The shared models PVC
+> (`/models`) is mounted **read-only**, but HuggingFace's library tries
+> to create `.lock` files when loading from cache. The symlink trick
+> points `HF_HOME` to writable `/tmp/hf_cache` while the actual model
+> weights are read via symlink from the read-only PVC. Lock files go
+> to `/tmp` (writable), weights stay shared (no duplication).
 >
 > **Why `curl` tarball instead of `git clone`?** The vLLM image
 > doesn't include `git`. Downloading a tarball via `curl` (which is
@@ -573,7 +580,7 @@ tarball and installs dependencies at startup.
 
 | Name | Value |
 |------|-------|
-| `HF_HOME` | `/models/.cache/huggingface` |
+| `HF_HOME` | `/tmp/hf_cache` |
 | `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v4` |
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
