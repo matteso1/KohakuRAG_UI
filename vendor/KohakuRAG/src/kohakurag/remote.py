@@ -59,13 +59,43 @@ class VLLMChatModel(ChatModel):
             )
 
         self._system_prompt = system_prompt or "You are a helpful assistant."
-        self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
         self._semaphore = (
             asyncio.Semaphore(max_concurrent) if max_concurrent > 0 else None
         )
+
+        # Auto-detect the model name from the vLLM server
+        self._model = self._detect_model(base_url, api_key, model)
+
+    @staticmethod
+    def _detect_model(base_url: str, api_key: str, fallback: str) -> str:
+        """Query GET /v1/models to find the actual served model name."""
+        try:
+            import httpx as _httpx
+
+            # base_url already ends with /v1
+            resp = _httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            models = resp.json().get("data", [])
+            if models:
+                detected = models[0]["id"]
+                if detected != fallback:
+                    import sys
+                    print(
+                        f"[vLLM] Auto-detected model: {detected!r} "
+                        f"(requested: {fallback!r})",
+                        file=sys.stderr,
+                    )
+                return detected
+        except Exception:
+            pass
+        return fallback
 
     async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
         system = system_prompt or self._system_prompt

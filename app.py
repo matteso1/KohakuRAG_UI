@@ -410,17 +410,28 @@ def init_remote_pipeline(
     _debug(f"Connecting to embedding server at {embedding_url}")
     embedder = RemoteEmbeddingModel(base_url=embedding_url)
 
-    # Vector store is local (lightweight SQLite reads, no GPU needed)
-    db_path = _repo_root / "data" / "embeddings" / "wattbot_jinav4.db"
-    table_prefix = "wattbot_jv4"
+    # Vector store is local (lightweight SQLite reads, no GPU needed).
+    # Read db path and table_prefix from config (same source as local mode)
+    # so the symlink to wattbot-data PVC is respected.
+    ref_config = load_config(next(CONFIGS_DIR.glob("hf_*.py")))
+    db_raw = ref_config.get("db", "data/embeddings/wattbot_jinav4.db")
+    db_path = _repo_root / db_raw.removeprefix("../").removeprefix("../")
+    table_prefix = ref_config.get("table_prefix", "wattbot_jv4")
     embedding_dim = embedder.dimension
 
-    _debug(f"Opening local vector store: {db_path}")
+    _debug(
+        f"Opening local vector store: {db_path} "
+        f"(exists={db_path.exists()}, is_symlink={db_path.parent.is_symlink()})"
+    )
     store = KVaultNodeStore(
         db_path,
         table_prefix=table_prefix,
         dimensions=embedding_dim,
         paragraph_search_mode="averaged",
+    )
+    _debug(
+        f"Store opened: dimensions={store._dimensions}, "
+        f"vec_count={store._vectors.info().get('count', '?')}"
     )
 
     return RAGPipeline(
