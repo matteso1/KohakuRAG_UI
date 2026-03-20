@@ -578,13 +578,20 @@ tarball and installs dependencies at startup.
 | `EMBEDDING_DIM` | `1024` |
 | `EMBEDDING_TASK` | `retrieval` |
 
-> **Note:** If the shared PVC is missing the Jina V4 `adapters/` directory,
-> the embedding server will auto-download them to `/tmp` on startup (requires
-> internet access). This re-downloads on each cold start (~few hundred MB)
-> but avoids needing write access to any PVC. Once the admin re-downloads
-> the complete model to the shared PVC, this fallback is no longer needed.
-> The startup command also installs `peft` (required by the Jina V4 model
-> code for LoRA adapter support).
+> **Read-only PVC handling:** The shared models PVC is often read-only
+> despite being configured for read-write (a RunAI/cluster admin issue).
+> The embedding server handles this automatically by creating a writable
+> overlay at `/tmp/hf_home` that symlinks model weights from the PVC while
+> redirecting all metadata writes to `/tmp`. No manual workaround needed —
+> just set `HF_HOME` to the PVC path and the server handles the rest.
+>
+> **Adapters:** If the shared PVC is missing the Jina V4 `adapters/`
+> directory, the server auto-downloads them to `/tmp` on startup (requires
+> internet access, ~few hundred MB). This re-downloads on each cold start.
+> To avoid this, add adapters to the shared PVC using the provisioning
+> script (see [Appendix: Managing the Shared Models PVC](#appendix-managing-the-shared-models-pvc)).
+> The startup command also installs `peft` (required for LoRA adapter
+> support).
 
 ### 2e. Compute resources
 
@@ -1154,3 +1161,118 @@ streamlit run app.py
 # Terminal 2: python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B-Instruct
 # Terminal 3: RAG_MODE=remote streamlit run app.py
 ```
+
+---
+
+## Appendix: Managing the Shared Models PVC
+
+The shared models PVC (`shared-models`, mounted at `/models`) stores
+pre-cached HuggingFace model weights so inference jobs don't need to
+download them at startup. This section covers how to add new models
+and troubleshoot common permission issues.
+
+### How the shared PVC works
+
+```
+/models/                              ← shared-models PVC mount
+└── .cache/
+    └── huggingface/                  ← HF_HOME points here
+        ├── models--jinaai--jina-embeddings-v4/
+        │   ├── snapshots/
+        │   │   └── <commit-hash>/    ← model weights + config
+        │   │       ├── model-00001-of-00002.safetensors
+        │   │       ├── model-00002-of-00002.safetensors
+        │   │       ├── config.json
+        │   │       ├── tokenizer.json
+        │   │       ├── adapters/     ← LoRA adapters (if present)
+        │   │       └── ...
+        │   └── refs/
+        │       └── main              ← commit hash pointer
+        ├── models--Qwen--Qwen2.5-7B-Instruct/
+        │   └── snapshots/...
+        └── ...
+```
+
+### Read-only PVC workaround
+
+The shared PVC is often read-only despite being configured for
+read-write (a RunAI/cluster admin issue). The embedding server handles
+this automatically:
+
+1. Creates a writable overlay at `/tmp/hf_home`
+2. Symlinks model weight directories from the PVC (read-only is fine
+   for reading weights)
+3. Creates writable `refs/`, `.no_exist/` directories for HF metadata
+4. Redirects xet logging and pip cache to `/tmp`
+
+**Result:** Zero "Read-only file system" errors in logs. No manual
+workaround needed — the `embedding_server.py` script handles everything
+automatically.
+
+### Adding new models to the shared PVC
+
+To add a model, you need write access to the PVC. This typically
+requires using Mike's workspace (or whoever created the original data
+source) since RunAI PVC ownership is tied to the creating workspace.
+
+Use the provisioning script `scripts/provision_shared_models.py`:
+
+```bash
+# From a workspace with write access to /models
+cd /path/to/KohakuRAG_UI
+
+# Download a model (with all adapters/variants)
+python scripts/provision_shared_models.py download jinaai/jina-embeddings-v4
+
+# Download only specific files (e.g. just adapters)
+python scripts/provision_shared_models.py download jinaai/jina-embeddings-v4 \
+    --include "adapters/*"
+
+# List what's currently on the PVC
+python scripts/provision_shared_models.py list
+
+# Verify a model has all required files
+python scripts/provision_shared_models.py verify jinaai/jina-embeddings-v4
+```
+
+Or manually download using `huggingface-cli`:
+
+```bash
+# Set cache to the PVC
+export HF_HOME=/models/.cache/huggingface
+
+# Download full model (weights + adapters + config)
+huggingface-cli download jinaai/jina-embeddings-v4
+
+# Download a new LLM
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct
+```
+
+### Models currently on the shared PVC
+
+| Model | Size | Used by | Notes |
+|-------|------|---------|-------|
+| `jinaai/jina-embeddings-v4` | ~3 GB | Embedding server | Needs `adapters/` directory — add with `--include "adapters/*"` if missing |
+| `Qwen/Qwen2.5-7B-Instruct` | ~14 GB | vLLM server | Full precision BF16 |
+
+### Troubleshooting
+
+**"Read-only file system" errors in logs:**
+The writable overlay handles this automatically. If you still see these
+errors, ensure you're running the latest `embedding_server.py` which
+includes `_setup_hf_cache_overlay()`.
+
+**Missing adapters (Jina V4):**
+The embedding server auto-downloads adapters to `/tmp` on each cold
+start if they're missing from the PVC. To fix permanently, download
+adapters to the PVC from a writable workspace:
+```bash
+HF_HOME=/models/.cache/huggingface \
+    python scripts/provision_shared_models.py download \
+    jinaai/jina-embeddings-v4 --include "adapters/*"
+```
+
+**Can't write to PVC from inference jobs:**
+This is expected — inference jobs mount the PVC read-only. Only
+Workspaces created by the PVC owner have write access. Contact your
+cluster admin or use the original owner's workspace to make changes.

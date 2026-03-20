@@ -18,25 +18,87 @@ Environment variables:
 """
 
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Sequence
 
-# Auto-detect HF cache on shared PVC and set offline mode env vars
-# BEFORE any HuggingFace / transformers imports, so they are picked up
-# at import-time constant resolution.
+# ---------------------------------------------------------------------------
+# Writable HF cache overlay — MUST run before any HuggingFace imports.
+#
+# The shared PVC at /models is often read-only despite being configured for
+# read-write (a RunAI/cluster admin issue).  HuggingFace tries to write
+# metadata (refs, .no_exist negative cache, xet logs) which produces noisy
+# errors on a read-only FS.
+#
+# Solution: create a writable cache at /tmp/hf_home and symlink model weight
+# directories back to the PVC.  HF can write metadata freely to /tmp, while
+# reading the large model weights from the PVC via symlinks.
+# ---------------------------------------------------------------------------
 _PVC_HF_CACHE = "/models/.cache/huggingface"
-if "HF_HOME" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
-    os.environ["HF_HOME"] = _PVC_HF_CACHE
-# The full model lives directly under HF_HOME (not HF_HOME/hub/) because
-# the download used HF_HOME as the cache root.  Point HF_HUB_CACHE there
-# so from_pretrained finds models--org--name at the right level.
-if "HF_HUB_CACHE" not in os.environ and os.path.isdir(_PVC_HF_CACHE):
-    os.environ["HF_HUB_CACHE"] = _PVC_HF_CACHE
-# Transformers caches dynamic modules (trust_remote_code .py files) under
-# HF_HOME/modules/.  The PVC is read-only, so redirect to /tmp.
-os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
+_WRITABLE_HF_HOME = "/tmp/hf_home"
+
+
+def _setup_hf_cache_overlay():
+    """Create a writable HF cache at /tmp/hf_home that symlinks to read-only PVC model files."""
+    if not os.path.isdir(_PVC_HF_CACHE):
+        return  # No PVC mounted, use defaults
+
+    os.makedirs(_WRITABLE_HF_HOME, exist_ok=True)
+
+    # Scan PVC for model directories and build writable overlay
+    for entry in os.listdir(_PVC_HF_CACHE):
+        src = os.path.join(_PVC_HF_CACHE, entry)
+        if entry.startswith("models--") and os.path.isdir(src):
+            model_dir = os.path.join(_WRITABLE_HF_HOME, entry)
+            # Create writable dirs for metadata HF wants to write
+            os.makedirs(os.path.join(model_dir, "snapshots"), exist_ok=True)
+            os.makedirs(os.path.join(model_dir, "refs"), exist_ok=True)
+            os.makedirs(os.path.join(model_dir, ".no_exist"), exist_ok=True)
+
+            # Symlink each snapshot hash dir (the actual model weights)
+            snap_src = os.path.join(src, "snapshots")
+            if os.path.isdir(snap_src):
+                for snap in os.listdir(snap_src):
+                    snap_dst = os.path.join(model_dir, "snapshots", snap)
+                    if not os.path.exists(snap_dst):
+                        os.symlink(os.path.join(snap_src, snap), snap_dst)
+
+            # Copy refs (tiny text files with commit hashes) so HF can overwrite
+            refs_src = os.path.join(src, "refs")
+            if os.path.isdir(refs_src):
+                for ref in os.listdir(refs_src):
+                    ref_dst = os.path.join(model_dir, "refs", ref)
+                    if not os.path.exists(ref_dst):
+                        shutil.copy2(os.path.join(refs_src, ref), ref_dst)
+
+            # Symlink .locks if present
+            locks_src = os.path.join(src, ".locks")
+            locks_dst = os.path.join(model_dir, ".locks")
+            if os.path.isdir(locks_src) and not os.path.exists(locks_dst):
+                os.makedirs(locks_dst, exist_ok=True)
+
+        elif entry == ".locks":
+            dst = os.path.join(_WRITABLE_HF_HOME, entry)
+            if not os.path.exists(dst):
+                os.makedirs(dst, exist_ok=True)
+        elif not os.path.exists(os.path.join(_WRITABLE_HF_HOME, entry)):
+            # Symlink other items (e.g. hub/)
+            os.symlink(src, os.path.join(_WRITABLE_HF_HOME, entry))
+
+    os.environ["HF_HOME"] = _WRITABLE_HF_HOME
+    os.environ["HF_HUB_CACHE"] = _WRITABLE_HF_HOME
+    os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
+    # Redirect xet logging (used by HF for large file downloads)
+    os.environ.setdefault("XET_LOG_PATH", "/tmp/xet_logs")
+    # Redirect pip cache in case pip runs inside the container
+    os.environ.setdefault("PIP_CACHE_DIR", "/tmp/pip_cache")
+
+    print(f"[embedding_server] Writable HF overlay created at {_WRITABLE_HF_HOME}", flush=True)
+
+
+_setup_hf_cache_overlay()
 
 # ---------------------------------------------------------------------------
 # TEMP WORKAROUND: The shared PVC has jina-embeddings-v4 weights but is
@@ -46,34 +108,52 @@ os.environ.setdefault("HF_MODULES_CACHE", "/tmp/hf_modules")
 # write access to any PVC.  Remove once the admin fixes the shared PVC.
 # ---------------------------------------------------------------------------
 def _ensure_adapters():
-    """Download jina-v4 adapters to /tmp if missing from snapshot."""
-    # Check if adapters are already in the snapshot (admin fixed the PVC)
+    """Download jina-v4 adapters to /tmp if missing from snapshot, then symlink into overlay."""
     hf_cache = os.environ.get("HF_HUB_CACHE", os.environ.get("HF_HOME", ""))
-    snap_dir = os.path.join(hf_cache, "models--jinaai--jina-embeddings-v4", "snapshots")
+    model_dir = "models--jinaai--jina-embeddings-v4"
+    snap_dir = os.path.join(hf_cache, model_dir, "snapshots")
+
+    # Find the snapshot directory (if it exists)
+    snap_path = None
     if os.path.isdir(snap_dir):
         snaps = sorted(os.listdir(snap_dir))
-        if snaps and os.path.isdir(os.path.join(snap_dir, snaps[-1], "adapters")):
-            print("[embedding_server] Adapters found in snapshot, no download needed", flush=True)
-            return
+        if snaps:
+            snap_path = os.path.join(snap_dir, snaps[-1])
+            if os.path.isdir(os.path.join(snap_path, "adapters")):
+                print("[embedding_server] Adapters found in snapshot, no download needed", flush=True)
+                return
 
     tmp_adapters = "/tmp/jina-embeddings-v4/adapters"
-    if os.path.isdir(tmp_adapters):
+    if not os.path.isdir(tmp_adapters):
+        print("[embedding_server] Adapters missing — downloading to /tmp...", flush=True)
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                "jinaai/jina-embeddings-v4",
+                allow_patterns=["adapters/*"],
+                local_dir="/tmp/jina-embeddings-v4",
+            )
+            print(f"[embedding_server] Adapters downloaded to {tmp_adapters}", flush=True)
+        except Exception as e:
+            print(f"[embedding_server] WARNING: adapter download failed: {e}", flush=True)
+            return
+    else:
         print(f"[embedding_server] Adapters already at {tmp_adapters}", flush=True)
-        os.environ.setdefault("JINA_ADAPTERS_DIR", tmp_adapters)
-        return
 
-    print("[embedding_server] Adapters missing — downloading to /tmp...", flush=True)
-    try:
-        from huggingface_hub import snapshot_download
-        snapshot_download(
-            "jinaai/jina-embeddings-v4",
-            allow_patterns=["adapters/*"],
-            local_dir="/tmp/jina-embeddings-v4",
-        )
-        os.environ.setdefault("JINA_ADAPTERS_DIR", tmp_adapters)
-        print(f"[embedding_server] Adapters downloaded to {tmp_adapters}", flush=True)
-    except Exception as e:
-        print(f"[embedding_server] WARNING: adapter download failed: {e}", flush=True)
+    os.environ.setdefault("JINA_ADAPTERS_DIR", tmp_adapters)
+
+    # Symlink adapters into the writable overlay snapshot so from_pretrained
+    # finds them directly (avoids the separate merged-snapshot workaround).
+    if snap_path and os.path.isdir(tmp_adapters):
+        adapters_dst = os.path.join(snap_path, "adapters")
+        if not os.path.exists(adapters_dst):
+            try:
+                os.symlink(tmp_adapters, adapters_dst)
+                print(f"[embedding_server] Adapters symlinked into overlay snapshot", flush=True)
+            except OSError:
+                # Snapshot dir might be a symlink to read-only PVC — that's fine,
+                # the merged-snapshot fallback in embeddings.py will handle it.
+                print(f"[embedding_server] Could not symlink adapters into snapshot (read-only target)", flush=True)
 
 _ensure_adapters()
 
@@ -104,21 +184,26 @@ DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 HOST = os.environ.get("EMBEDDING_HOST", "0.0.0.0")
 PORT = int(os.environ.get("EMBEDDING_PORT", "8080"))
 
-# Startup diagnostics — print cache paths so we can verify the mount
+# Startup diagnostics — print cache paths so we can verify the mount & overlay
 _hf_home = os.environ.get("HF_HOME", "NOT SET")
 _hf_hub = os.environ.get("HF_HUB_CACHE", "NOT SET")
 print(f"[embedding_server] HF_HOME={_hf_home}", flush=True)
 print(f"[embedding_server] HF_HUB_CACHE={_hf_hub}", flush=True)
-_pvc_check = "/models"
-if os.path.isdir(_pvc_check):
-    print(f"[embedding_server] /models exists, contents: {os.listdir(_pvc_check)}", flush=True)
-    _cache_path = "/models/.cache/huggingface/hub"
-    if os.path.isdir(_cache_path):
-        print(f"[embedding_server] {_cache_path} contents: {os.listdir(_cache_path)}", flush=True)
-    else:
-        print(f"[embedding_server] WARNING: {_cache_path} does not exist!", flush=True)
+if os.path.isdir(_PVC_HF_CACHE):
+    print(f"[embedding_server] PVC cache at {_PVC_HF_CACHE}: {os.listdir(_PVC_HF_CACHE)}", flush=True)
+    # Check if PVC is writable (for diagnostics only)
+    _test_file = os.path.join(_PVC_HF_CACHE, ".write_test")
+    try:
+        with open(_test_file, "w") as f:
+            f.write("test")
+        os.remove(_test_file)
+        print(f"[embedding_server] PVC is writable", flush=True)
+    except OSError:
+        print(f"[embedding_server] PVC is read-only (overlay handles this)", flush=True)
 else:
-    print(f"[embedding_server] WARNING: /models does not exist! PVC not mounted?", flush=True)
+    print(f"[embedding_server] WARNING: {_PVC_HF_CACHE} does not exist! PVC not mounted?", flush=True)
+if os.path.isdir(_WRITABLE_HF_HOME):
+    print(f"[embedding_server] Overlay at {_WRITABLE_HF_HOME}: {os.listdir(_WRITABLE_HF_HOME)}", flush=True)
 
 # ---------------------------------------------------------------------------
 # FastAPI app
