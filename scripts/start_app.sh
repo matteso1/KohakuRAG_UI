@@ -28,15 +28,20 @@ command -v uv >/dev/null 2>&1 || {
     pip install uv 2>&1 | tail -1
 }
 
-# Data symlinks (data/embeddings -> /wattbot-data/embeddings, etc.)
-# are already set up by Step 0. Only create them if missing.
-if [[ ! -e data/embeddings ]]; then
-    echo "[start_app] Creating data symlinks..."
+# Data symlinks: point data dirs at the wattbot-data PPVC so the app
+# reads the pre-built vector index and corpus from shared storage.
+# The git repo ships placeholder dirs, so we must replace them with
+# symlinks even when the paths already exist.
+if [[ -d /wattbot-data ]]; then
+    echo "[start_app] Creating data symlinks to /wattbot-data PPVC..."
     mkdir -p data
+    # Remove placeholder dirs (or stale symlinks) before linking
+    rm -rf data/embeddings data/corpus data/pdfs
     ln -sf /wattbot-data/embeddings data/embeddings
-    ln -sf /wattbot-data/corpus data/corpus
+    ln -sf /wattbot-data/corpus     data/corpus
+    ln -sf /wattbot-data/pdfs       data/pdfs
 else
-    echo "[start_app] Data symlinks already exist, skipping."
+    echo "[start_app] WARNING: /wattbot-data PPVC not mounted — using local data dirs."
 fi
 
 echo "[start_app] Installing dependencies..."
